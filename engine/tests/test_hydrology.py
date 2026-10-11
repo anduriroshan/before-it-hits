@@ -102,3 +102,24 @@ def test_same_input_same_output():
     b = fill_and_route(dem, outlet)
     for x, y in zip(a, b):
         assert np.array_equal(x, y)
+
+
+def test_water_that_leaves_a_region_and_comes_back_is_counted_once():
+    # One row of cells flowing east: A(in) B(out) C(in) D(out). Water leaves at A, re-enters at C.
+    labels = np.array([[1, 0, 1, 0]], dtype=np.int32)
+    fdir = np.array([[4, 4, 4, -1]], dtype=np.int8)       # 4 = east
+    acc = np.array([[1.0, 2.0, 3.0, 4.0]])
+    # Cells A, B, C all drain through the region; D is downstream of it. Counting both exits gives 4.
+    assert exit_accumulation(labels, fdir, acc, 1)[0] == 3.0
+
+
+def test_catchment_never_exceeds_the_grid_and_matches_the_traced_oracle_on_irregular_terrain():
+    rng = np.random.default_rng(42)
+    dem = gaussian_filter(rng.normal(size=(110, 110)), 3) * 4
+    outlet = border_outlet(dem.shape)
+    filled, fdir, acc = fill_and_route(dem, outlet)
+    labels, n = label((filled - dem) > 0.05, structure=np.ones((3, 3)))
+    got = exit_accumulation(labels, fdir, acc, n)
+    assert n > 5 and got.max() <= dem.size
+    for lab in np.argsort(got)[::-1][:5] + 1:             # the largest catchments are where double counting bites
+        assert got[lab - 1] == traced_catchment(labels, fdir, int(lab))

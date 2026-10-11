@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Before It Hits — where water collects</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<aside id="panel">
+  <header>
+    <h1>Before It Hits</h1>
+    <p class="sub" id="regionline">loading region…</p>
+  </header>
+
+  <section class="controls">
+    <label for="rain">Rainfall
+      <output id="rainout">100 mm</output>
+    </label>
+    <input type="range" id="rain" min="10" max="300" step="10" value="100">
+
+    <p class="hint" id="hint">Pick the box tool, or jump to a known area.</p>
+    <div class="presets" id="presets"></div>
+  </section>
+
+  <section id="status" hidden></section>
+
+  <section id="results" hidden>
+    <div class="headline">
+      <strong id="pitcount"></strong> <span id="pitword">places collect water</span>
+      <div class="muted" id="gridline"></div>
+    </div>
+
+    <h2>Where it gathers first</h2>
+    <p class="muted small">Ranked by how much water ends up stuck there, not by depth.</p>
+    <ol id="spots"></ol>
+
+    <h2>Roads running through the worst spots</h2>
+    <ul id="roads"></ul>
+
+    <section id="excluded-wrap" hidden>
+      <h2>Left out</h2>
+      <ul id="excluded"></ul>
+    </section>
+
+    <h2>What we do not know</h2>
+    <ul id="caveats" class="caveats"></ul>
+
+    <p class="muted small" id="timings"></p>
+  </section>
+
+  <footer>
+    <p class="small muted" id="credits"></p>
+  </footer>
+</aside>
+
+<main id="map">
+  <div id="toolbar" role="toolbar" aria-label="Map tools" hidden>
+    <button class="tool" data-tool="pan" aria-pressed="true" title="Move the map  (V)">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3.5a1.3 1.3 0 0 1 2.6 0V11h.6V5.2a1.3 1.3 0 0 1 2.6 0V11h.6V7.4a1.3 1.3 0 0 1 2.6 0v8.1c0 3.6-2.6 6.5-6.2 6.5h-1.6c-2 0-3.3-.8-4.4-2.2L5.3 14a1.3 1.3 0 0 1 .4-1.9c.6-.4 1.4-.3 1.9.2L10 15V2.3a1.3 1.3 0 0 1 2.6 0V11h.4z"/></svg>
+      <span>Move</span>
+    </button>
+    <button class="tool" data-tool="box" aria-pressed="false" title="Draw a box to analyse  (B)">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h2V5h2V3H3v4zm14-4v2h2v2h2V3h-4zM3 21h4v-2H5v-2H3v4zm16-4v2h-2v2h4v-4h-2z"/><path d="M8.5 8.5h7v7h-7z" opacity=".45"/></svg>
+      <span>Box</span>
+    </button>
+    <div class="tool-sep"></div>
+    <button class="tool" data-action="erase" title="Clear the box and results  (E)">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.1 3.1a2.2 2.2 0 0 1 3.1 0l2.7 2.7a2.2 2.2 0 0 1 0 3.1l-8.3 8.3H18v2.3H8.6l-3.3-3.3a2.2 2.2 0 0 1 0-3.1l9.8-10zM9.9 17.2l2.2-2.2-4.2-4.2-2.2 2.2 4.2 4.2z"/></svg>
+      <span>Erase</span>
+    </button>
+  </div>
+
+  <div id="mapfallback" hidden>
+    <p><strong>The map could not load.</strong></p>
+    <p id="mapfallback-why" class="muted small"></p>
+    <p class="muted small">The analysis itself does not need the map — pick a preset area on the left
+      and the results will still appear.</p>
+  </div>
+</main>
+
+<div id="legend" hidden>
+  <strong>Pooling rank</strong>
+  <div class="scale">
+    <span class="s5">5</span><span class="s4">4</span><span class="s3">3</span><span class="s2">2</span><span class="s1">1</span>
+  </div>
+  <div class="muted small">most water collects → least</div>
+  <div class="muted small" id="legend-note"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

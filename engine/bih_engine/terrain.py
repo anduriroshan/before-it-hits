@@ -6,15 +6,18 @@ and our own re-hosted store (same naming) later: set BIH_TERRAIN_BASE.
 """
 from __future__ import annotations
 
+import json
 import math
 import os
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import rasterio
 from rasterio.errors import RasterioIOError
 from rasterio.merge import merge
+from scipy.ndimage import median_filter, minimum_filter
 from rasterio.transform import Affine, from_origin
 from rasterio.warp import Resampling, reproject
 from pyproj import CRS, Transformer
@@ -60,6 +63,34 @@ def tiles_for_bounds(west: float, south: float, east: float, north: float, base:
     return [_tile_url(lat, lon, base) for lat in lats for lon in lons]
 
 
+def despike_low(a: np.ndarray, threshold_m: float, nodata: float = _NODATA) -> tuple[np.ndarray, int]:
+    """Replace isolated low outliers with the median of their 3x3 neighbourhood.
+
+    A pixel more than `threshold_m` under that median is not terrain: in Kochi's flat ground such
+    holes (single pixels 5-10 m under their neighbours) turn into "10 m deep" top-ranked pits.
+    Only low outliers are touched (they create false depressions), only where all 8 neighbours
+    have data, and the 3x3 median tolerates up to four bad pixels in a window. Must run at the
+    source resolution: resampling first would smear a spike into a crater.
+    Returns the cleaned array and how many pixels were changed.
+    """
+    valid = np.isfinite(a) & (a != nodata)
+    interior = minimum_filter(valid.astype(np.uint8), size=3, mode="constant", cval=0).astype(bool)
+    med = median_filter(np.where(valid, a, 0.0), size=3, mode="nearest")
+    spike = interior & (med - a > threshold_m)
+    out = a.copy()
+    out[spike] = med[spike]
+    return out, int(spike.sum())
+
+
+def _source_label(local: Path | None) -> str:
+    if local is None:
+        return "Copernicus GLO-30"
+    sidecar = local.with_suffix(".json")
+    if sidecar.exists():
+        return json.loads(sidecar.read_text(encoding="utf-8")).get("source", local.name)
+    return local.name
+
+
 def utm_crs_for(lon: float, lat: float) -> CRS:
     zone = int((lon + 180) // 6) + 1
     return CRS.from_epsg((32600 if lat >= 0 else 32700) + zone)
@@ -70,13 +101,21 @@ def read_dem(
     res_m: float = 10.0,
     pad_m: float = 200.0,
     base: str | None = None,
+    source: str | os.PathLike | None = None,
+    despike_m: float | None = 3.0,
 ) -> Grid:
     """Read `bbox` (west, south, east, north in degrees) plus `pad_m` of margin onto a UTM grid.
+
+    `source` is a local GeoTIFF (e.g. a staged DeltaDTM clip); if omitted, Copernicus tiles are
+    read from `base`. Cells that are not finite (-inf/NaN/nodata, e.g. sea) come back as NaN.
+    `despike_m` removes isolated low outliers deeper than that below their neighbours (see
+    `despike_low`); None turns it off. The number of pixels changed is in `meta["despiked_px"]`.
 
     The margin lets water that arrives from just outside the box be counted, and keeps
     resampling edge effects out of the box itself.
     """
     base = base or os.environ.get("BIH_TERRAIN_BASE", COPERNICUS_BASE)
+    local = Path(source) if source else None
     west, south, east, north = bbox
     if not (west < east and south < north):
         raise ValueError(f"bbox must be (west, south, east, north) with west<east, south<north: {bbox}")
@@ -104,11 +143,19 @@ def read_dem(
     with rasterio.Env(**_GDAL_OPTS):
         datasets = []
         missing = []
-        for url in tiles_for_bounds(*rb, base):
-            try:
-                datasets.append(rasterio.open(url))
-            except RasterioIOError:
-                missing.append(url)  # open ocean has no tile
+        if local is not None:
+            ds = rasterio.open(local)
+            b = ds.bounds
+            if rb[0] >= b.right or rb[2] <= b.left or rb[1] >= b.top or rb[3] <= b.bottom:
+                ds.close()
+                raise TerrainUnavailable(f"{bbox} is outside {local.name}")
+            datasets.append(ds)
+        else:
+            for url in tiles_for_bounds(*rb, base):
+                try:
+                    datasets.append(rasterio.open(url))
+                except RasterioIOError:
+                    missing.append(url)  # open ocean has no tile
         if not datasets:
             raise TerrainUnavailable(f"no terrain tile covers {bbox}")
         timings["open_s"] = time.perf_counter() - t0
@@ -124,8 +171,13 @@ def read_dem(
 
     t2 = time.perf_counter()
     dem = np.full((height, width), np.nan, dtype=np.float32)
+    src_arr = src[0].astype(np.float32)
+    src_arr[~np.isfinite(src_arr)] = _NODATA
+    despiked = 0
+    if despike_m is not None:
+        src_arr, despiked = despike_low(src_arr, despike_m)
     reproject(
-        source=src[0].astype(np.float32),
+        source=src_arr,
         destination=dem,
         src_transform=src_t,
         src_crs=src_crs,
@@ -144,11 +196,12 @@ def read_dem(
         res_m=res_m,
         source_res_m=source_res_deg * 111_320.0 * math.cos(math.radians((south + north) / 2)),
         meta={
-            "source": "Copernicus GLO-30",
+            "source": _source_label(local),
             "tiles": len(datasets),
             "tiles_missing": len(missing),
             "bbox": bbox,
             "pad_m": pad_m,
+            "despiked_px": despiked,
             "timings": timings,
         },
     )

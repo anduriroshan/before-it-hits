@@ -8,3 +8,6 @@ scratch/
 .env
 *.tif
 !plan/**
+data/osm/
+.env.local
+.env

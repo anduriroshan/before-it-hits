@@ -1,0 +1,14 @@
+{
+  "source": "DeltaDTM v1.1 (Pronk et al. 2024), via Earth Engine community catalog",
+  "asset": "projects/sat-io/open-datasets/DELTARES/deltadtm_v1-1",
+  "band": "b1",
+  "licence": "CC BY 4.0",
+  "bbox": [
+    76.19986111111112,
+    9.850138888888889,
+    76.44986111111112,
+    10.100138888888889
+  ],
+  "fetched": "2026-10-11",
+  "note": "Raw band, nothing masked. The catalog says the model is clipped at 30 m: value 30 means no data."
+}

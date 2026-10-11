@@ -94,18 +94,50 @@ def _accumulate(filled, fdir, weight):
     return acc
 
 
+@njit(cache=True)
+def _exit_accumulation(labels, fdir, acc, n):
+    out = np.zeros(n + 1)
+    h, w = labels.shape
+    for r in range(h):
+        for c in range(w):
+            lab = labels[r, c]
+            k = fdir[r, c]
+            if lab == 0 or k < 0:
+                continue
+            r2 = r + D8_DR[k]
+            c2 = c + D8_DC[k]
+            if labels[r2, c2] == lab:
+                continue  # water stays inside the region
+            # (r, c) is an exit. Count it only if the water never comes back to this region further
+            # down: otherwise the later exit already includes everything this one carries.
+            returns = False
+            while True:
+                if labels[r2, c2] == lab:
+                    returns = True
+                    break
+                k2 = fdir[r2, c2]
+                if k2 < 0:
+                    break
+                r2 += D8_DR[k2]
+                c2 += D8_DC[k2]
+            if not returns:
+                out[lab] += acc[r, c]
+    return out
+
+
 def exit_accumulation(labels: np.ndarray, fdir: np.ndarray, acc: np.ndarray, n: int) -> np.ndarray:
     """Catchment of each labelled region 1..n, in accumulation units (cells by default).
 
-    Everything that enters a region leaves it through the cells whose downstream cell is outside
-    it, so the catchment is the accumulation summed over those exits. The max inside the region
-    undercounts: a filled flat has several equal-level exits and the flow splits across them.
+    Everything that enters a region leaves it through exit cells (downstream cell outside it), so
+    the catchment is the accumulation summed over those exits, with two traps:
+    - The max inside the region undercounts: a filled flat has several equal-level exits.
+    - Summing every exit overcounts when water leaves the region over a shallow rim and re-enters
+      it further down (a region cut at a depth threshold is rarely convex). Only exits whose
+      downstream path never returns to the region are counted.
     """
-    rr, cc = np.nonzero((labels > 0) & (fdir >= 0))
-    k = fdir[rr, cc]
-    leaves = labels[rr + D8_DR[k], cc + D8_DC[k]] != labels[rr, cc]
-    rr, cc = rr[leaves], cc[leaves]
-    return np.bincount(labels[rr, cc], weights=acc[rr, cc], minlength=n + 1)[1:]
+    return _exit_accumulation(np.ascontiguousarray(labels, dtype=np.int64),
+                              np.ascontiguousarray(fdir, dtype=np.int8),
+                              np.ascontiguousarray(acc, dtype=np.float64), int(n))[1:]
 
 
 def fill_and_route(dem: np.ndarray, outlet: np.ndarray, weight: np.ndarray | None = None):
