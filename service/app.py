@@ -47,6 +47,7 @@ class AnalyseRequest(BaseModel):
     bbox: list[float] = Field(..., min_length=4, max_length=4, description="west, south, east, north")
     rainfall_mm: float = Field(100.0, ge=0, le=1000)
     res_m: float = Field(10.0, ge=5, le=30)
+    return_period: int | None = Field(50, description="official layer to show alongside; null for none")
 
 
 def area_km2(bbox) -> float:
@@ -55,8 +56,8 @@ def area_km2(bbox) -> float:
     return abs(e - w) * abs(n - s) * 111.32**2 * math.cos(math.radians((s + n) / 2))
 
 
-@app.get("/healthz")
-def healthz() -> dict:
+@app.get("/api/health")
+def health() -> dict:
     try:
         r = region()
         return {"ok": True, "region": r.name, "staged": r.manifest.get("staged")}
@@ -70,12 +71,13 @@ def region_info() -> dict:
     return {"name": r.name, "title": r.manifest.get("title"), "bbox_wsen": list(r.bounds),
             "staged": r.manifest.get("staged"), "terrain": r.manifest.get("terrain"),
             "vectors": r.manifest.get("vectors"), "not_available": r.manifest.get("not_available", []),
-            "max_area_km2": MAX_AREA_KM2}
+            "official": r.manifest.get("official"), "max_area_km2": MAX_AREA_KM2}
 
 
 @app.get("/api/config")
 def config() -> dict:
-    """The browser needs the Maps key; it is referrer-restricted, never committed."""
+    """The browser needs the Maps key. It is referrer-restricted and public by design:
+    a Maps browser key always ends up in the page source."""
     return {"maps_api_key": os.environ.get("MAPS_API_KEY", "")}
 
 
@@ -94,7 +96,10 @@ def analyse(req: AnalyseRequest) -> dict:
                  "The screening works anywhere in principle, but only staged regions are served.")
     t0 = time.perf_counter()
     try:
-        res = analyse_area((w, s, e, n), rainfall_mm=req.rainfall_mm, res_m=req.res_m, region=r)
+        res = analyse_area((w, s, e, n), rainfall_mm=req.rainfall_mm, res_m=req.res_m,
+                           region=r, return_period=req.return_period)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     except TerrainUnavailable as exc:
         raise HTTPException(422, str(exc)) from exc
     res["timings_s"]["total"] = time.perf_counter() - t0

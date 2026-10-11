@@ -6,8 +6,13 @@ scratch/
 *.nbi
 *.nbc
 .env
-*.tif
-!plan/**
-data/osm/
 .env.local
-.env
+
+# Staged region data is third-party, large and fully reproducible from engine/tools/.
+# The manifests are kept, because they carry the provenance and licence of every layer.
+data/*
+!data/regions
+data/regions/*
+!data/regions/kochi
+data/regions/kochi/*
+!data/regions/kochi/region.json

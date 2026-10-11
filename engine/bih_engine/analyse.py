@@ -18,6 +18,7 @@ import shapely
 from shapely.geometry import mapping, shape
 
 from .hydrology import exit_accumulation, fill_and_route
+from .official import compare_to_screening, read_official
 from .osm import Layers, OsmData, load_overpass, rasterize_layers
 from .routes import affected_summary, build_graph, flooded_edges
 from .store import Region
@@ -230,6 +231,7 @@ def analyse_area(
     source: str | Path | None = None,
     osm: str | Path | OsmData | None = None,
     region: Region | None = None,
+    return_period: int | None = None,
     **kw,
 ) -> dict:
     """Read the box, pull its staged layers, then screen it.
@@ -258,10 +260,22 @@ def analyse_area(
     res["timings_s"] = dict(grid.meta["timings"], osm_s=osm_s, **res["timings_s"])
     res["grid"]["source"] = grid.meta["source"]
     res["grid"]["despiked_px"] = grid.meta["despiked_px"]
+    if region is not None and return_period is not None:
+        t0 = time.perf_counter()
+        official = read_official(region, bbox, return_period)
+        res["official"] = official
+        res["agreement"] = compare_to_screening(official, res["geojson"])
+        if official is not None:
+            # The validated layer is somebody else's, which is exactly why it is worth more than
+            # ours. Say which one is on screen rather than implying our ranking was checked.
+            res["screening"]["confidence"]["validated_layer"] = (
+                f"{official['return_period_years']}-year layer shown alongside ({official['source']})")
+        res["timings_s"]["official_s"] = time.perf_counter() - t0
     if region is not None:
         res["region"] = {"name": region.name, "title": region.manifest.get("title"),
                          "staged": region.manifest.get("staged"),
                          "vector_source": region.manifest["vectors"]["source"],
                          "vector_licence": region.manifest["vectors"]["licence"],
-                         "not_available": region.manifest.get("not_available", [])}
+                         "not_available": region.manifest.get("not_available", []),
+                         "official": region.manifest.get("official", {}).get("return_periods")}
     return res

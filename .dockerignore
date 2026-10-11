@@ -1,0 +1,12 @@
+.git
+.venv
+scratch
+__pycache__
+*.pyc
+.pytest_cache
+engine/tests
+engine/bench
+engine/tools
+plan
+data/osm
+.env*

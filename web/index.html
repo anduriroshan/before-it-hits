@@ -19,6 +19,13 @@
     </label>
     <input type="range" id="rain" min="10" max="300" step="10" value="100">
 
+    <label for="rp">Official layer
+      <output id="rpout">1-in-50-year</output>
+    </label>
+    <select id="rp">
+      <option value="">none — screening only</option>
+    </select>
+
     <p class="hint" id="hint">Pick the box tool, or jump to a known area.</p>
     <div class="presets" id="presets"></div>
   </section>
@@ -34,6 +41,11 @@
     <h2>Where it gathers first</h2>
     <p class="muted small">Ranked by how much water ends up stuck there, not by depth.</p>
     <ol id="spots"></ol>
+
+    <section id="official-wrap" hidden>
+      <h2>The authority&rsquo;s own depth map</h2>
+      <div id="official"></div>
+    </section>
 
     <h2>Roads running through the worst spots</h2>
     <ul id="roads"></ul>
@@ -54,7 +66,9 @@
   </footer>
 </aside>
 
-<main id="map">
+<main id="mapwrap">
+  <div id="map"></div>
+
   <div id="toolbar" role="toolbar" aria-label="Map tools" hidden>
     <button class="tool" data-tool="pan" aria-pressed="true" title="Move the map  (V)">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3.5a1.3 1.3 0 0 1 2.6 0V11h.6V5.2a1.3 1.3 0 0 1 2.6 0V11h.6V7.4a1.3 1.3 0 0 1 2.6 0v8.1c0 3.6-2.6 6.5-6.2 6.5h-1.6c-2 0-3.3-.8-4.4-2.2L5.3 14a1.3 1.3 0 0 1 .4-1.9c.6-.4 1.4-.3 1.9.2L10 15V2.3a1.3 1.3 0 0 1 2.6 0V11h.4z"/></svg>
@@ -77,16 +91,16 @@
     <p class="muted small">The analysis itself does not need the map — pick a preset area on the left
       and the results will still appear.</p>
   </div>
+  <div id="legend" hidden>
+    <strong>Pooling rank</strong>
+    <div class="scale">
+      <span class="s5">5</span><span class="s4">4</span><span class="s3">3</span><span class="s2">2</span><span class="s1">1</span>
+    </div>
+    <div class="muted small">most water collects → least</div>
+    <div class="muted small" id="legend-note"></div>
+  </div>
 </main>
 
-<div id="legend" hidden>
-  <strong>Pooling rank</strong>
-  <div class="scale">
-    <span class="s5">5</span><span class="s4">4</span><span class="s3">3</span><span class="s2">2</span><span class="s1">1</span>
-  </div>
-  <div class="muted small">most water collects → least</div>
-  <div class="muted small" id="legend-note"></div>
-</div>
 
 <script src="app.js"></script>
 </body>

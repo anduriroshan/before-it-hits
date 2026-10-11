@@ -1,0 +1,12 @@
+# Cloud Build needs the staged region, which .gitignore excludes — so this file must exist,
+# otherwise gcloud falls back to .gitignore and the image ships without its data.
+.git
+.gitignore
+.venv
+scratch
+__pycache__
+*.pyc
+.pytest_cache
+data/osm
+.env
+.env.local

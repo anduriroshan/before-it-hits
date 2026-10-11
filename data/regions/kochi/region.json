@@ -43,5 +43,111 @@
   "not_available": [
     "storm-drain network (not public anywhere)",
     "bathymetry (neither terrain source has it)"
-  ]
+  ],
+  "official": {
+    "hazard": "flood",
+    "source": "Kerala State Disaster Management Authority (KSDMA), produced with UNEP",
+    "title": "Flood Hazard Probability of Kerala based on Historic Data",
+    "page": "https://sdma.kerala.gov.in/hazard-maps/",
+    "scenario": "historical",
+    "return_periods": [
+      10,
+      25,
+      50,
+      100,
+      200,
+      500
+    ],
+    "units": "cm (inferred from magnitude; not stated at source)",
+    "native_res_deg": 0.000833,
+    "native_res_m_approx": 92,
+    "crs": "EPSG:4326",
+    "staged": "2026-10-11",
+    "licence": "Published by KSDMA for public use; terms not stated on the download page",
+    "layers": {
+      "10": {
+        "file": "flood_10yr_historical.tif",
+        "shape": [
+          300,
+          300
+        ],
+        "wet_share": 0.114,
+        "median": 144.0,
+        "p95": 428.4,
+        "max": 755.1
+      },
+      "25": {
+        "file": "flood_25yr_historical.tif",
+        "shape": [
+          300,
+          300
+        ],
+        "wet_share": 0.1284,
+        "median": 146.0,
+        "p95": 464.0,
+        "max": 839.0
+      },
+      "50": {
+        "file": "flood_50yr_historical.tif",
+        "shape": [
+          300,
+          300
+        ],
+        "wet_share": 0.1403,
+        "median": 168.0,
+        "p95": 519.0,
+        "max": 846.0
+      },
+      "100": {
+        "file": "flood_100yr_historical.tif",
+        "shape": [
+          300,
+          300
+        ],
+        "wet_share": 0.1557,
+        "median": 193.0,
+        "p95": 554.4,
+        "max": 866.0
+      },
+      "200": {
+        "file": "flood_200yr_historical.tif",
+        "shape": [
+          300,
+          300
+        ],
+        "wet_share": 0.1765,
+        "median": 207.0,
+        "p95": 581.0,
+        "max": 996.0
+      },
+      "500": {
+        "file": "flood_500yr_historical.tif",
+        "shape": [
+          300,
+          300
+        ],
+        "wet_share": 0.2136,
+        "median": 215.0,
+        "p95": 612.0,
+        "max": 1038.0
+      }
+    },
+    "evidence_it_is_depth": {
+      "min_monotone_share_across_return_periods": 1.0,
+      "wet_share_by_return_period": {
+        "10": 0.114,
+        "25": 0.1284,
+        "50": 0.1403,
+        "100": 0.1557,
+        "200": 0.1765,
+        "500": 0.2136
+      }
+    },
+    "caveats": [
+      "Displayed as published: clipped only, never resampled or reinterpreted.",
+      "Coarser than our screening grid (~92 m against 10 m), so it shows the floodplain, not which street corner fills.",
+      "Units are inferred from magnitude, not stated at source.",
+      "RCP8.5 climate-scenario rasters also exist and are not staged."
+    ]
+  }
 }
