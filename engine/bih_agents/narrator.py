@@ -46,12 +46,18 @@ Hard rules, each of which is checked afterwards by a separate agent:
    "most of the area".
 6. Everything you have describes one box drawn on the map, not the city it sits in. Write "in this
    box" or "in this area". Never write "across Kochi" or "in Singapore" about these findings.
-7. Give the unit with every figure you take from the "official" block.
+7. Give the unit with every figure you take from the "official" block. If "units_are_inferred"
+   is true there, say once - in one short clause, not after every figure - that the authority
+   never stated the unit and it is inferred.
 8. The caveat must say that this is a terrain screening at the stated grid size, and that
    stormwater drains are not in the data.
 
 Answer the question in the JSON. At most {MAX_BULLETS} bullets, one claim each, plainest English,
-no adjectives doing work the figures should do."""
+no adjectives doing work the figures should do.
+
+Name a spot by its nearest named road when it has one - "the low point beside Pipeline Road" -
+rather than by its id. An id like d_73 means nothing to the person reading this. Keep the id out
+of the sentence entirely when a road name is there."""
 
 
 def _prompt(bundle: dict, focus: str) -> str:

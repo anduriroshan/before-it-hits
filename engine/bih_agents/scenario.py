@@ -61,8 +61,12 @@ Rules:
 - Never invent a rainfall figure. If the asker gave one, copy it and the words it came from. If
   they said something vague like "heavy rain" or "a storm", set rainfall_mm to -1 and let the
   system use the forecast or the slider.
-- Choose mode "forecast" when they ask about what is coming, "whatif" when they propose a figure
-  or a hypothetical, "replay" only when they name a specific past event.
+- Choose mode "forecast" only when the question is actually about what is coming: it mentions the
+  forecast, tonight, tomorrow, the next few hours or days, or what is expected. "Which spots fill
+  first here" is not about the forecast - that is "whatif", and the rainfall already on screen
+  will be used. Choosing "forecast" silently replaces a figure the asker set themselves, so only
+  choose it when they asked you to.
+- Choose "replay" only when they name a specific past event.
 - Ask back only when the question could mean two genuinely different analyses. Not knowing a
   rainfall figure is not ambiguity: that has a default.
 - audience "resident" only if they clearly ask for wording for the public."""

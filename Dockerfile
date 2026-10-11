@@ -23,6 +23,7 @@ COPY service/requirements.txt ./service/requirements.txt
 RUN pip install --no-cache-dir -r service/requirements.txt
 
 COPY engine/bih_engine ./engine/bih_engine
+COPY engine/bih_agents ./engine/bih_agents
 COPY service ./service
 COPY web ./web
 COPY data/regions ./data/regions

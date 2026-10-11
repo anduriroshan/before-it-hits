@@ -64,7 +64,7 @@ def test_the_authoritys_depth_is_allowed_because_it_is_theirs():
 def test_the_bundle_carries_the_counts_a_briefing_needs():
     b = bundle_fixture()
     assert b["pooling"]["spots_found"] == 3
-    assert b["pooling"]["top_ranked_spots"] == 2        # index 5 and 4
+    assert b["pooling"]["spots_ranked_4_or_5"] == 2        # index 5 and 4
     assert b["pooling"]["spots_that_fill_at_this_rainfall"] == 2
     assert b["pooling"]["spots_left_out"] == 1
     assert b["area"]["box_km2"] == 7.1
@@ -285,3 +285,58 @@ def test_the_narrator_contract_drops_empties_and_caps_the_bullets():
     b = narrator.clean({"headline": " h ", "bullets": ["a", "", "  ", "b", "c", "d", "e", "f"],
                         "caveat": "c"})
     assert b["headline"] == "h" and len(b["bullets"]) == narrator.MAX_BULLETS
+
+
+# --- quoting somebody else's data ----------------------------------------------------------
+
+def official_bundle(inferred=True):
+    return {"official": {"whose": "KSDMA", "units": "cm", "units_are_inferred": inferred,
+                         "units_note": "cm (inferred from magnitude; not stated at source)",
+                         "their_deepest_value_in_box": 67.0,
+                         "their_median_value_where_wet": 51.0}}
+
+
+def test_an_inferred_unit_quoted_as_if_it_were_stated_is_caught():
+    briefing = {"headline": "The authority's layer covers part of this box.",
+                "bullets": ["KSDMA's layer shows a deepest value of 67.0 cm here."],
+                "caveat": "Screening only; drains are not in the data."}
+    found = verifier.check_official_units(official_bundle(), briefing)
+    assert [f["part"] for f in found] == ["bullet-1"]
+    assert "inferred" in found[0]["problem"]
+
+
+def test_saying_the_unit_is_inferred_anywhere_in_the_briefing_is_enough():
+    briefing = {"headline": "The authority's layer covers part of this box.",
+                "bullets": ["KSDMA's layer shows a deepest value of 67.0 cm here.",
+                            "Their units are inferred from magnitude, not stated at source."],
+                "caveat": "Screening only; drains are not in the data."}
+    assert verifier.check_official_units(official_bundle(), briefing) == []
+
+
+def test_a_unit_the_authority_did_state_needs_no_hedge():
+    briefing = {"headline": "h", "bullets": ["A deepest value of 67.0 cm."], "caveat": "drains"}
+    assert verifier.check_official_units(official_bundle(inferred=False), briefing) == []
+
+
+def test_a_briefing_that_quotes_no_official_figure_is_left_alone():
+    briefing = {"headline": "Three spots take the water.", "bullets": ["Two fill first."],
+                "caveat": "drains"}
+    assert verifier.check_official_units(official_bundle(), briefing) == []
+
+
+def test_a_spot_carries_the_road_it_sits_on_into_the_facts():
+    r = result_fixture()
+    r["screening"]["depressions"][0]["nearest_road"] = {
+        "name": "Pipeline Road", "highway": "tertiary", "distance_m": 40}
+    b = facts.build(r, question="q", rainfall={"mm": 50}, region_title="Kochi, Kerala")
+    assert b["pooling"]["worst_spots"][0]["nearest_named_road"] == "Pipeline Road, about 40 m away"
+    assert b["pooling"]["worst_spots"][1]["nearest_named_road"] is None
+
+
+def test_a_whole_number_is_written_whole_not_as_a_float():
+    b = facts.build(result_fixture(), question="q",
+                    rainfall={"mm": 100.0, "over_hours": 1.0, "where": "slider"},
+                    region_title="Kochi, Kerala")
+    assert b["rainfall"]["mm"] == 100 and b["rainfall"]["over_hours"] == 1
+    assert b["area"]["analysis_grid_m"] == 10        # not 10.0
+    assert b["area"]["box_km2"] == 7.1               # a real fraction keeps its decimals

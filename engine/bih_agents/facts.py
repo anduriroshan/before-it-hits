@@ -39,6 +39,14 @@ LIMITS = [
 ]
 
 
+def tidy(value):
+    """A whole number is written whole. The Narrator copies figures exactly, so 100.0 in the
+    bundle becomes "100.0 mm" in a sentence, and that reads like machine output."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return value
+    return int(value) if float(value).is_integer() else round(float(value), 2)
+
+
 def _numbers_in(obj) -> set[float]:
     """Every number reachable in the bundle, including inside strings and keys."""
     out: set[float] = set()
@@ -131,8 +139,13 @@ def build(result: dict, *, question: str, rainfall: dict, region_title: str | No
     worst = []
     for d in deps[:MAX_SPOTS]:
         p = by_id.get(d["id"], {})
+        road = d.get("nearest_road")
         worst.append({
             "id": d["id"],
+            # Where it is, in words an officer can act on. Absent when no named road is close
+            # enough to be a landmark rather than decoration.
+            "nearest_named_road": None if not road else
+                f"{road['name']}, about {road['distance_m']} m away",
             "pooling_rank": d["pooling_index"],
             "fill_order": d["fill_order"],
             "land_draining_into_it_ha": d["contributing_ha"],
@@ -147,15 +160,15 @@ def build(result: dict, *, question: str, rainfall: dict, region_title: str | No
             # finding below describes one drawn box, never the city the box happens to sit in.
             "what_these_findings_cover": "one box drawn on the map, usually a single "
                                          "neighbourhood, and nothing outside it",
-            "box_km2": grid.get("area_km2"),
+            "box_km2": tidy(grid.get("area_km2")),
             "the_box_is_inside": region_title,
-            "analysis_grid_m": grid.get("res_m"),
+            "analysis_grid_m": tidy(grid.get("res_m")),
             "pooling_rank_scale": "1 is the least water trapped, 5 the most, within this box only",
         },
-        "rainfall": rainfall,
+        "rainfall": {k: tidy(v) for k, v in rainfall.items()},
         "pooling": {
             "spots_found": len(deps),
-            "top_ranked_spots": len(top),
+            "spots_ranked_4_or_5": len(top),
             "spots_that_fill_at_this_rainfall": fills,
             "spots_left_out": len(screening.get("excluded", [])),
             "worst_spots": worst,
@@ -171,11 +184,20 @@ def build(result: dict, *, question: str, rainfall: dict, region_title: str | No
 
     official = result.get("official")
     if official:
+        # Key names are prompt text: the Narrator reads them literally, and a field called
+        # `share_..._pct` came back in a briefing as "a 1.2 pct share of box". They are written
+        # here the way a sentence would want them.
+        raw_units = str(official["units"])
+        inferred = "inferred" in raw_units.lower()
         bundle["official"] = {
             "whose": official["source"],
             "layer": str(official["return_period_years"]) + "-year return period",
-            "units": official["units"],
-            "share_of_box_they_call_inundated": official["inundated_share"],
+            "units": raw_units.split(" (")[0],          # "cm", said once in a sentence
+            "units_are_inferred": inferred,
+            "units_note": raw_units,
+            # A percentage rather than a fraction: 0.0122 read out in a briefing is noise, and the
+            # arithmetic check accepts either form anyway.
+            "percent_of_the_box_they_call_inundated": round(official["inundated_share"] * 100, 1),
             "their_deepest_value_in_box": official["deepest"],
             "their_median_value_where_wet": official["median_where_wet"],
             "note": "Published by the authority and shown unchanged. These are their depths, "
@@ -194,7 +216,7 @@ def build(result: dict, *, question: str, rainfall: dict, region_title: str | No
             "our_top_spots_checked": agreement["checked"],
             "of_those_inside_their_flood_extent": agreement["inside"],
             "times_better_than_chance": agreement["enrichment"],
-            "share_of_box_inundated_at_this_return_period": agreement["baseline"],
+            "percent_of_the_box_inundated_at_this_return_period": round(agreement["baseline"] * 100, 1),
             "still_tells_a_good_ranking_from_a_bad_one": agreement["discriminating"],
             "note": agreement["note"],
         }

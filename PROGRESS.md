@@ -3,7 +3,7 @@
 Submission **18 Oct 2026**. Started tracking 11 Oct (day 1 of 8). Spec lives in `plan/` (content in `plan/assets/data.js`).
 Tick a box when the work lands and has been run, not when it is started. Plan IDs: **F** feature, **L** layer, **A** agent.
 
-**Now:** two cities live at https://before-it-hits-z5r5gsxkza-el.a.run.app. **Next: the agent layer (P5)** — it is an AI competition entry and there is still no model in the product.
+**Now:** two cities live at https://before-it-hits-z5r5gsxkza-el.a.run.app, and the agent layer answers questions about a drawn box with every figure checked against the engine. **Next: F15 replay scoring (P7)** — the strongest remaining evidence claim, and the one thing that needs historical rainfall.
 
 **Submission:** live demo + repo link (confirmed 11 Oct). So the deployed URL must stay working — it runs with `--min-instances 1` because a cold start is ~8 s against ~0.8 s warm.
 **Last updated:** 12 Oct 2026 (day 2)
@@ -77,12 +77,22 @@ Tick a box when the work lands and has been run, not when it is started. Plan ID
 - [ ] Planner (A5) drops what the city cannot do and explains trade-offs
 - [ ] Before / after exposure (F10)
 
-## P5 Agents and API (A1, A2, A3, A5, A6, A7, A13)
-- [ ] ADK app skeleton on Cloud Run with trace streaming
-- [ ] Scenario (A2), Forecast (A3), Coordinator (A1)
-- [ ] Narrator (A6) and Verifier (A7): fails closed, at most two retries
+## P5 Agents (A1, A2, A3, A6, A7) — the layer, built 12 Oct
+- [x] `engine/bih_agents/`, on Cloud Run, with the trace streamed to the screen as newline-delimited JSON while the run is still going. Not server-sent events: the browser reads it with a plain fetch and EventSource cannot POST
+- [x] Coordinator (A1): scenario → tools → narrate ⇄ verify, emitting every step including the failures. Never raises for a model failure; the screening answers regardless
+- [x] Scenario (A2): question → parameters. **A figure only counts if it is in the asker's own words** — the agent returns the exact substring it took the number from and code checks that substring really is in the question. "A really heavy storm" cannot become 150 mm; it falls back to the slider the user can see
+- [x] Forecast (A3): a tool, not a model, until there are bulletins worth reading. Only runs when the question is actually about what is coming — measured: without that restriction "which spots fill first here" silently replaced the user's 100 mm with a 0.3 mm forecast
+- [x] Narrator (A6): writes from a facts bundle and nothing else. Output is separate claims, not prose, so one bad claim can be removed without guessing where a sentence ends
+- [x] Verifier (A7), **the point of the layer**. Two checks that fail differently: the arithmetic check is code and matches every figure in the draft against the bundle (rounding and percentage forms allowed, nothing else); the claim check is a model and catches the draft whose every number is real and whose meaning is wrong. Fails closed — an unsupported claim is removed not softened, a failed headline or missing caveat withholds the whole briefing, and an unreachable Verifier publishes nothing
+- [x] Eight named failure modes, one planted draft each plus a clean one: all eight caught, clean one passed, 2.9 s per draft on `gemini-3.8-flash` at low thinking. **Measured, not assumed:** the first version ran at high thinking and took 63 s for no extra catches, and two of the eight rules (scope, unattributed) exist because the probe found drafts nothing caught
+- [x] Caught live on the first real run: the Narrator wrote that a spot fills "starting early" — fill order is an order, not a clock — and the Verifier sent it back
+- [x] `nearest_road` filled in at last (it was `None` since P1): spots are named by the road they sit on, within 120 m and named roads only. 87% of spots named in Palarivattom, 48% in Vyttila. "The low point beside Pipeline Road" instead of `d_28`
+- [x] 95 tests. The agent tests stub both models out: what is worth testing is the part that holds when the model is wrong
+- [ ] Planner (A5): needs P4 capabilities first
 - [ ] News (A13): GDELT stored path; grounded panel display-only and never stored
-- [ ] Firestore for runs and traces (never grounded output)
+- [ ] Firestore for runs and traces (never grounded output). Runs are currently not persisted at all
+- [ ] Follow-ups that change the existing scenario ("what about twice the rain?") — each question is independent today
+- [ ] Malayalam briefing. The honest order is verify the English, translate, then re-check the figures in the translation
 
 ## P6 Web app (F1, F11, F12, F13)
 - [x] Modal tool palette on the map (Move / Box / Erase, keys V / B / E / Esc), both map overlays collapsible, Google's own controls moved clear of them
@@ -92,7 +102,8 @@ Tick a box when the work lands and has been run, not when it is started. Plan ID
 - [x] Pooling spots layer, coloured by rank, click for catchment and fill order
 - [ ] Fill-sequence animation (order, not a clock)
 - [x] KSDMA layer shown alongside under the screening, never merged; return-period selector; agreement stated with its baseline
-- [ ] Briefing plus English and Malayalam area messages (drafts, never sent)
+- [x] Ask box, streamed agent trace and the briefing in the panel. Removed claims are shown with the rule that removed them, not hidden
+- [ ] Malayalam area messages (drafts, never sent)
 - [x] Resolution caveat and per-layer confidence rendered on every selection (F12)
 - [ ] News panel
 
@@ -112,7 +123,7 @@ Tick a box when the work lands and has been run, not when it is started. Plan ID
 |---|---|
 | Mon 12 | Finish P1: metric, OSM layers, GCS staging, engine service |
 | Tue 13 | P2 and the core of P3: KSDMA, return period, forecast, people, routes |
-| Wed 14 | P4 and P5: preparations, agent skeleton, Narrator and Verifier |
+| Wed 14 | P7 replay scoring and P3 people; P4 preparations if time |
 | Thu 15 | P6: web app working end to end on one box |
 | Fri 16 | P7 and News: replay scoring, harness |
 | Sat 17 | P8: deploy, demo script, rehearsal, buffer |

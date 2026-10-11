@@ -96,3 +96,32 @@ def affected_summary(graph: nx.MultiGraph, flooded: set) -> list[dict]:
     for r in rows:
         r["length_m"] = round(r["length_m"])
     return rows
+
+
+# A spot more than this from the nearest named road is not "on" that road. Two blocks in a dense
+# Indian or Singaporean neighbourhood; beyond it the name would be decoration rather than a
+# location.
+NEAREST_ROAD_MAX_M = 120.0
+
+
+def nearest_named_roads(graph: nx.MultiGraph, points_m, max_m: float = NEAREST_ROAD_MAX_M):
+    """For each point, the nearest road that actually has a name, or None.
+
+    A pooling spot called `d_73` tells an officer nothing. "The low point beside Pipeline Road,
+    40 m away" tells them where to stand. Only named roads are candidates: OSM's unnamed
+    residential ways are the majority by count and would win on distance almost every time while
+    naming nothing.
+    """
+    named = [(d["geom"], d["name"], d["highway"])
+             for _, _, d in graph.edges(data=True) if d["name"]]
+    if not named or not len(points_m):
+        return [None] * len(points_m)
+    tree = shapely.STRtree([g for g, _, _ in named])
+    idx = tree.nearest(points_m)
+    out = []
+    for point, i in zip(points_m, np.atleast_1d(idx)):
+        geom, name, highway = named[int(i)]
+        dist = point.distance(geom)
+        out.append(None if dist > max_m else
+                   {"name": name, "highway": highway, "distance_m": round(float(dist))})
+    return out

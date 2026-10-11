@@ -133,6 +133,34 @@ def check_caveat(briefing: dict) -> list[dict]:
     return []
 
 
+def check_official_units(bundle: dict, briefing: dict) -> list[dict]:
+    """If the authority never stated its units, a briefing may not quote them as if it had.
+
+    KSDMA publishes depth rasters with no unit anywhere in the metadata. The magnitudes read as
+    centimetres and that is how everything records them, but "67 cm" written plainly is a firmer
+    claim than the source supports. Deterministic rather than left to the claim check, because it
+    is exactly checkable: if an official value appears, the word "inferred" has to appear too.
+    """
+    official = bundle.get("official") or {}
+    if not official.get("units_are_inferred"):
+        return []
+    values = [v for v in (official.get("their_deepest_value_in_box"),
+                          official.get("their_median_value_where_wet"))
+              if isinstance(v, (int, float))]
+    if not values:
+        return []
+    whole = " ".join(t for _, t in parts(briefing)).lower()
+    if "inferred" in whole:
+        return []
+    for part, text in parts(briefing):
+        if any(facts.traces_to_facts(n, set(values)) for n in facts.numbers_in_text(text)):
+            return [{"part": part, "rule": "unattributed", "found_by": "arithmetic",
+                     "problem": "quotes one of the authority's depth values, but their units are "
+                                f"{official['units_note']} - the briefing has to say so",
+                     "text": text}]
+    return []
+
+
 def check_claims(bundle: dict, briefing: dict, *, model: str = llm.CAREFUL_MODEL,
                  thinking: str = THINKING) -> list[dict]:
     """The judgement half. Raises LlmUnavailable - the caller must treat that as a failure."""
@@ -173,5 +201,6 @@ def enforce(briefing: dict, problems: list[dict]) -> tuple[dict | None, list[dic
 def verify(bundle: dict, briefing: dict, *, model: str = llm.CAREFUL_MODEL) -> list[dict]:
     """Every problem with this draft. Arithmetic first, so a wrong figure is never argued about."""
     allowed = facts.allowed_numbers(bundle)
-    return check_numbers(briefing, allowed) + check_caveat(briefing) + \
-        check_claims(bundle, briefing, model=model)
+    return (check_numbers(briefing, allowed) + check_caveat(briefing)
+            + check_official_units(bundle, briefing)
+            + check_claims(bundle, briefing, model=model))

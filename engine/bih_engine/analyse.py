@@ -15,12 +15,12 @@ from rasterio.features import shapes
 from scipy import ndimage
 from scipy.stats import rankdata
 import shapely
-from shapely.geometry import mapping, shape
+from shapely.geometry import Point, mapping, shape
 
 from .hydrology import exit_accumulation, fill_and_route
 from .official import compare_to_screening, read_official
 from .osm import Layers, OsmData, load_overpass, rasterize_layers
-from .routes import affected_summary, build_graph, flooded_edges
+from .routes import affected_summary, build_graph, flooded_edges, nearest_named_roads
 from .store import Region
 from .terrain import Grid, read_dem
 
@@ -164,6 +164,8 @@ def analyse_grid(
         d["low_confidence"] = bool(d["max_depth_m"] < dem_error_m)
         x, y = grid.transform @ (d["col"] + 0.5, d["row"] + 0.5)
         d["lon"], d["lat"] = to_ll.transform(x, y)
+        d["point_m"] = Point(x, y)      # kept to find the road this spot sits on, below
+        d["nearest_road"] = None
 
     t0 = time.perf_counter()
     feats, pooling_m = [], []
@@ -190,13 +192,18 @@ def analyse_grid(
         graph = build_graph(roads, grid.crs)
         flooded = flooded_edges(graph, wet)
         routes_affected = affected_summary(graph, flooded)
+        # Name where each spot actually is. An id is useless to anyone standing in the street.
+        for d, road in zip(deps, nearest_named_roads(graph, [d["point_m"] for d in deps])):
+            d["nearest_road"] = road
+    for d in deps:
+        d.pop("point_m", None)          # a geometry has no business in a JSON response
     t["routes_s"] = time.perf_counter() - t0
 
     screening = {
         "depressions": [
             {"id": d["id"], "pooling_index": d["pooling_index"],
              "contributing_ha": round(d["contrib_m2"] / 1e4, 2),
-             "fill_order": d["fill_order"], "nearest_road": None}
+             "fill_order": d["fill_order"], "nearest_road": d["nearest_road"]}
             for d in deps
         ],
         "excluded": [{"id": d["id"], "reason": EXCLUDED_REASON} for d in excluded],

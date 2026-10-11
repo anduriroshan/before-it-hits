@@ -46,6 +46,52 @@ inundated the result is flagged as non-discriminating and the UI says so.
 This is *agreement*, not accuracy. The official layer is ~92 m and models river and backwater
 flooding; the screening is 10 m and finds local rainfall ponding. They answer different questions.
 
+## Ask it in plain language — and watch something check the answer
+
+Draw a box, type a question, and five agents run in about ten seconds with every step streamed to
+the screen as it finishes.
+
+> *"Which spots fill first here, and how does it compare with the official map?"*
+
+The division of labour is the whole design:
+
+**the language models decide what to ask; the engine decides what is true.**
+
+| | Agent | Does |
+|---|---|---|
+| A2 | Scenario | question → parameters: what-if, forecast, which rainfall, which official layer |
+| A3 | Forecast | the real 48 h forecast, only when the question is actually about what is coming |
+| A4 | Engine | **not a model.** The only thing here that produces a figure |
+| A6 | Narrator | writes the briefing from a facts bundle, and nothing else |
+| A7 | Verifier | checks every word of it against the findings, and removes what does not hold |
+
+### The Verifier is the point
+
+It runs two checks that fail in different ways.
+
+**The arithmetic check is code and cannot be talked out of it.** Every figure in the draft is
+pulled out and matched against the figures in the facts bundle, allowing ordinary rounding and
+percentage forms and nothing else. That is what makes *no figure is ever produced by a language
+model* a property of the system rather than a line in a prompt.
+
+**The claim check needs judgement, so it uses a model.** It catches what the arithmetic cannot:
+a draft whose every number is real and whose meaning is wrong. "Most of the area floods" contains
+no numbers at all. Seven named failure modes, each one a limit the product had already written
+down: unsupported, own_depth, unattributed, scope, timing, dispatch, overstated, certainty.
+
+Measured on eight planted drafts, one per rule plus a clean one: all eight caught, clean one
+passed, 2.9 s each. Thinking harder made it slower and no better — the findings are right there in
+the prompt, so this is a comparison, not a deduction.
+
+**It fails closed.** An unsupported claim is removed, not softened. A failed headline or a missing
+caveat withholds the whole briefing. If the Verifier itself cannot be reached, nothing is
+published — a briefing whose only value is that something checked it is worth nothing unchecked.
+The screening underneath is unaffected, because it is computed rather than written.
+
+Live, on the first run of the question above, it caught the Narrator writing that a spot fills
+*"starting early"* — fill order is an order, not a clock — sent it back, and the revision dropped
+it. The removal is shown on screen, not hidden.
+
 ## What this will not claim
 
 Written down before building, because each is a question a judge could ask on stage.
@@ -68,6 +114,8 @@ Staged once (engine/tools/)        Per request (stateless)
   buildings.fgb    buf       │      rank by ponded volume
   official/*.tif   KSDMA    ─┘      clip the official layer, compare
   region.json      provenance       build the road graph, flag routes
+                                    ↓
+                                    facts bundle → Narrator → Verifier → screen
 ```
 
 Terrain is read by HTTP range request; FlatGeobuf carries a packed R-tree so a bbox read fetches
@@ -131,12 +179,21 @@ python engine/tools/fetch_deltadtm_kochi.py      # terrain, via your gcloud logi
 python engine/tools/stage_region.py --buildings  # OSM water, roads, buildings
 python engine/tools/stage_official.py <dir-with-ksdma-tifs>
 
-echo "MAPS_API_KEY=..." > .env.local              # browser key, referrer-restricted
+# Three keys, three different jobs, none interchangeable
+cat > .env.local <<'KEYS'
+MAPS_API_KEY=...      # browser key, referrer-restricted. Public by design: it ships in the page
+WEATHER_API_KEY=...   # server key. A referrer-restricted key cannot work server-side
+GEMINI_API_KEY=...    # server key, restricted to generativelanguage.googleapis.com
+KEYS
 ./run_dev.sh                                      # http://localhost:8080
 ```
 
-Tests: `./.venv/Scripts/python.exe -m pytest engine` — 49 tests, all offline, no network or
-staged data needed.
+Without `GEMINI_API_KEY` the agent layer reports itself unavailable and the ask box does not
+appear. Everything else works unchanged.
+
+Tests: `./.venv/Scripts/python.exe -m pytest engine` — 95 tests, all offline, no network, no
+staged data and no model. The agent tests stub both models out on purpose: what is worth testing
+there is the part that holds when the model is wrong, and that part is deterministic by design.
 
 Deploy: `gcloud run deploy before-it-hits --source . --region asia-south1 ...` (no local Docker;
 Cloud Build builds the image). Add the service URL to the API key's allowed referrers.
@@ -145,8 +202,9 @@ Cloud Build builds the image). Add the service URL to the API key's allowed refe
 
 ```
 engine/bih_engine/   terrain, hydrology, osm, routes, official, store  — no I/O beyond reads
+engine/bih_agents/   scenario, narrator, verifier, coordinator, and the facts bundle between them
 engine/tools/        staging jobs: the only code that talks to Overpass or a data portal
-engine/tests/        49 tests on synthetic terrain where the answer is known
+engine/tests/        95 tests on synthetic terrain where the answer is known
 service/             FastAPI: bbox + rainfall in, screening + official layer out
 web/                 map, modal tool palette, results panel
 plan/                the design written before building
@@ -155,6 +213,6 @@ PROGRESS.md          what is done and what is not
 
 ## Status
 
-The engine, both tiers and the map work end to end. Not yet built: the 28 May 2024 replay scoring,
-the agent layer, population and exposure, preparations within the city's budget, and the synthetic
-test harness. `PROGRESS.md` tracks all of it honestly.
+The engine, both tiers, the map and the agent layer work end to end. Not yet built: the
+28 May 2024 replay scoring, population and exposure, preparations within the city's budget, the
+News agent, and the synthetic test harness. `PROGRESS.md` tracks all of it honestly.

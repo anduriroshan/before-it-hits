@@ -35,6 +35,18 @@
     <div class="presets" id="presets"></div>
   </section>
 
+  <section id="ask" hidden>
+    <label for="question">Ask about this box</label>
+    <div class="askrow">
+      <input id="question" type="text" maxlength="500" autocomplete="off"
+             placeholder="What if 90 mm falls in an hour here?">
+      <button id="asksend">Ask</button>
+    </div>
+    <div class="chips" id="askchips"></div>
+    <ol id="trace" class="trace" hidden></ol>
+    <div id="briefing" class="briefing" hidden></div>
+  </section>
+
   <section id="status" hidden></section>
 
   <section id="results" hidden>

@@ -18,6 +18,7 @@ const state = {
   map: null, rect: null, layer: null, region: null,
   busy: false, mapReady: false, tool: 'pan', drag: null, lastBbox: null, officialLayer: null,
   regions: [], region: null, regionRect: null, forecast: null, rainMode: 'whatif',
+  agents: false, asking: false,
 };
 
 function setStatus(text, isError = false) {
@@ -66,6 +67,7 @@ async function boot() {
   buildRegionPicker();
   selectRegion(state.regions[0].name);
   wireToolbar();
+  wireAsk(cfg.agents);
 
   if (!cfg.maps_api_key) {
     mapFailed('No Maps API key is configured. Set MAPS_API_KEY in .env.local and restart.');
@@ -387,6 +389,7 @@ async function analyse(bbox) {
     if (!res.ok) throw new Error(body.detail || 'the engine could not analyse that box');
     render(body);
     setStatus('');
+    if (state.agents) $('ask').hidden = false;
   } catch (err) {
     setStatus(err.message, true);
     $('results').hidden = true;
@@ -441,6 +444,118 @@ function renderForecast() {
       if (state.lastBbox) analyse(state.lastBbox);
     };
   });
+}
+
+/* ---- asking ---------------------------------------------------------------------------------
+
+   The answer takes about ten seconds and most of that is two model calls, so the steps arrive as
+   they finish rather than all at the end. That is not a loading animation: the Verifier sending a
+   draft back, or a claim being removed, is the part of this product worth watching. */
+
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+const CHIPS = [
+  'Which spots fill first here?',
+  'What if 90 mm falls in an hour?',
+  'How does this compare with the official map?',
+];
+
+function wireAsk(enabled) {
+  state.agents = Boolean(enabled);
+  if (!state.agents) return;
+  $('askchips').innerHTML = CHIPS.map((c) => `<button type="button">${esc(c)}</button>`).join('');
+  $('askchips').querySelectorAll('button').forEach((b) => {
+    b.onclick = () => { $('question').value = b.textContent; askQuestion(); };
+  });
+  $('asksend').onclick = () => askQuestion();
+  $('question').addEventListener('keydown', (e) => { if (e.key === 'Enter') askQuestion(); });
+}
+
+async function askQuestion() {
+  const q = $('question').value.trim();
+  if (!q || state.asking || state.busy || !state.lastBbox) return;
+  state.asking = true;
+  $('asksend').disabled = true;
+  $('trace').hidden = false;
+  $('trace').innerHTML = '';
+  $('briefing').hidden = true;
+  try {
+    const res = await fetch('/api/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: q, bbox: state.lastBbox, region: state.region.name,
+        rainfall_mm: Number($('rain').value),
+        return_period: $('rp').value ? Number($('rp').value) : null,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || 'the agent layer could not answer that');
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let cut;
+      while ((cut = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, cut).trim();
+        buf = buf.slice(cut + 1);
+        if (line) onAskEvent(JSON.parse(line));
+      }
+    }
+  } catch (err) {
+    addTraceRow({ agent: 'Coordinator', status: 'failed', ms: 0, note: err.message });
+  } finally {
+    state.asking = false;
+    $('asksend').disabled = false;
+  }
+}
+
+function onAskEvent(ev) {
+  if (ev.event === 'step') addTraceRow(ev);
+  else if (ev.event === 'error') addTraceRow({ agent: 'Coordinator', status: 'failed', ms: 0, note: ev.detail });
+  else if (ev.event === 'done') {
+    if (ev.result) render(ev.result);          // the map and the result list follow the question
+    renderBriefing(ev);
+  }
+}
+
+function addTraceRow(step) {
+  const li = document.createElement('li');
+  li.className = `step ${String(step.status).replace(/\s+/g, '-')}`;
+  const ms = step.ms ? `${(step.ms / 1000).toFixed(1)} s` : '';
+  li.innerHTML = `<div class="head"><strong>${esc(step.agent)}</strong>
+      <span class="pill">${esc(step.status)}</span><span class="ms">${ms}</span></div>
+    ${step.note ? `<div class="note">${esc(step.note)}</div>` : ''}`;
+  $('trace').appendChild(li);
+}
+
+function renderBriefing(ev) {
+  const el = $('briefing');
+  el.hidden = false;
+  if (!ev.briefing) {
+    el.innerHTML = `<p class="withheld">${esc(ev.withheld || 'No briefing was produced.')}</p>
+      <p class="muted small">The screening below is unaffected: it is computed, not written.</p>`;
+    return;
+  }
+  const b = ev.briefing;
+  const removed = (ev.removed || []).map((r) =>
+    `<li><span class="rule">${esc(r.rule || 'unsupported')}</span> ${esc(r.problem)}
+       <div class="cut">&ldquo;${esc(r.text)}&rdquo;</div></li>`).join('');
+  el.innerHTML = `
+    <p class="headline">${esc(b.headline)}</p>
+    <ul class="bullets">${b.bullets.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+    <p class="caveat">${esc(b.caveat)}</p>
+    ${removed ? `<details class="removed" open><summary>${ev.removed.length} claim(s) removed by
+      the checking agent</summary><ul>${removed}</ul></details>` : ''}
+    <p class="muted small">Every figure above was matched against the engine's own output before
+      this was shown. Nothing here was written by the engine, and no figure here was written by a
+      model.</p>`;
 }
 
 function render(res) {
@@ -498,7 +613,10 @@ function render(res) {
     rank.className = `rank s${d.pooling_index}`;
     rank.textContent = d.pooling_index;
     const body = document.createElement('div');
-    body.innerHTML = `<b>${d.id}</b> — ${d.contributing_ha} ha drains in` +
+    const where = d.nearest_road
+      ? `<b>${esc(d.nearest_road.name)}</b> <span class="muted">· ${d.nearest_road.distance_m} m</span>`
+      : `<b>${esc(d.id)}</b>`;
+    body.innerHTML = `${where} — ${d.contributing_ha} ha drains in` +
       `<div class="meta">fills ${d.fill_order}${ordinal(d.fill_order)}</div>`;
     li.append(rank, body);
     li.onclick = () => zoomTo(d.id);
