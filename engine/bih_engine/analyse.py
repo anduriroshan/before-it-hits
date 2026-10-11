@@ -239,9 +239,11 @@ def analyse_area(
     `region` is a staged `Region` and is the normal path: it supplies both terrain and vectors.
     `source` / `osm` override either one, for tests and benchmarks. `timings_s` covers every stage.
     """
+    cap = kw.pop("cap_value", None)
     if region is not None:
         source = source or region.terrain
-    grid = read_dem(bbox, res_m=res_m, pad_m=pad_m, source=source)
+        cap = region.terrain_cap if cap is None else cap
+    grid = read_dem(bbox, res_m=res_m, pad_m=pad_m, source=source, cap_value=cap)
 
     t0 = time.perf_counter()
     data = None
@@ -260,6 +262,7 @@ def analyse_area(
     res["timings_s"] = dict(grid.meta["timings"], osm_s=osm_s, **res["timings_s"])
     res["grid"]["source"] = grid.meta["source"]
     res["grid"]["despiked_px"] = grid.meta["despiked_px"]
+    res["grid"]["capped_px"] = grid.meta["capped_px"]
     if region is not None and return_period is not None:
         t0 = time.perf_counter()
         official = read_official(region, bbox, return_period)

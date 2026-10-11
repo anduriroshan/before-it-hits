@@ -1,11 +1,51 @@
 {
   "name": "kochi",
   "title": "Kochi, Kerala",
+  "country": "India",
   "bbox_wsen": [
     76.2,
     9.85,
     76.45,
     10.1
+  ],
+  "note": "Monsoon city on the backwaters. Chosen because KSDMA publishes depth-valued flood hazard rasters by return period, which is what the validated tier is checked against.",
+  "presets": [
+    {
+      "label": "Edappally",
+      "bbox": [
+        76.295,
+        10.01,
+        76.325,
+        10.04
+      ]
+    },
+    {
+      "label": "Palarivattom",
+      "bbox": [
+        76.2968,
+        9.9967,
+        76.3168,
+        10.0167
+      ]
+    },
+    {
+      "label": "Vyttila",
+      "bbox": [
+        76.305,
+        9.955,
+        76.33,
+        9.98
+      ]
+    },
+    {
+      "label": "Kakkanad",
+      "bbox": [
+        76.33,
+        10.0,
+        76.36,
+        10.028
+      ]
+    }
   ],
   "staged": "2026-10-11",
   "terrain": {
@@ -14,14 +54,20 @@
     "asset": "projects/sat-io/open-datasets/DELTARES/deltadtm_v1-1",
     "band": "b1",
     "licence": "CC BY 4.0",
-    "bbox": [
-      76.19986111111112,
-      9.850138888888889,
-      76.44986111111112,
-      10.100138888888889
+    "grid": "native 1 arcsec, not resampled",
+    "cap_value": 30.0,
+    "bbox_wsen": [
+      76.19986111111109,
+      9.849861111111101,
+      76.45013888888887,
+      10.100138888888878
+    ],
+    "shape": [
+      901,
+      901
     ],
     "fetched": "2026-10-11",
-    "note": "Raw band, nothing masked. The catalog says the model is clipped at 30 m: value 30 means no data."
+    "note": "Raw band. Non-finite is sea or outside coverage; the value 30 is the model's cap."
   },
   "vectors": {
     "format": "FlatGeobuf",

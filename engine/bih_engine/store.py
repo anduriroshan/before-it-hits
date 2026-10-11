@@ -47,6 +47,19 @@ class Region:
     def terrain(self) -> Path:
         return self.root / self.manifest["terrain"]["file"]
 
+    @property
+    def terrain_cap(self) -> float | None:
+        """The source's ceiling value, if it has one (DeltaDTM caps at 30 m)."""
+        return self.manifest["terrain"].get("cap_value")
+
+    @property
+    def presets(self) -> list[dict]:
+        return self.manifest.get("presets", [])
+
+    @property
+    def official_return_periods(self) -> list[int]:
+        return (self.manifest.get("official") or {}).get("return_periods", [])
+
     def layer_path(self, layer: str) -> Path:
         return self.root / (layer + ".fgb")
 

@@ -1,0 +1,207 @@
+"""The facts bundle: the only thing a language model is ever shown about a result.
+
+Everything the Narrator writes has to come from here, and the Verifier's hard check is simply
+this: a number may appear in the briefing only if it appears in the bundle that produced it.
+That makes "the model never produces a figure" an auditable property of the code rather than an
+instruction in a prompt that may or may not be followed.
+
+Two things are deliberately kept out of the bundle:
+
+  - Any depth in metres from our own model. Depths exist inside the engine only, to drop
+    depressions shallower than the terrain error. `assert_no_own_depth` fails loudly if one leaks
+    in, because a leak here would be invisible everywhere else.
+  - Dates and version strings. They are real provenance and the UI shows them, but each one
+    smuggles small integers into the allowed set and loosens the check for no benefit.
+
+The authority's own depths *are* included, under `official`, labelled with whose they are. That is
+the validated tier, and quoting it as published is the whole point of having it.
+"""
+from __future__ import annotations
+
+import re
+
+# How far a figure may be rounded before it stops being the same figure. The Narrator may say
+# "nearly 3 times" for 2.78; it may not say 4.
+_ROUND_DP = (0, 1, 2)
+_TOL = 1e-9
+
+_NUMBER = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
+
+MAX_SPOTS = 6     # the worst few, not a listing: a briefing nobody reads is not honest either
+MAX_ROADS = 5
+
+LIMITS = [
+    "No depth is claimed for our own spots: at this terrain resolution the vertical error is the "
+    "same size as the depth we would be quoting, so spots are ranked against each other instead.",
+    "No storm-drain data is public anywhere, so pooling is overstated wherever drains work.",
+    "Fill order is an order, not a clock. It says which spot fills first, never when.",
+    "Nothing here is dispatch or evacuation advice. It is for preparation only.",
+]
+
+
+def _numbers_in(obj) -> set[float]:
+    """Every number reachable in the bundle, including inside strings and keys."""
+    out: set[float] = set()
+    if isinstance(obj, bool) or obj is None:
+        return out                                    # a flag is not a figure; True is not 1
+    if isinstance(obj, (int, float)):
+        out.add(float(obj))
+    elif isinstance(obj, str):
+        for m in _NUMBER.finditer(obj):
+            try:
+                out.add(float(m.group().replace(",", "")))
+            except ValueError:
+                pass
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            out |= _numbers_in(k)
+            out |= _numbers_in(v)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            out |= _numbers_in(v)
+    return out
+
+
+def allowed_numbers(bundle: dict) -> set[float]:
+    return _numbers_in(bundle)
+
+
+def traces_to_facts(value: float, allowed: set[float]) -> bool:
+    """Is this figure one of the facts, possibly rounded or written as a percentage?"""
+    for a in allowed:
+        candidates = [a, -a]
+        if 0.0 < a < 1.0:
+            candidates.append(a * 100.0)              # 0.214 may be written as 21.4%
+        for c in candidates:
+            if abs(value - c) < _TOL:
+                return True
+            for dp in _ROUND_DP:
+                if abs(value - round(c, dp)) < _TOL:
+                    return True
+    return False
+
+
+def numbers_in_text(text: str) -> list[float]:
+    out = []
+    for m in _NUMBER.finditer(text):
+        try:
+            out.append(float(m.group().replace(",", "")))
+        except ValueError:
+            pass
+    return out
+
+
+def untraceable_numbers(text: str, allowed: set[float]) -> list[float]:
+    """Figures in the text that no fact supports. The hard guarantee of the whole agent layer."""
+    return [n for n in numbers_in_text(text) if not traces_to_facts(n, allowed)]
+
+
+def assert_no_own_depth(bundle: dict) -> None:
+    """Our depths must never reach a prompt, so a leak fails here rather than on stage."""
+    def walk(obj, path=""):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                p = f"{path}.{k}"
+                if "depth" in str(k).lower() and not path.startswith(".official"):
+                    raise AssertionError(f"our own depth reached the facts bundle at {p}")
+                walk(v, p)
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj):
+                walk(v, f"{path}[{i}]")
+    walk(bundle)
+
+
+def build(result: dict, *, question: str, rainfall: dict, region_title: str | None = None) -> dict:
+    """Reduce a full engine result to the few facts a briefing can be written from.
+
+    `rainfall` is the forcing as the Coordinator settled it: how much, over what window, and where
+    the figure came from - a forecast, the user's own words, or the slider.
+    """
+    screening = result.get("screening", {})
+    feats = result.get("geojson", {}).get("features", [])
+    grid = result.get("grid", {})
+
+    by_id: dict[str, dict] = {}
+    for f in feats:
+        by_id.setdefault(f["properties"]["id"], f["properties"])
+    deps = screening.get("depressions", [])
+    fills = sum(1 for p in by_id.values() if p.get("fills_at_rainfall"))
+    top = [d for d in deps if d["pooling_index"] >= 4]
+
+    worst = []
+    for d in deps[:MAX_SPOTS]:
+        p = by_id.get(d["id"], {})
+        worst.append({
+            "id": d["id"],
+            "pooling_rank": d["pooling_index"],
+            "fill_order": d["fill_order"],
+            "land_draining_into_it_ha": d["contributing_ha"],
+            "fills_at_this_rainfall": bool(p.get("fills_at_rainfall", False)),
+            "below_terrain_error": bool(p.get("low_confidence", False)),
+        })
+
+    bundle: dict = {
+        "question": question,
+        "area": {
+            # Spelled out because it is the overreach a briefing slides into on its own: every
+            # finding below describes one drawn box, never the city the box happens to sit in.
+            "what_these_findings_cover": "one box drawn on the map, usually a single "
+                                         "neighbourhood, and nothing outside it",
+            "box_km2": grid.get("area_km2"),
+            "the_box_is_inside": region_title,
+            "analysis_grid_m": grid.get("res_m"),
+            "pooling_rank_scale": "1 is the least water trapped, 5 the most, within this box only",
+        },
+        "rainfall": rainfall,
+        "pooling": {
+            "spots_found": len(deps),
+            "top_ranked_spots": len(top),
+            "spots_that_fill_at_this_rainfall": fills,
+            "spots_left_out": len(screening.get("excluded", [])),
+            "worst_spots": worst,
+        },
+        "roads_through_the_worst_spots": [
+            {"road": r["road"], "kind": r["highway"], "segments": r["segments"],
+             "length_m": r["length_m"]}
+            for r in screening.get("routes_affected", [])[:MAX_ROADS]
+        ],
+        "confidence": screening.get("confidence", {}),
+        "limits": LIMITS,
+    }
+
+    official = result.get("official")
+    if official:
+        bundle["official"] = {
+            "whose": official["source"],
+            "layer": str(official["return_period_years"]) + "-year return period",
+            "units": official["units"],
+            "share_of_box_they_call_inundated": official["inundated_share"],
+            "their_deepest_value_in_box": official["deepest"],
+            "their_median_value_where_wet": official["median_where_wet"],
+            "note": "Published by the authority and shown unchanged. These are their depths, "
+                    "never ours, and they are not attached to any of our spots.",
+        }
+    elif (result.get("region") or {}).get("official") is None:
+        bundle["official"] = {
+            "whose": None,
+            "note": "No authority publishes a depth-valued flood layer here, which is the normal "
+                    "case nearly everywhere.",
+        }
+
+    agreement = result.get("agreement")
+    if agreement:
+        bundle["agreement"] = {
+            "our_top_spots_checked": agreement["checked"],
+            "of_those_inside_their_flood_extent": agreement["inside"],
+            "times_better_than_chance": agreement["enrichment"],
+            "share_of_box_inundated_at_this_return_period": agreement["baseline"],
+            "still_tells_a_good_ranking_from_a_bad_one": agreement["discriminating"],
+            "note": agreement["note"],
+        }
+
+    missing = (result.get("region") or {}).get("not_available") or []
+    if missing:
+        bundle["not_staged_for_this_city"] = missing
+
+    assert_no_own_depth(bundle)
+    return bundle

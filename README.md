@@ -1,6 +1,8 @@
 # Before It Hits
 
-**Live: https://before-it-hits-z5r5gsxkza-el.a.run.app** — draw a box over Kochi, or click a preset area.
+**Live: https://before-it-hits-z5r5gsxkza-el.a.run.app** — pick a city, draw a box, or click a preset area.
+
+Two cities are staged: **Kochi** (where an authority publishes a depth map to check against) and **Singapore** (where none does). Adding a city is a config entry plus the staging tools — no engine change.
 
 Cities get a rainfall forecast and issue a warning for the whole city. The water still gathers in
 the same low spots it gathered in last year. Draw a box on the map and ask what happens *there*:
@@ -88,6 +90,14 @@ city-wide graph would have to be clipped anyway, and clipping costs about what b
 | 75 km² | ~1.6 s | |
 
 Cold start is ~8 s, which is why the service runs with `--min-instances 1`.
+
+## A second city, and why Singapore
+
+Singapore gets ~2,300 mm of rain a year in short, intense bursts, and has one of the best drainage networks in the world — which we have no data for. Our screening should therefore overstate pooling there more than anywhere else. That is the product's largest disclosed bias, made visible rather than argued about.
+
+It also exercises the honest path: **no authority publishes a depth-valued flood layer for Singapore**, so the UI says so instead of quietly dropping the panel. That is the normal case nearly everywhere.
+
+One trap worth recording: DeltaDTM is a *coastal* model that caps at 30 m, writing anything higher as exactly 30.0. Singapore's interior is above that. Read naively, the cap becomes a flat plateau ringed by false depressions, so capped cells are masked as no-data and counted per box. Low-lying flood-prone areas — where flooding actually happens — are 96-100% usable.
 
 ## Data
 

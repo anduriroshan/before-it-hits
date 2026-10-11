@@ -14,17 +14,10 @@ const POOLING_FILL = { 5: '#0b3d91', 4: '#1d6fd0', 3: '#4a9fe0', 2: '#8fc5ec', 1
 const MIN_SIDE_DEG = 0.0015;
 const OFFICIAL_FILL = ['#cfe8ff', '#86c0f0', '#3d8fd1', '#1b5fa8', '#0b3566'];  // about 150 m: below this there is nothing to analyse
 
-/* Localities named in the 28 May 2024 Kochi cloudburst reporting. */
-const PRESETS = [
-  { label: 'Edappally', bbox: [76.295, 10.010, 76.325, 10.040] },
-  { label: 'Palarivattom', bbox: [76.2968, 9.9967, 76.3168, 10.0167] },
-  { label: 'Vyttila', bbox: [76.305, 9.955, 76.330, 9.980] },
-  { label: 'Kakkanad', bbox: [76.330, 10.000, 76.360, 10.028] },
-];
-
 const state = {
   map: null, rect: null, layer: null, region: null,
   busy: false, mapReady: false, tool: 'pan', drag: null, lastBbox: null, officialLayer: null,
+  regions: [], region: null, regionRect: null, forecast: null, rainMode: 'whatif',
 };
 
 function setStatus(text, isError = false) {
@@ -55,26 +48,23 @@ window.gm_authFailure = () => mapFailed(  // Google calls this itself when the k
   'if you opened the page on another port or host, that is why.');
 
 async function boot() {
-  let cfg, region;
+  let cfg, list;
   try {
-    [cfg, region] = await Promise.all([
+    [cfg, list] = await Promise.all([
       fetch('/api/config').then((r) => r.json()),
-      fetch('/api/region').then((r) => r.json()),
+      fetch('/api/regions').then((r) => r.json()),
     ]);
   } catch (err) {
     setStatus(`Could not reach the engine: ${err.message}`, true);
     return;
   }
-  state.region = region;
-  $('regionline').textContent =
-    `${region.title} · staged ${region.staged} · ${region.vectors.counts.roads.toLocaleString()} roads`;
-  $('credits').innerHTML =
-    `Terrain: DeltaDTM v1.1 (CC BY 4.0). Roads, water and buildings: ${region.vectors.licence}. ` +
-    'Basemap © Google — display only.';
-  $('legend-note').textContent = 'No validated depth layer loaded yet, so these are relative ranks.';
-
-  buildPresets();
-  buildReturnPeriods(region);
+  state.regions = list.regions || [];
+  if (!state.regions.length) {
+    setStatus('The engine has no staged region.', true);
+    return;
+  }
+  buildRegionPicker();
+  selectRegion(state.regions[0].name);
   wireToolbar();
 
   if (!cfg.maps_api_key) {
@@ -91,29 +81,81 @@ async function boot() {
   setTimeout(() => { if (!state.mapReady) mapFailed('The Maps script did not finish loading.'); }, 12000);
 }
 
+function buildRegionPicker() {
+  const sel = $('region');
+  sel.replaceChildren(...state.regions.map((r) => {
+    const o = document.createElement('option');
+    o.value = r.name;
+    o.textContent = r.country && r.country !== r.title ? `${r.title}, ${r.country}` : r.title;
+    return o;
+  }));
+  sel.addEventListener('change', () => selectRegion(sel.value));
+}
+
+/* Switching city resets everything derived from the old one: results, box, official layer. */
+function selectRegion(name) {
+  const region = state.regions.find((r) => r.name === name);
+  if (!region) return;
+  state.region = region;
+  $('region').value = name;
+
+  const counts = region.vectors.counts || {};
+  $('regionline').textContent =
+    `staged ${region.staged} · ${(counts.roads || 0).toLocaleString()} roads` +
+    (counts.buildings ? ` · ${counts.buildings.toLocaleString()} buildings` : '');
+  $('regionnote').textContent = region.note || '';
+  $('credits').innerHTML =
+    `Terrain: ${(region.terrain && region.terrain.source) || 'DeltaDTM v1.1'}. ` +
+    `Roads and water: ${region.vectors.licence}. Basemap © Google — display only.`;
+
+  buildPresets(region);
+  buildReturnPeriods(region);
+  clearAll();
+  if (state.mapReady) frameRegion(region);
+}
+
+function frameRegion(region) {
+  const [w, s, e, n] = region.bbox_wsen;
+  const bounds = { south: s, west: w, north: n, east: e };
+  if (state.regionRect) state.regionRect.setMap(null);
+  state.regionRect = new google.maps.Rectangle({
+    bounds, map: state.map, clickable: false,
+    strokeColor: '#0e7490', strokeOpacity: 0.5, strokeWeight: 1.5, fillOpacity: 0,
+  });
+  state.map.fitBounds(bounds, 20);
+}
+
 function buildReturnPeriods(region) {
   const sel = $('rp');
   const periods = (region.official && region.official.return_periods) || [];
-  if (!periods.length) {
-    sel.disabled = true;
-    $('rpout').textContent = 'none published here';
-    return;
-  }
+  sel.replaceChildren();
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = periods.length ? 'none — screening only' : 'none published for this city';
+  sel.appendChild(none);
   for (const rp of periods) {
     const o = document.createElement('option');
     o.value = String(rp);
     o.textContent = `1-in-${rp}-year`;
     sel.appendChild(o);
   }
-  sel.value = '50';
-  sel.addEventListener('change', () => {
-    $('rpout').textContent = sel.value ? `1-in-${sel.value}-year` : 'off';
-    if (state.lastBbox) analyse(state.lastBbox);
-  });
+  sel.disabled = !periods.length;
+  sel.value = periods.includes(50) ? '50' : '';
+  $('rpout').textContent = sel.value ? `1-in-${sel.value}-year` : (periods.length ? 'off' : 'none published');
+  $('legend-note').textContent = periods.length
+    ? 'Ranks are relative to this box, not depths.'
+    : `No authority publishes a depth layer for ${region.title}, so there is nothing to check against here.`;
+  if (!sel.dataset.wired) {
+    sel.dataset.wired = '1';
+    sel.addEventListener('change', () => {
+      $('rpout').textContent = sel.value ? `1-in-${sel.value}-year` : 'off';
+      if (state.lastBbox) analyse(state.lastBbox);
+    });
+  }
 }
 
-function buildPresets() {
-  $('presets').replaceChildren(...PRESETS.map((p) => {
+function buildPresets(region) {
+  $('presets').replaceChildren(...(region.presets || []).map((p) => {
     const b = document.createElement('button');
     b.className = 'preset';
     b.textContent = p.label;
@@ -150,10 +192,25 @@ function clearAll() {
   setTool('pan');
 }
 
+function toggleCollapse(which) {
+  const el = $(which);
+  const open = el.classList.toggle('collapsed') === false;
+  const btn = el.querySelector('.collapse');
+  btn.setAttribute('aria-expanded', String(open));
+  btn.title = open ? `Hide the ${which === 'toolbar' ? 'tools' : 'legend'}`
+                   : `Show the ${which === 'toolbar' ? 'tools' : 'legend'}`;
+}
+
 function wireToolbar() {
+  for (const el of [$('toolbar'), $('legend')]) {
+    el.addEventListener('click', (ev) => {
+      const c = ev.target.closest('.collapse');
+      if (c) { toggleCollapse(c.dataset.collapse); ev.stopPropagation(); }
+    });
+  }
   $('toolbar').addEventListener('click', (ev) => {
     const btn = ev.target.closest('button');
-    if (!btn) return;
+    if (!btn || btn.classList.contains('collapse')) return;
     if (btn.dataset.action === 'erase') clearAll();
     else if (btn.dataset.tool) setTool(btn.dataset.tool);
   });
@@ -174,15 +231,16 @@ window.initMap = function initMap() {
     const [w, s, e, n] = state.region.bbox_wsen;
     const bounds = new google.maps.LatLngBounds({ lat: s, lng: w }, { lat: n, lng: e });
     state.map = new google.maps.Map($('map'), {
-      center: bounds.getCenter(), zoom: 13,
-      mapTypeControl: true, streetViewControl: false, fullscreenControl: false,
-      zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_TOP },
-    });
-
-    // The staged region, so it is obvious where the engine can answer.
-    new google.maps.Rectangle({
-      bounds, map: state.map, clickable: false,
-      strokeColor: '#0e7490', strokeOpacity: 0.5, strokeWeight: 1.5, fillOpacity: 0,
+      center: bounds.getCenter(), zoom: 12,
+      streetViewControl: false, fullscreenControl: false,
+      // Google's controls default to the top-left, where our tool palette lives. Map type goes to
+      // the top-right as a compact dropdown; zoom sits below it, clear of the legend.
+      mapTypeControl: true,
+      mapTypeControlOptions: {
+        position: google.maps.ControlPosition.TOP_RIGHT,
+        style: google.maps.MapTypeControlStyle.DROPDOWN_MENU,
+      },
+      zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_CENTER },
     });
 
     // Everything below is set up synchronously. An earlier version waited for the map's 'idle'
@@ -190,6 +248,7 @@ window.initMap = function initMap() {
     // to say why. UI chrome should never depend on a map event firing.
     enableBoxDrawing();
     state.mapReady = true;
+    frameRegion(state.region);   // outlines where the engine can answer
     $('toolbar').hidden = false;
     $('mapfallback').hidden = true;
     $('legend').hidden = false;
@@ -312,6 +371,7 @@ async function analyse(bbox) {
   if (state.busy) return;
   state.busy = true;
   state.lastBbox = bbox;
+  loadForecast(bbox);   // fire-and-forget: a weather outage must not stop the screening
   setStatus('Reading the terrain and working out where water goes…');
   try {
     const res = await fetch('/api/analyse', {
@@ -319,6 +379,7 @@ async function analyse(bbox) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         bbox, rainfall_mm: Number($('rain').value),
+        region: state.region.name,
         return_period: $('rp').value ? Number($('rp').value) : null,
       }),
     });
@@ -332,6 +393,54 @@ async function analyse(bbox) {
   } finally {
     state.busy = false;
   }
+}
+
+/* The forecast is live and can fail. It is fetched separately from the analysis so that a
+   weather outage costs you the rainfall panel and nothing else. */
+async function loadForecast(bbox) {
+  const el = $('forecast');
+  el.innerHTML = '<span class="muted">checking the forecast…</span>';
+  try {
+    const r = await fetch('/api/forecast', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bbox, hours: 48 }),
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || 'no forecast available');
+    state.forecast = body;
+    renderForecast();
+  } catch (err) {
+    state.forecast = null;
+    el.innerHTML = `<span class="muted">No live forecast (${err.message}). `
+      + 'The rainfall above is a what-if.</span>';
+  }
+}
+
+function renderForecast() {
+  const f = state.forecast;
+  if (!f) return;
+  const windows = Object.entries(f.peaks)
+    .map(([h, p]) => `<button data-mm="${p.mm}" data-h="${h}"
+        class="${state.rainMode === `peak${h}` ? 'on' : ''}">${h} h: ${p.mm} mm</button>`)
+    .join('');
+  $('forecast').innerHTML = `
+    <div class="line"><span class="muted">Forecast next ${f.hours_ahead} h:</span>
+      <span class="num">${f.total_mm} mm</span></div>
+    <div class="windows">${windows}</div>
+    <div class="why">Worst rolling window, not the total — 100 mm in an hour and 100 mm over
+      three days are different events. Point forecast at the centre of the box, not a rainfall
+      field. No return period is inferred from it.</div>`;
+
+  $('forecast').querySelectorAll('button').forEach((b) => {
+    b.onclick = () => {
+      state.rainMode = `peak${b.dataset.h}`;
+      const mm = Math.round(Number(b.dataset.mm));
+      $('rain').value = String(mm);
+      $('rainout').textContent = `${mm} mm · forecast worst ${b.dataset.h} h`;
+      renderForecast();
+      if (state.lastBbox) analyse(state.lastBbox);
+    };
+  });
 }
 
 function render(res) {
@@ -487,7 +596,11 @@ function zoomTo(id) {
   });
 }
 
-$('rain').addEventListener('input', (e) => { $('rainout').textContent = `${e.target.value} mm`; });
+$('rain').addEventListener('input', (e) => {
+  state.rainMode = 'whatif';                       // dragging the slider is a what-if again
+  $('rainout').textContent = `${e.target.value} mm`;
+  renderForecast();
+});
 $('rain').addEventListener('change', () => { if (state.lastBbox) analyse(state.lastBbox); });
 
 window.addEventListener('error', (ev) => {

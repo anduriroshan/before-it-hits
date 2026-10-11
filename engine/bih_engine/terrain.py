@@ -25,6 +25,11 @@ from pyproj import CRS, Transformer
 COPERNICUS_BASE = "https://copernicus-dem-30m.s3.amazonaws.com"
 _NODATA = -9999.0
 
+# DeltaDTM is a coastal model: everything above its ceiling is written as the ceiling itself.
+# Those cells mean "at least this high", so treating the value as a real elevation invents flat
+# plateaus and a ring of false depressions around their edges. They are masked out instead.
+DELTADTM_CAP_M = 30.0
+
 _GDAL_OPTS = {
     "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
     "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif",
@@ -103,6 +108,7 @@ def read_dem(
     base: str | None = None,
     source: str | os.PathLike | None = None,
     despike_m: float | None = 3.0,
+    cap_value: float | None = None,
 ) -> Grid:
     """Read `bbox` (west, south, east, north in degrees) plus `pad_m` of margin onto a UTM grid.
 
@@ -110,6 +116,8 @@ def read_dem(
     read from `base`. Cells that are not finite (-inf/NaN/nodata, e.g. sea) come back as NaN.
     `despike_m` removes isolated low outliers deeper than that below their neighbours (see
     `despike_low`); None turns it off. The number of pixels changed is in `meta["despiked_px"]`.
+    `cap_value` marks the source's ceiling (30.0 for DeltaDTM): those cells carry no usable
+    elevation and become NaN, counted in `meta["capped_px"]`.
 
     The margin lets water that arrives from just outside the box be counted, and keeps
     resampling edge effects out of the box itself.
@@ -173,6 +181,11 @@ def read_dem(
     dem = np.full((height, width), np.nan, dtype=np.float32)
     src_arr = src[0].astype(np.float32)
     src_arr[~np.isfinite(src_arr)] = _NODATA
+    capped = 0
+    if cap_value is not None:
+        at_cap = src_arr == np.float32(cap_value)
+        capped = int(at_cap.sum())
+        src_arr[at_cap] = _NODATA
     despiked = 0
     if despike_m is not None:
         src_arr, despiked = despike_low(src_arr, despike_m)
@@ -202,6 +215,7 @@ def read_dem(
             "bbox": bbox,
             "pad_m": pad_m,
             "despiked_px": despiked,
+            "capped_px": capped,
             "timings": timings,
         },
     )
