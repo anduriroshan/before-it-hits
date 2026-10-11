@@ -1,0 +1,7 @@
+numpy
+scipy
+rasterio
+pyproj
+shapely
+numba
+pytest

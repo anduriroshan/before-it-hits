@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+scratch/
+*.nbi
+*.nbc
+.env
+*.tif
+!plan/**
