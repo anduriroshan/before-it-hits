@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI agents — Before It Hits</title>
+<script>(function(){try{var t=localStorage.getItem('biht-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .boundary { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .boundary > div { padding: 16px 18px; }
+  .boundary .llm { background: var(--ai-soft); }
+  .boundary .eng { background: var(--card); border-left: 1px solid var(--line); }
+  .boundary ul { margin: 6px 0 0; padding-left: 18px; font-size: 13.5px; }
+  @media (max-width: 800px) { .boundary { grid-template-columns: 1fr; } .boundary .eng { border-left: 0; border-top: 1px solid var(--line); } }
+  .trace { display: grid; grid-template-columns: 320px 1fr; gap: 14px; }
+  @media (max-width: 900px) { .trace { grid-template-columns: 1fr; } }
+  .tsteps { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px; max-height: 560px; overflow: auto; }
+  .tstep { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center; padding: 7px 8px; border-radius: 7px; font-size: 13px; cursor: pointer; color: var(--faint); }
+  .tstep.done { color: var(--ink); }
+  .tstep.cur { background: var(--accent-solid); color: #fff; }
+  .tstep .n { font-family: var(--mono); font-size: 11px; }
+  .tstep .t { font-family: var(--mono); font-size: 11px; opacity: .8; }
+  .tdetail { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; min-height: 440px; }
+  .tdetail .who { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .tdetail pre { background: #0f1419; color: #d6deeb; border-radius: 8px; padding: 12px 14px; font: 12px/1.5 var(--mono); overflow: auto; white-space: pre-wrap; margin: 8px 0; }
+  .tdetail .call { font-family: var(--mono); font-size: 12.5px; background: var(--ai-soft); color: var(--ai); padding: 6px 9px; border-radius: 6px; display: inline-block; margin: 2px 0; }
+  .tdetail .call.eng { background: var(--bg); color: var(--ink); }
+  .tctl { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .q-box { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; font-size: 15px; }
+  .q-box .ctx { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+  .acard { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; scroll-margin-top: 70px; }
+  .acard h3 { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .acard .model { font-size: 11.5px; color: var(--muted); font-family: var(--mono); }
+  .acard .tools { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 8px; }
+  .acard .tools code { background: var(--bg); border-radius: 5px; padding: 2px 6px; font-size: 11.5px; }
+  .acard .row { font-size: 13px; margin-top: 6px; }
+  .acard .row b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .acard.none { background: var(--card-alt); border-style: dashed; }
+  pre.code { background: #0f1419; color: #d6deeb; border-radius: 10px; padding: 14px 16px; font: 12.5px/1.55 var(--mono); overflow: auto; }
+  pre.code .c { color: #7f8c98; }
+  .contracts { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+  .contracts pre { margin: 6px 0 0; background: #0f1419; color: #d6deeb; border-radius: 8px; padding: 10px 12px; font: 11.5px/1.5 var(--mono); overflow: auto; max-height: 300px; }
+</style>
+</head>
+<body>
+<main class="page">
+  <div class="eyebrow">AI agents</div>
+  <h1>Fourteen agents, one hard boundary</h1>
+  <p class="lede">Gemini understands the question, reads local-language reporting and documents, writes in Malayalam and English, and checks its own drafts. The engine computes every ranking, count and depth. No number reaches the user unless a tool produced it.</p>
+
+  <div class="boundary">
+    <div class="llm">
+      <h3>Gemini does</h3>
+      <ul>
+        <li>Understand a free-text question about the box you drew</li>
+        <li>Resolve local place names people actually use</li>
+        <li>Read national bulletins, city PDFs and budget rules</li>
+        <li>Read local-language news and judge whether reports describe the same event</li>
+        <li>Check which preparations the city is actually allowed to make, and explain trade-offs</li>
+        <li>Write the briefing and the area messages</li>
+        <li>Check every claim in the draft against the results</li>
+      </ul>
+    </div>
+    <div class="eng">
+      <h3>The engine does — no language model involved</h3>
+      <ul>
+        <li>Read the elevation for the box</li>
+        <li>Fill depressions, compute flow direction and accumulation</li>
+        <li>Rank pooling spots and their contributing area</li>
+        <li>Clip the official hazard layer</li>
+        <li>Count who is nearby and which routes are affected</li>
+        <li>Rank preparations by coverage per rupee</li>
+        <li>Same box + same seed → same answer, every time</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>One question, traced</h2>
+  <div class="q-box">
+    <span class="ctx">Ward officer, Kochi — drew a 5.2 km² box over Edappally, 14:05</span>
+    “Which parts of this area collect water first, and what should we clear before the season?”
+  </div>
+  <div class="tctl">
+    <button class="btn primary" id="play">▶ Play</button>
+    <button class="btn" id="prev">‹ Back</button>
+    <button class="btn" id="next">Next ›</button>
+    <span class="small muted" id="clock"></span>
+  </div>
+  <div class="trace">
+    <div class="tsteps" id="tsteps"></div>
+    <div class="tdetail" id="tdetail"></div>
+  </div>
+
+  <h2>Runtime agents — answer a question</h2>
+  <div class="grid g3" id="runtime"></div>
+  <h2>Push agent — prepares a briefing before anyone asks</h2>
+  <div class="grid g3" id="push"></div>
+  <h2>Harness agents — generate the mess we must survive</h2>
+  <p class="muted small">These exist only inside the test harness. They never decide what physically happens — the world state is computed in code from a fixed seed, and these agents only describe and distort it.</p>
+  <div class="grid g3" id="harness"></div>
+  <h2>Build-time agents — onboard a region</h2>
+  <div class="grid g3" id="build"></div>
+
+  <h2>Contracts between agents and tools</h2>
+  <p class="muted small">Every hand-off is a typed object. The Verifier checks the final text against these, not against what an agent remembers saying.</p>
+  <div class="contracts" id="contracts"></div>
+
+  <h2>Models</h2>
+  <div class="tablewrap"><table class="t" id="models"></table></div>
+
+  <h2>How it composes in ADK (sketch)</h2>
+  <pre class="code"><span class="c"># Python ADK — structure sketch, not final code</span>
+scenario = LlmAgent(name="scenario", model=FLASH, tools=[area_bounds, gazetteer_lookup], output_key="spec")
+forecast = LlmAgent(name="forecast", model=FLASH, tools=[weather_forecast, agency_bulletin, return_period], output_key="forcing")
+analyse  = FunctionTool(analyse_area)      <span class="c"># engine: terrain → fill → flow → pooling index. deterministic</span>
+official = FunctionTool(official_layer)    <span class="c"># engine: clip KSDMA raster by return period. display as published</span>
+news     = LlmAgent(name="news", model=FLASH, tools=[gdelt_search, dedupe_clusters], output_key="reporting")
+planner  = LlmAgent(name="planner", model=PRO, tools=[rank_preparations, capability_notes], output_key="plan")
+narrator = LlmAgent(name="narrator", model=FLASH, instruction=NARRATE, output_key="draft")
+verifier = LlmAgent(name="verifier", model=PRO, tools=[extract_claims, results_bundle, data_honesty, approve])
+write    = LoopAgent(name="write_and_check", sub_agents=[narrator, verifier], max_iterations=3)
+
+coordinator = LlmAgent(
+    name="coordinator", model=PRO,
+    instruction=("Never state a number yourself. Every figure must come from a tool result. "
+                 "Never describe output as a forecast, a depth, or an instruction to dispatch."),
+    tools=[AgentTool(scenario), AgentTool(forecast), analyse, official,
+           AgentTool(news), AgentTool(planner), AgentTool(write)],
+)
+<span class="c"># The grounded news panel is rendered client-side and never persisted — licence requirement.</span></pre>
+</main>
+
+<script src="assets/common.js"></script>
+<script src="assets/data.js"></script>
+<script>
+(function () {
+  const { el, byId } = UI;
+  const P = PLAN;
+  const MODEL = {
+    pro: 'Gemini 3.1 Pro (preview) · fallback 2.5 Pro',
+    flash: 'Gemini 3.8 Flash',
+    none: 'no model — deterministic',
+  };
+
+  const STEPS = [
+    { a: 'A1', t: 0.4, title: 'Coordinator receives box + question', calls: [], out: 'New session. Box is 5.2 km², centred on Edappally. → ask Scenario to build the spec.' },
+    { a: 'A2', t: 1.3, title: 'Scenario builds the spec', calls: ['area_bounds(box) → 76.27,9.96 → 76.32,10.01', 'gazetteer_lookup("Edappally") → confirms the box covers it'],
+      json: { bbox: [76.27, 9.96, 76.32, 10.01], area_km2: 5.2, hazard: 'flood', mode: 'forecast', terrain: { source: 'DeltaDTM', profile: 'coastal-low', mae_m: 0.45 }, validated_layer: 'KSDMA (Kerala)', audience: 'officer' } },
+    { a: 'A3', t: 1.9, title: 'Forecast builds the rainfall figure', calls: ['weather_forecast(bbox, 48h)', 'return_period(92mm, 2h) → ~1-in-25-year'],
+      out: 'Expected peak ~92 mm in 2 h. Closest KSDMA return period: 1-in-25-year. Both the figure and the mapping are shown to the user — we do not silently pick one.' },
+    { a: 'A4', t: 3.6, eng: true, title: 'analyse_area', calls: ['analyse_area(bbox, rainfall)'],
+      out: 'Windowed terrain read 2.4 s · resample to 10 m (228×241 cells) · burn buildings and roads · fill depressions 0.4 s · rank by contributing area. 31 depressions found; 6 at pooling index 5. Confidence: terrain weak, drains gap.' },
+    { a: 'A4', t: 0.5, eng: true, title: 'official_layer', calls: ['official_layer(bbox, "1-in-25-year")'],
+      out: 'KSDMA raster clipped to the box and displayed as published. Four of our six top-ranked spots fall inside its high-depth zone — shown side by side, not merged.' },
+    { a: 'A4', t: 0.6, eng: true, title: 'exposure + routes_affected', calls: ['exposure(areas)', 'routes_affected(bbox)'],
+      out: 'About 900 residents in the two worst-affected wards. Two segments of the Seaport–Airport road cross top-ranked pooling spots.' },
+    { a: 'A13', t: 2.4, title: 'News gathers reporting', calls: ['gdelt_search("Edappally OR Kochi flood", 72h)', 'dedupe_clusters() → 3 clusters from 11 articles'],
+      out: '3 distinct story clusters. One cluster rejected: first seen Aug 2018, resurfacing now — exactly the recycled-footage failure mode. Grounded live panel rendered separately and never stored.' },
+    { a: 'A5', t: 3.4, title: 'Planner ranks preparations', calls: ['rank_preparations(results, capabilities)', 'capability_notes("kochi")'],
+      out: '9 candidates → 5 chosen within the ₹5 crore preparedness line. Top: clear the outlet drain serving the highest-ranked pooling spot. Dropped: road raising — capital work, outside this budget line.' },
+    { a: 'A6', t: 2.5, title: 'Narrator drafts', calls: ['results bundle (read-only)'], out: 'Officer briefing in English; area messages in Malayalam naming Edappally and the junction.' },
+    { a: 'A7', t: 1.9, title: 'Verifier checks the draft', calls: ['extract_claims(draft) → 19 claims'],
+      out: '18 trace cleanly. One fails: the draft wrote “water will reach 40 cm here”, which our model never produced — that figure only exists in the KSDMA layer for a different return period. → sent back.', fail: true },
+    { a: 'A6', t: 1.1, title: 'Narrator revises', calls: [], out: '“This junction is the first place water collects in the area — about 3 hectares drain into it.” No depth claimed from our own model.' },
+    { a: 'A7', t: 1.2, title: 'Verifier passes', calls: ['extract_claims(draft) → 19 claims'], out: '19 of 19 traced. Screening caveat present. Drainage-gap note present. → approved.' },
+    { a: 'A1', t: 0.3, title: 'Answer returned', calls: [], out: 'Map layers (pooling spots, fill order, official layer, affected routes), preparations with before/after, briefing, messages. Full trace saved.' },
+  ];
+
+  const A = byId(P.agents);
+  let cur = -1, timer = null;
+  const tsteps = document.getElementById('tsteps'), det = document.getElementById('tdetail');
+  const total = STEPS.reduce((s, x) => s + x.t, 0);
+
+  function drawList() {
+    tsteps.innerHTML = '';
+    let acc = 0;
+    STEPS.forEach((s, i) => {
+      acc += s.t;
+      tsteps.appendChild(el('div', { class: 'tstep' + (i < cur ? ' done' : '') + (i === cur ? ' cur' : ''), onclick: () => { stop(); go(i); } }, [
+        el('span', { class: 'n', text: String(i + 1).padStart(2, '0') }),
+        el('span', { text: (s.eng ? '⚙ ' : '') + s.title }),
+        el('span', { class: 't', text: acc.toFixed(1) + 's' }),
+      ]));
+    });
+  }
+  function go(i) {
+    cur = Math.max(-1, Math.min(STEPS.length - 1, i));
+    drawList();
+    if (cur < 0) { det.innerHTML = '<p class="muted">Press play, or click a step.</p>'; document.getElementById('clock').textContent = ''; return; }
+    const s = STEPS[cur], a = A[s.a];
+    const acc = STEPS.slice(0, cur + 1).reduce((x, y) => x + y.t, 0);
+    document.getElementById('clock').textContent = `t = ${acc.toFixed(1)} s of ~${total.toFixed(0)} s · streamed to the screen as it happens`;
+    det.innerHTML = '';
+    det.appendChild(el('div', { class: 'who' }, [
+      el('span', { class: 'badge ' + (s.eng ? '' : 'ai'), text: a.name }),
+      el('span', { class: 'tiny muted mono', text: MODEL[a.tier] }),
+    ]));
+    det.appendChild(el('h3', { text: s.title }));
+    s.calls.forEach((c) => det.appendChild(el('div', null, el('span', { class: 'call' + (s.eng ? ' eng' : ''), text: c }))));
+    if (s.json) det.appendChild(el('pre', { text: JSON.stringify(s.json, null, 2) }));
+    if (s.out) det.appendChild(el('div', { class: 'note ' + (s.fail ? 'stop' : 'go'), style: 'margin-top:10px', text: s.out }));
+  }
+  function stop() { clearInterval(timer); timer = null; document.getElementById('play').textContent = '▶ Play'; }
+  document.getElementById('play').onclick = () => {
+    if (timer) return stop();
+    if (cur >= STEPS.length - 1) cur = -1;
+    document.getElementById('play').textContent = '❚❚ Pause';
+    go(cur + 1);
+    timer = setInterval(() => { if (cur >= STEPS.length - 1) return stop(); go(cur + 1); }, 1600);
+  };
+  document.getElementById('next').onclick = () => { stop(); go(cur + 1); };
+  document.getElementById('prev').onclick = () => { stop(); go(cur - 1); };
+  go(0);
+
+  function card(a) {
+    return el('div', { class: 'acard' + (a.tier === 'none' ? ' none' : ''), id: a.id }, [
+      el('h3', null, [el('span', { text: a.name }), el('span', { class: 'model', text: MODEL[a.tier] })]),
+      el('div', { class: 'small', text: a.role }),
+      el('div', { class: 'tools' }, a.tools.map((t) => el('code', { text: t }))),
+      el('div', { class: 'row' }, [el('b', { text: a.tier === 'none' ? 'Why no model' : 'Why it needs Gemini' }), a.whyLLM]),
+      el('div', { class: 'row' }, [el('b', { text: 'Guard' }), a.guard]),
+    ]);
+  }
+  const bucket = { runtime: 'runtime', push: 'push', harness: 'harness', build: 'build' };
+  P.agents.forEach((a) => document.getElementById(bucket[a.when] || 'build').appendChild(card(a)));
+
+  const ct = document.getElementById('contracts');
+  P.contracts.forEach((c) => ct.appendChild(el('div', { class: 'card tight' }, [
+    el('h3', { text: c.name }), el('div', { class: 'tiny muted', text: 'produced by ' + c.from }),
+    el('pre', { text: JSON.stringify(c.json, null, 2) }),
+  ])));
+
+  const mt = document.getElementById('models');
+  mt.appendChild(el('tr', null, [el('th', { text: 'Tier' }), el('th', { text: 'Model (11 Oct 2026)' }), el('th', { text: 'Used by' }), el('th', { text: 'Why' })]));
+  [
+    ['pro', 'Reasoning over results and checking claims — where a mistake would reach an officer.'],
+    ['flash', 'High volume: parsing, news, documents, writing in two languages. Fast and cheap.'],
+    ['none', 'Terrain physics, counting, ranking.'],
+  ].forEach(([t, why]) => mt.appendChild(el('tr', null, [
+    el('td', { class: 'rowhead', text: t === 'none' ? 'Engine' : t === 'pro' ? 'Pro tier' : 'Flash tier' }),
+    el('td', { class: 'mono', text: MODEL[t] }),
+    el('td', { text: P.agents.filter((a) => a.tier === t).map((a) => a.name).join(', ') }),
+    el('td', { class: 'muted', text: why }),
+  ])));
+})();
+</script>
+</body>
+</html>

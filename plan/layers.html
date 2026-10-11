@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Layers & elevation — Before It Hits</title>
+<script>(function(){try{var t=localStorage.getItem('biht-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .ladder { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+  @media (max-width: 1000px) { .ladder { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  /* Light islands: these cards mix a schematic SVG (colors tuned for a light
+     canvas) with real caption/control text, so the theme variables are pinned
+     to their light values for everything inside, independent of page theme. */
+  .rung, .xs-wrap {
+    --ink: #1b1f24; --muted: #5b6470; --faint: #8a929c; --line: #e3e6ea; --line-strong: #cfd4da;
+    --card: #ffffff; --card-alt: #fbfbfc; background: #fff; color: var(--ink);
+  }
+  .rung { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .rung svg { display: block; width: 100%; height: auto; background: #f3f5f8; }
+  .rung .cap { padding: 9px 11px 11px; font-size: 12.5px; }
+  .rung .cap b { display: block; font-size: 13px; }
+  .rung .cap .who { color: var(--faint); font-size: 11.5px; margin: 2px 0 5px; }
+  .rung .cap .say { font-style: italic; color: var(--muted); }
+  .rung.ours { border-color: var(--ink); }
+  .rung.ours .cap b::after { content: "  ← we report here"; color: var(--act); font-weight: 600; font-size: 11px; }
+  .rung.dropped { opacity: .62; }
+  .rung.dropped .cap b::after { content: "  ← not claimed"; color: var(--gap); font-weight: 600; font-size: 11px; }
+  .xs-wrap { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .xs-controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 8px; }
+  .xs-controls input[type=range] { width: 220px; vertical-align: middle; }
+  .readout { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+  .readout .card { padding: 10px 12px; }
+  .readout .big { font-size: 22px; font-weight: 700; }
+  .lgroup { margin-top: 26px; }
+  .lgroup h3 { display: flex; align-items: center; gap: 8px; }
+  .lgroup h3 .bar { width: 4px; height: 18px; border-radius: 2px; display: inline-block; }
+  .lcard { display: grid; grid-template-columns: 54px 1fr 1fr 1.1fr; gap: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; font-size: 13.5px; }
+  .lcard:target { outline: 2px solid var(--ink); }
+  .lcard .lid { font-family: var(--mono); color: var(--faint); font-size: 12px; padding-top: 2px; }
+  .lcard h4 { margin: 0 0 3px; font-size: 11px; }
+  .lcard .lname { font-weight: 600; font-size: 14.5px; margin-bottom: 4px; }
+  @media (max-width: 900px) { .lcard { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main class="page">
+  <div class="eyebrow">Layers & elevation</div>
+  <h1>Getting down to the street — and why height is the hard part</h1>
+  <p class="lede">The same neighbourhood at six resolutions. Existing tools stop at the first two. We report at the middle two — the ward and the pooling spot. The last two are where we deliberately stop: buildings shape the model but we make no claim about them, and the household level was dropped in review because the data to support it does not exist.</p>
+
+  <h2>The resolution ladder</h2>
+  <div class="ladder" id="ladder"></div>
+
+  <h2 id="elevation">Why terrain height decides whether street flooding is believable</h2>
+  <p class="muted" style="max-width:900px">
+    Street flooding that matters is 15–60 cm deep. A global 30 m terrain model averages a whole stretch of road into one value
+    and carries height errors measured in metres. A short dip — an underpass, a low junction — can disappear entirely. Drag the rain
+    and switch the terrain source: the same rain gives different water depths on the same street.
+  </p>
+  <div class="xs-wrap">
+    <div class="xs-controls">
+      <span class="small muted">Terrain source</span><span id="demSeg"></span>
+      <span class="small muted">Rain in 3 hours</span>
+      <input type="range" id="rain" min="0" max="150" value="60"><b id="rainV"></b>
+      <label class="small"><input type="checkbox" id="showTrue" checked> show true ground</label>
+    </div>
+    <svg id="xs" viewBox="0 0 1000 300" style="width:100%;height:auto"></svg>
+    <div class="legend">
+      <span><i class="sw" style="background:#8a6d3b"></i>true ground (what the street really does)</span>
+      <span><i class="sw" style="background:#1b1f24"></i>what the chosen terrain model sees</span>
+      <span><i class="sw" style="background:rgba(27,31,36,.12)"></i>its height error band</span>
+      <span><i class="sw" style="background:#5b8def"></i>ponded water</span>
+      <span><i class="sw" style="background:#cfd4da"></i>buildings (removed for a bare-earth model)</span>
+    </div>
+    <div class="readout" id="readout"></div>
+    <p class="tiny muted" style="margin-top:8px">Illustrative profile. Error bands are indicative; source-specific accuracy figures are on the Cities page.</p>
+  </div>
+  <div class="grid g3" style="margin-top:14px">
+    <div class="note go"><b>Why ranking still works.</b> The error is spatially correlated over distances larger than a city block, so <i>which</i> spot is lowest survives even when <i>how deep</i> does not. That is the whole basis of the screening tier.</div>
+    <div class="note warn"><b>DTM, not DSM.</b> Surface models include rooftops and trees. Water runs on bare earth. This is why DeltaDTM is the default and Copernicus GLO-30 is only a flagged fallback — in a surface model, buildings become hills and narrow roads vanish.</div>
+    <div class="note stop"><b>What we say on screen, every time.</b> “30 m terrain screening, not a flood forecast. Relative ranking only.” Never a centimetre figure from our own model — only from the official KSDMA layer, which is not our output.</div>
+  </div>
+
+  <h2>The layer stack</h2>
+  <p class="muted small">Eighteen layers. Each says what we need, what we fall back to when a city doesn’t have it, and which features read it. City-by-city sources are on the <a href="cities.html">Cities</a> page.</p>
+  <div id="stack"></div>
+</main>
+
+<script src="assets/common.js"></script>
+<script src="assets/data.js"></script>
+<script>
+(function () {
+  const { el, svg, seg, byId, clamp } = UI;
+  const P = PLAN;
+
+  /* ---------------- resolution ladder ---------------- */
+  const wet = (x, y) => {
+    const valley = Math.exp(-Math.pow((y - (0.25 + 0.55 * x)) / 0.09, 2));
+    const pond = Math.exp(-(Math.pow(x - 0.66, 2) + Math.pow(y - 0.62, 2)) / 0.012);
+    return clamp(0.75 * valley + 0.9 * pond - 0.08, 0, 1);
+  };
+  const blue = (v) => {
+    const t = clamp(v, 0, 1);
+    const a = [233, 238, 245], b = [30, 64, 175];
+    return `rgb(${a.map((c, i) => Math.round(c + (b[i] - c) * t)).join(',')})`;
+  };
+  const meanWet = (x0, y0, x1, y1) => {
+    let s = 0, n = 0;
+    for (let x = x0; x < x1; x += 0.02) for (let y = y0; y < y1; y += 0.02) { s += wet(x, y); n++; }
+    return s / n;
+  };
+  const S = 180;
+  const N = 8;
+  const r = UI.rng(7);
+  const blocks = [];
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+    const x0 = i / N, y0 = j / N, w = 1 / N;
+    for (let k = 0; k < 4; k++) {
+      const bx = x0 + 0.012 + (k % 2) * w * 0.48 + r() * 0.01, by = y0 + 0.012 + Math.floor(k / 2) * w * 0.48 + r() * 0.01;
+      blocks.push({ x: bx, y: by, w: w * 0.36, h: w * 0.36 });
+    }
+  }
+  const segs = [];
+  for (let i = 0; i <= N; i++) for (let j = 0; j < N; j++) {
+    segs.push({ x1: i / N, y1: j / N, x2: i / N, y2: (j + 1) / N });
+    segs.push({ x1: j / N, y1: i / N, x2: (j + 1) / N, y2: i / N });
+  }
+
+  function panel(kind) {
+    const s = svg('svg', { viewBox: `0 0 ${S} ${S}` });
+    const P2 = (v) => v * S;
+    if (kind === 1) {
+      s.appendChild(svg('rect', { x: 0, y: 0, width: S, height: S, fill: blue(meanWet(0, 0, 1, 1)) }));
+      s.appendChild(svg('text', { x: S / 2, y: S / 2 + 4, 'text-anchor': 'middle', 'font-size': 11, fill: '#1b1f24', text: '1 pixel' }));
+    } else if (kind === 2 || kind === 3) {
+      const nx = kind === 2 ? 2 : 4, ny = kind === 2 ? 2 : 3;
+      for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
+        s.appendChild(svg('rect', { x: P2(i / nx), y: P2(j / ny), width: P2(1 / nx), height: P2(1 / ny),
+          fill: blue(meanWet(i / nx, j / ny, (i + 1) / nx, (j + 1) / ny)), stroke: '#fff', 'stroke-width': 1.5 }));
+      }
+    } else if (kind === 4 || kind === 5) {
+      blocks.forEach((b) => {
+        const w = wet(b.x + b.w / 2, b.y + b.h / 2);
+        s.appendChild(svg('rect', { x: P2(b.x), y: P2(b.y), width: P2(b.w), height: P2(b.h),
+          fill: kind === 5 ? '#cfd6de' : '#e2e5ea', stroke: kind === 5 ? '#b6bfc9' : 'none', 'stroke-width': 0.5 }));
+      });
+      segs.forEach((g) => {
+        const w = wet((g.x1 + g.x2) / 2, (g.y1 + g.y2) / 2);
+        s.appendChild(svg('line', { x1: P2(g.x1), y1: P2(g.y1), x2: P2(g.x2), y2: P2(g.y2),
+          stroke: w > 0.08 ? blue(0.25 + w) : '#ffffff', 'stroke-width': w > 0.08 ? 3.2 : 2.4, 'stroke-linecap': 'round' }));
+      });
+    } else if (kind === 6) {
+      s.appendChild(svg('rect', { x: 0, y: 150, width: S, height: 30, fill: '#cbbfa8' }));
+      s.appendChild(svg('rect', { x: 0, y: 140, width: S, height: 14, fill: '#5b8def', opacity: 0.85 }));
+      const floors = 5, fh = 24, bx = 16, bw = 78;
+      for (let f = 0; f < floors; f++) {
+        const y = 150 - (f + 1) * fh;
+        s.appendChild(svg('rect', { x: bx, y, width: bw, height: fh - 2, fill: '#e5e8ec', stroke: '#fff' }));
+      }
+      s.appendChild(svg('path', { d: `M${bx - 6} ${150 - floors * fh} L${bx + bw / 2} ${150 - floors * fh - 14} L${bx + bw + 6} ${150 - floors * fh}`, fill: '#9aa3ad' }));
+      const lx = bx + bw + 10;
+      s.appendChild(svg('text', { x: lx, y: 128, 'font-size': 10, fill: '#8a929c', text: 'plinth height:' }));
+      s.appendChild(svg('text', { x: lx, y: 140, 'font-size': 10.5, 'font-weight': 700, fill: '#b42318', text: 'unknown' }));
+      s.appendChild(svg('text', { x: lx, y: 150 - floors * fh + 12, 'font-size': 10, fill: '#8a929c', text: 'roof & floors:' }));
+      s.appendChild(svg('text', { x: lx, y: 150 - floors * fh + 24, 'font-size': 10.5, 'font-weight': 700, fill: '#b42318', text: 'unknown' }));
+      s.appendChild(svg('line', { x1: bx - 10, y1: 150 - floors * fh - 18, x2: bx + bw + 6, y2: 156, stroke: '#b42318', 'stroke-width': 2, opacity: 0.55 }));
+    }
+    return s;
+  }
+
+  const rungs = [
+    [1, '20 km grid cell', 'Global flood models', '“Heavy rain in the city.”', ''],
+    [2, 'Postal code / district', 'Population foundation models', '“District 3: high risk.”', ''],
+    [3, 'Ward / small area', 'Before It Hits — who is nearby', '“About 900 residents in the two worst-hit wards.”', 'ours'],
+    [4, 'Pooling spot · street', 'Before It Hits — where water collects', '“This junction is the low point; 3 ha drain into it.”', 'ours'],
+    [5, 'Building', 'Context only — routes water, spreads people', '“Used to shape the model. No claim made about it.”', 'dropped'],
+    [6, 'Household · floor', 'Dropped in review', '“Needs roof and plinth data that does not exist.”', 'dropped'],
+  ];
+  const ladder = document.getElementById('ladder');
+  rungs.forEach(([k, b, who, say, kind]) => ladder.appendChild(el('div', { class: 'rung' + (kind ? ' ' + kind : '') }, [
+    panel(k), el('div', { class: 'cap' }, [el('b', { text: b }), el('div', { class: 'who', text: who }), el('div', { class: 'say', text: say })]),
+  ])));
+
+  /* ---------------- elevation cross-section ---------------- */
+  const LEN = 400;
+  const trueZ = new Float64Array(LEN + 1);
+  for (let s = 0; s <= LEN; s++) {
+    trueZ[s] = 3.2 - 0.0035 * s + 0.08 * Math.sin(s / 13) + 0.05 * Math.sin(s / 5.3)
+      - 1.25 * Math.exp(-Math.pow((s - 238) / 17, 2)) - 0.35 * Math.exp(-Math.pow((s - 110) / 9, 2));
+  }
+  const DEMS = {
+    lidar: { label: 'LiDAR 1 m (Manila, if access granted)', res: 1, err: 0.2, bias: 0 },
+    delta: { label: 'DeltaDTM 30 m (coastal cities)', res: 30, err: 0.45, bias: 0.15 },
+    national: { label: 'National DEM ~8 m (DEMNAS)', res: 8, err: 1.8, bias: 0.5 },
+    global: { label: 'Global 30 m (GEDTM30 / Copernicus)', res: 30, err: 3.0, bias: 0.7 },
+  };
+  let dem = 'global';
+  const sample = (key) => {
+    const d = DEMS[key], out = new Float64Array(LEN + 1);
+    for (let s = 0; s <= LEN; s++) {
+      const b0 = Math.floor(s / d.res) * d.res, b1 = Math.min(LEN, b0 + d.res);
+      let m = 0, n = 0;
+      for (let k = b0; k <= b1; k++) { m += trueZ[k]; n++; }
+      out[s] = m / n + d.bias * Math.sin((b0 + 7) / 41);
+    }
+    return out;
+  };
+  function pond(z, W) {
+    let iMin = 0;
+    for (let s = 150; s <= 330; s++) if (z[s] < z[iMin] || iMin < 150) iMin = s;
+    const zmin = z[iMin];
+    const vol = (h) => {
+      let v = 0, a = iMin, b = iMin;
+      while (a > 0 && z[a - 1] < h) a--;
+      while (b < LEN && z[b + 1] < h) b++;
+      for (let s = a; s <= b; s++) v += Math.max(0, h - z[s]);
+      return { v, a, b };
+    };
+    if (W <= 0) return { h: zmin, zmin, a: iMin, b: iMin };
+    let lo = zmin, hi = zmin + 4;
+    for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (vol(m).v < W) lo = m; else hi = m; }
+    const r = vol(lo);
+    return { h: lo, zmin, a: r.a, b: r.b, iMin };
+  }
+
+  const X = (s) => 30 + (s / LEN) * 940;
+  const Y = (z) => 250 - (z - (-0.5)) * 48;
+  const xs = document.getElementById('xs');
+
+  function drawXS() {
+    const rain = +document.getElementById('rain').value;
+    document.getElementById('rainV').textContent = rain + ' mm';
+    const W = (rain / 1000) * 300 * 0.8;
+    const z = sample(dem), d = DEMS[dem];
+    const showTrue = document.getElementById('showTrue').checked;
+    xs.innerHTML = '';
+    for (let m = 0; m <= 4; m++) {
+      xs.appendChild(svg('line', { x1: 30, x2: 970, y1: Y(m), y2: Y(m), stroke: '#eef0f3' }));
+      xs.appendChild(svg('text', { x: 4, y: Y(m) + 4, 'font-size': 10, fill: '#8a929c', text: m + ' m' }));
+    }
+    [[40, 26, 30], [80, 18, 46], [150, 30, 38], [300, 22, 52], [350, 32, 34]].forEach(([s0, w, hgt]) => {
+      xs.appendChild(svg('rect', { x: X(s0), y: Y(trueZ[s0]) - hgt, width: X(s0 + w) - X(s0), height: hgt, fill: '#e3e6ea' }));
+    });
+    let band = '';
+    for (let s = 0; s <= LEN; s += 2) band += `${s ? 'L' : 'M'}${X(s)} ${Y(z[s] + d.err)} `;
+    for (let s = LEN; s >= 0; s -= 2) band += `L${X(s)} ${Y(z[s] - d.err)} `;
+    xs.appendChild(svg('path', { d: band + 'Z', fill: 'rgba(27,31,36,.08)' }));
+
+    const pT = pond(trueZ, W), pD = pond(z, W);
+    if (pD.h > pD.zmin + 0.005) {
+      let wpath = `M${X(pD.a)} ${Y(pD.h)} `;
+      for (let s = pD.a; s <= pD.b; s++) wpath += `L${X(s)} ${Y(Math.min(pD.h, z[s]))} `;
+      wpath += `L${X(pD.b)} ${Y(pD.h)} Z`;
+      xs.appendChild(svg('path', { d: wpath, fill: '#5b8def', opacity: 0.75 }));
+    }
+    if (showTrue) {
+      let tp = '';
+      for (let s = 0; s <= LEN; s++) tp += `${s ? 'L' : 'M'}${X(s)} ${Y(trueZ[s])} `;
+      xs.appendChild(svg('path', { d: tp, fill: 'none', stroke: '#8a6d3b', 'stroke-width': 2, 'stroke-dasharray': '5 3' }));
+      if (pT.h > pT.zmin + 0.005) xs.appendChild(svg('line', { x1: X(pT.a), x2: X(pT.b), y1: Y(pT.h), y2: Y(pT.h), stroke: '#8a6d3b', 'stroke-width': 1.5 }));
+    }
+    let dp = '';
+    for (let s = 0; s <= LEN; s++) dp += `${s ? 'L' : 'M'}${X(s)} ${Y(z[s])} `;
+    xs.appendChild(svg('path', { d: dp, fill: 'none', stroke: '#1b1f24', 'stroke-width': 2.2 }));
+    xs.appendChild(svg('text', { x: X(238), y: Y(trueZ[238]) + 26, 'text-anchor': 'middle', 'font-size': 11, fill: '#5b6470', text: 'underpass / low junction' }));
+    xs.appendChild(svg('text', { x: 30, y: 292, 'font-size': 10, fill: '#8a929c', text: '0 m' }));
+    xs.appendChild(svg('text', { x: 970, y: 292, 'text-anchor': 'end', 'font-size': 10, fill: '#8a929c', text: '400 m along the street' }));
+
+    const tDepth = Math.max(0, pT.h - pT.zmin), dDepth = Math.max(0, pD.h - pD.zmin);
+    const cls = (m) => (m < 0.05 ? 'dry' : m < 0.15 ? 'ankle' : m < 0.45 ? 'knee' : 'waist+');
+    const ro = document.getElementById('readout');
+    ro.innerHTML = '';
+    ro.appendChild(el('div', { class: 'card' }, [el('div', { class: 'tiny muted', text: 'True depth at the low point' }), el('div', { class: 'big', text: tDepth.toFixed(2) + ' m' }), el('div', { class: 'small', text: cls(tDepth) })]));
+    ro.appendChild(el('div', { class: 'card' }, [el('div', { class: 'tiny muted', text: d.label + ' says' }), el('div', { class: 'big', text: dDepth.toFixed(2) + ' m' }), el('div', { class: 'small', text: cls(dDepth) + (cls(dDepth) !== cls(tDepth) ? ' — wrong class' : ' — right class') })]));
+    ro.appendChild(el('div', { class: 'card' }, [el('div', { class: 'tiny muted', text: 'Height error of this source' }), el('div', { class: 'big', text: '± ' + d.err.toFixed(2) + ' m' }), el('div', { class: 'small', text: d.err > 0.45 ? 'Bigger than the flood depth we care about' : 'Smaller than the flood depth we care about' })]));
+  }
+  document.getElementById('demSeg').appendChild(seg(Object.entries(DEMS).map(([k, v]) => [k, v.label]), dem, (v) => { dem = v; drawXS(); }));
+  document.getElementById('rain').oninput = drawXS;
+  document.getElementById('showTrue').onchange = drawXS;
+  drawXS();
+
+  /* ---------------- layer stack ---------------- */
+  const usedBy = {};
+  P.features.forEach((f) => f.layers.forEach((l) => (usedBy[l] = usedBy[l] || []).push(f.id)));
+  const F = byId(P.features), Lb = byId(P.layers);
+  const stack = document.getElementById('stack');
+  P.layerGroups.forEach((g) => {
+    const ls = P.layers.filter((l) => l.group === g.id);
+    if (!ls.length) return;
+    const box = el('div', { class: 'lgroup' }, el('h3', null, [el('span', { class: 'bar', style: 'background:' + g.color }), g.name]));
+    ls.forEach((l) => box.appendChild(el('div', { class: 'lcard', id: l.id }, [
+      el('div', { class: 'lid', text: l.id }),
+      el('div', null, [el('div', { class: 'lname', text: l.name }), el('span', { class: 'badge type', text: l.type }), el('p', { class: 'small muted', style: 'margin-top:6px', text: l.why })]),
+      el('div', null, [el('h4', { text: 'We need' }), el('div', { text: l.need }),
+        l.from ? [el('h4', { style: 'margin-top:8px', text: 'Built from' }), el('div', { class: 'chips' }, l.from.map((x) => el('a', { class: 'badge', href: '#' + x, text: x + ' ' + Lb[x].name })))]
+          : [el('h4', { style: 'margin-top:8px', text: 'Fallback when a city lacks it' }), el('div', { class: 'muted', text: l.fallback })]].flat()),
+      el('div', null, [el('h4', { text: 'Read by' }), (usedBy[l.id] || []).length
+        ? el('div', { class: 'chips' }, usedBy[l.id].map((f) => el('a', { class: 'badge', href: 'features.html#' + f, text: f + ' ' + F[f].name })))
+        : el('div', { class: 'muted small', text: 'Display only' })]),
+    ])));
+    stack.appendChild(box);
+  });
+})();
+</script>
+</body>
+</html>

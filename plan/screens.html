@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Product screens — Before It Hits</title>
+<script>(function(){try{var t=localStorage.getItem('biht-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .app { background: var(--card); border: 1px solid var(--line-strong); border-radius: 14px; overflow: hidden; box-shadow: 0 10px 30px rgba(15, 20, 25, .06); }
+  .chrome { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--card-alt); }
+  .chrome .logo { font-weight: 800; letter-spacing: -.01em; margin-right: 4px; }
+  .chrome .spacer { flex: 1; }
+  .conf { display: flex; gap: 5px; align-items: center; font-size: 12px; color: var(--muted); }
+  .body3 { display: grid; grid-template-columns: 300px minmax(0, 1fr) 340px; min-height: 650px; }
+  @media (max-width: 1200px) { .body3 { grid-template-columns: 1fr; } }
+  .left, .right { padding: 12px 14px; font-size: 13px; overflow: auto; max-height: 760px; }
+  .left { border-right: 1px solid var(--line); background: var(--card-alt); display: flex; flex-direction: column; gap: 10px; }
+  .right { border-left: 1px solid var(--line); }
+  .bubble { background: var(--accent-solid); color: #fff; border-radius: 12px 12px 3px 12px; padding: 9px 11px; align-self: flex-end; max-width: 95%; }
+  .bubble .tr { display: block; opacity: .68; font-size: 11.5px; margin-top: 4px; }
+  .steps-mini { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .steps-mini div { display: grid; grid-template-columns: 16px 1fr; gap: 6px; padding: 3px 0; font-size: 12px; }
+  .steps-mini div span:first-child { color: var(--act); font-weight: 700; }
+  .answer { background: var(--card); border: 1px solid var(--line); border-radius: 12px 12px 12px 3px; padding: 10px 12px; line-height: 1.5; }
+  .inputbox { margin-top: auto; border: 1px solid var(--line-strong); border-radius: 10px; padding: 9px 11px; color: var(--faint); background: var(--card); }
+  .mapcol { position: relative; display: flex; flex-direction: column; }
+  .mapcol svg { width: 100%; height: auto; display: block; background: #eef1f5; }
+  .maphead { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; font-size: 12.5px; }
+  .seqbar { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--line); }
+  .seqbar input { width: 100%; }
+  .seqlab { font-size: 12px; color: var(--muted); padding: 0 12px 8px; }
+  .maplegend { padding: 0 12px 10px; }
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: -12px -14px 12px; padding: 0 6px; position: sticky; top: -12px; background: var(--card); z-index: 2; flex-wrap: wrap; }
+  .tabs button { border: 0; background: none; padding: 10px 8px; font: inherit; font-size: 12.5px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; }
+  .tabs button.on { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .kpi { border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; }
+  .kpi .v { font-size: 21px; font-weight: 750; line-height: 1.1; }
+  .kpi .l { font-size: 11.5px; color: var(--muted); }
+  .spot { border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; margin-bottom: 6px; display: grid; grid-template-columns: 26px 1fr auto; gap: 9px; align-items: start; cursor: pointer; }
+  .spot:hover { border-color: var(--ink); }
+  .spot.sel { border-color: var(--water); background: var(--water-soft); }
+  .spot .rank { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; font-weight: 800; font-size: 12px; color: #fff; }
+  .spot b { font-size: 13px; }
+  .spot .meta { font-size: 11.5px; color: var(--muted); }
+  .hbar { display: grid; grid-template-columns: 96px 1fr 44px; gap: 8px; align-items: center; font-size: 12px; margin: 4px 0; }
+  .hbar .tr { background: var(--bg); height: 10px; border-radius: 3px; overflow: hidden; }
+  .hbar .fl { height: 100%; border-radius: 3px; }
+  .prep { border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; margin-bottom: 6px; display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: start; }
+  .prep .n { font-family: var(--mono); font-size: 11px; color: var(--faint); padding-top: 2px; }
+  .prep b { font-size: 13px; }
+  .prep .meta { font-size: 11.5px; color: var(--muted); }
+  .prep .c { font-size: 12px; font-weight: 700; color: var(--act); white-space: nowrap; }
+  .prep.bad { background: color-mix(in srgb, var(--gap) 12%, var(--card)); border-color: color-mix(in srgb, var(--gap) 40%, var(--card)); }
+  .budget { height: 10px; background: var(--bg); border-radius: 5px; overflow: hidden; margin: 6px 0 2px; }
+  .budget div { height: 100%; background: var(--act); }
+  .story { border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; margin-bottom: 7px; font-size: 12.5px; }
+  .story .src { color: var(--muted); font-size: 11.5px; margin-top: 4px; }
+  .story.rejected { opacity: .65; border-style: dashed; }
+  .grounded { border: 1px solid var(--ai); background: var(--ai-soft); border-radius: 9px; padding: 9px 11px; font-size: 12.5px; }
+  .gap { display: grid; grid-template-columns: 16px 1fr; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .gap:last-child { border-bottom: 0; }
+  .gap b { font-size: 12.5px; }
+  .gap .s { font-size: 12px; color: var(--muted); }
+  .msg { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
+  .msg .head { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); margin-bottom: 4px; }
+  .msg .local { font-size: 14px; line-height: 1.55; }
+  .msg .en { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .caveat { background: color-mix(in srgb, var(--weak) 14%, var(--card)); border: 1px solid color-mix(in srgb, var(--weak) 40%, var(--card)); border-radius: 9px; padding: 9px 11px; font-size: 12px; margin-bottom: 10px; }
+  .extra { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
+  @media (max-width: 1000px) { .extra { grid-template-columns: 1fr; } }
+  .scorerow { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; font-size: 12.5px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .scorerow:last-child { border-bottom: 0; }
+  .scorerow .mono { font-family: var(--mono); }
+</style>
+</head>
+<body>
+<main class="page wide">
+  <div class="eyebrow">Product screens · clickable mockup</div>
+  <h1>Draw a box. Ask what happens there.</h1>
+  <p class="lede">
+    The terrain below is generated, but the physics is not faked — this page actually fills the depressions, routes flow downhill
+    and ranks the pooling spots in your browser, the same way the real engine would. Drag the <b>fill sequence</b> to watch water
+    gather in order. Switch to 3D to see the optional tilted view. Every number here is illustrative.
+  </p>
+
+  <div class="app" id="app">
+    <div class="chrome" id="chrome"></div>
+    <div class="body3">
+      <div class="left" id="left"></div>
+      <div class="mapcol">
+        <div class="maphead" id="maphead"></div>
+        <svg id="map" viewBox="0 0 760 560"></svg>
+        <div class="seqbar">
+          <button class="btn" id="playBtn">▶</button>
+          <input type="range" id="seq" min="0" max="100" value="100">
+          <b id="seqVal" class="mono"></b>
+        </div>
+        <div class="seqlab" id="seqLab"></div>
+        <div class="maplegend legend" id="legend"></div>
+      </div>
+      <div class="right" id="right"></div>
+    </div>
+  </div>
+
+  <div class="extra">
+    <div class="card">
+      <h3>What happened when you drew that box</h3>
+      <p class="small muted">Nothing was precomputed for this area. These are the steps and the measured budget from the research — the elevation download dominates, not the physics.</p>
+      <div class="tablewrap"><table class="t" id="ondemand"></table></div>
+    </div>
+    <div class="card">
+      <h3>Tested without waiting for rain</h3>
+      <p class="small muted">The harness runs seeded synthetic storms against hidden ground truth the product never sees. Simulated and real scores are reported separately, never averaged.</p>
+      <div id="scores"></div>
+      <div class="note warn small" style="margin-top:10px"><b>Why separate.</b> If we both invent the world and mark our own answer, a good score only proves the product shares our assumptions. The real-event replay is the one that counts.</div>
+    </div>
+  </div>
+</main>
+
+<script src="assets/common.js"></script>
+<script src="assets/data.js"></script>
+<script src="assets/data-cities.js"></script>
+<script src="assets/screens.js"></script>
+</body>
+</html>

@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maps per feature — Before It Hits</title>
+<script>(function(){try{var t=localStorage.getItem('biht-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .types td.c, .types th.c { text-align: center; }
+  .tdot { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+  .pl { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-top: 18px; scroll-margin-top: 70px; }
+  .pl h2 { margin: 0 0 4px; font-size: 19px; }
+  .pl .ins { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 14px; }
+  .pl .in { border: 1px dashed var(--line-strong); border-radius: 8px; padding: 6px 9px; font-size: 12.5px; background: var(--card-alt); }
+  .pl .in b { display: block; font-size: 12.5px; }
+  .phase { display: grid; grid-template-columns: 130px 1fr; gap: 12px; align-items: start; margin-top: 10px; }
+  .phase .lab { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; padding-top: 10px; }
+  .phase .lab small { display: block; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--faint); margin-top: 2px; }
+  .phase.once .lab { color: #8a6d3b; }
+  .phase.run .lab { color: var(--water); }
+  .steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+  .steps .s { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font-size: 12.5px; background: var(--card); position: relative; }
+  .steps .s .k { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+  .steps .s b { display: block; font-size: 13px; margin: 1px 0 3px; }
+  .phase.once .s { border-left: 3px solid #c9b48a; }
+  .phase.run .s { border-left: 3px solid #93b4f5; }
+  .outrow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+  @media (max-width: 800px) { .outrow, .phase { grid-template-columns: 1fr; } }
+  .outrow .o { background: var(--accent-solid); color: #fff; border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+  .outrow .o h4 { color: #b8c0ca; }
+  .profiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 900px) { .profiles { grid-template-columns: 1fr; } }
+  .prof h3 { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .prof dl { margin: 8px 0 0; font-size: 13px; }
+  .prof dt { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-top: 8px; }
+  .prof dd { margin: 2px 0 0; }
+</style>
+</head>
+<body>
+<main class="page">
+  <div class="eyebrow">Maps per feature</div>
+  <h1>What maps each feature needs, and how they’re processed</h1>
+  <p class="lede">Almost everything now runs <b>on demand, on the box you drew</b> — that is the point of the selection tool. Only terrain staging happens once. The measured budget is roughly 2–4 seconds to read the elevation and well under a second for the physics, so the download is the slow part, not the hydrology.</p>
+
+  <h2>Map types at a glance</h2>
+  <div class="tablewrap"><table class="t types" id="types"></table></div>
+  <div class="legend" style="margin-top:8px" id="typeLegend"></div>
+
+  <div id="pipes"></div>
+
+  <h2 id="profiles">Processing profiles — chosen from the box you drew</h2>
+  <p class="muted small" style="max-width:860px">The feature contract never changes; the profile decides which method fills it, and it is picked automatically from where the box lands. Draw inside the coastal lowland and you get bare-earth terrain; draw inland past that coverage and you fall back to a surface model, flagged, because buildings then read as hills.</p>
+  <div class="profiles" id="profileCards"></div>
+</main>
+
+<script src="assets/common.js"></script>
+<script src="assets/data.js"></script>
+<script src="assets/data-cities.js"></script>
+<script>
+(function () {
+  const { el, byId } = UI;
+  const P = PLAN, C = window.CITIES || null;
+  const L = byId(P.layers), F = byId(P.features);
+
+  const TYPES = [
+    ['raster', 'Raster grid', '#8a6d3b'],
+    ['vector', 'Vector polygons / lines', '#475569'],
+    ['graph', 'Network graph', '#0d9466'],
+    ['points', 'Points', '#7c3aed'],
+    ['table', 'Tables', '#c27803'],
+    ['time series', 'Time series', '#2563eb'],
+  ];
+  const typeOf = (t) => {
+    t = t.toLowerCase();
+    if (t.includes('time series')) return 'time series';
+    if (t.includes('graph')) return 'graph';
+    if (t.includes('raster')) return 'raster';
+    if (t.includes('table') || t.includes('attribute')) return 'table';
+    if (t.includes('point')) return 'points';
+    return 'vector';
+  };
+
+  const tt = document.getElementById('types');
+  tt.appendChild(el('tr', null, [el('th', { text: 'Feature' }), ...TYPES.map(([, n]) => el('th', { class: 'c', text: n })), el('th', { text: 'Finest input resolution needed' })]));
+  P.pipelines.forEach((p) => {
+    const used = new Set(p.inputs.map((i) => typeOf(i.type)));
+    tt.appendChild(el('tr', null, [
+      el('td', { class: 'rowhead' }, el('a', { href: '#' + p.feature, text: p.feature + ' ' + p.title })),
+      ...TYPES.map(([k, , c]) => el('td', { class: 'c' }, used.has(k) ? el('span', { class: 'tdot', style: 'background:' + c }) : null)),
+      el('td', { class: 'small', text: p.inputs.map((i) => i.res).filter((r) => r && r !== '—').join(' · ') }),
+    ]));
+  });
+  const lg = document.getElementById('typeLegend');
+  TYPES.forEach(([, n, c]) => lg.appendChild(el('span', null, [el('i', { class: 'sw', style: 'background:' + c }), n])));
+
+  const pipes = document.getElementById('pipes');
+  P.pipelines.forEach((p) => {
+    const f = F[p.feature];
+    const box = el('section', { class: 'pl', id: p.feature }, [
+      el('div', { class: 'eyebrow', text: p.feature + ' · ' + f.hazards.map((h) => P.hazards[h].name).join(' + ') }),
+      el('h2', { text: p.title }),
+      el('p', { class: 'small muted', text: f.short }),
+      el('h4', { text: 'Maps going in' }),
+      el('div', { class: 'ins' }, p.inputs.map((i) => el('a', { class: 'in', href: 'layers.html#' + i.layer, style: 'color:inherit;text-decoration:none' }, [
+        el('b', { text: i.layer + ' ' + L[i.layer].name }),
+        el('span', { class: 'badge type', text: i.type }), ' ', el('span', { class: 'tiny muted', text: i.res }),
+      ]))),
+      el('div', { class: 'phase once' }, [
+        el('div', { class: 'lab', html: 'Once, up front<small>staged before any request</small>' }),
+        el('div', { class: 'steps' }, p.once.map((s, i) => el('div', { class: 's' }, [el('span', { class: 'k', text: String(i + 1).padStart(2, '0') }), el('b', { text: s.name }), el('span', { class: 'muted', text: s.detail })]))),
+      ]),
+      el('div', { class: 'phase run' }, [
+        el('div', { class: 'lab', html: 'Every box you draw<small>seconds · on demand</small>' }),
+        el('div', { class: 'steps' }, p.run.map((s, i) => el('div', { class: 's' }, [el('span', { class: 'k', text: String(p.once.length + i + 1).padStart(2, '0') }), el('b', { text: s.name }), el('span', { class: 'muted', text: s.detail })]))),
+      ]),
+      el('div', { class: 'outrow' }, [
+        el('div', { class: 'o' }, [el('h4', { text: 'Returns' }), el('div', { text: p.outputs })]),
+        el('div', { class: 'note warn' }, [el('b', { text: 'Minimum to be honest: ' }), p.minimum]),
+      ]),
+      p.profiles.length ? el('div', { class: 'chips', style: 'margin-top:12px' }, [el('span', { class: 'small muted', text: 'Method changes with profile: ' }),
+        ...p.profiles.map((id) => el('a', { class: 'badge', href: '#profiles', text: P.profiles.find((x) => x.id === id).name }))]) : null,
+    ]);
+    pipes.appendChild(box);
+  });
+
+  const pc = document.getElementById('profileCards');
+  P.profiles.forEach((pr) => {
+    const cities = C ? C.cities.filter((c) => (c.profiles || []).includes(pr.id) || (c.profilesMaybe || []).includes(pr.id)) : [];
+    pc.appendChild(el('div', { class: 'card prof' }, [
+      el('h3', null, [pr.name, el('span', { class: 'badge ' + P.hazards[pr.hazard].cls, text: P.hazards[pr.hazard].name })]),
+      el('dl', null, [
+        el('dt', { text: 'When' }), el('dd', { text: pr.when }),
+        el('dt', { text: 'Method' }), el('dd', { text: pr.method }),
+        el('dt', { text: 'Watch out' }), el('dd', { class: 'muted', text: pr.risk }),
+        el('dt', { text: 'Cities' }), el('dd', null, cities.length ? el('div', { class: 'chips' }, cities.map((c) => el('a', { class: 'badge', href: 'cities.html#' + c.id,
+          text: c.name + ((c.profilesMaybe || []).includes(pr.id) ? ' (if access granted)' : '') }))) : el('span', { class: 'muted', text: '—' })),
+      ]),
+    ]));
+  });
+})();
+</script>
+</body>
+</html>

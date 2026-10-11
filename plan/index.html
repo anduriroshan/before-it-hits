@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Before It Hits — build plan</title>
+<script>(function(){try{var t=localStorage.getItem('biht-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; margin-top: 18px; }
+  .flow .stage { background: var(--card); border: 1px solid var(--line); padding: 14px; position: relative; }
+  .flow .stage:first-child { border-radius: 10px 0 0 10px; }
+  .flow .stage:last-child { border-radius: 0 10px 10px 0; }
+  .flow .stage + .stage { border-left: 0; }
+  .flow .n { font-size: 11px; font-weight: 700; color: var(--faint); letter-spacing: .08em; }
+  .flow .stage h3 { margin: 4px 0 4px; }
+  .flow .stage p { font-size: 13px; color: var(--muted); margin: 0; }
+  .flow .stage .chips { margin-top: 8px; }
+  @media (max-width: 900px) { .flow { grid-template-columns: 1fr; } .flow .stage { border-radius: 0 !important; border-left: 1px solid var(--line) !important; } }
+  .tiers { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 860px) { .tiers { grid-template-columns: 1fr; } }
+  .tier { border-radius: 12px; padding: 16px 18px; border: 1px solid var(--line); background: var(--card); }
+  .tier.screen { border-left: 4px solid var(--water); }
+  .tier.valid { border-left: 4px solid var(--act); }
+  .tier h3 { margin-bottom: 2px; }
+  .tier .where { font-size: 12px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+  .tier .says { font-family: var(--mono); font-size: 12.5px; background: var(--bg); border-radius: 7px; padding: 9px 11px; margin: 8px 0; }
+  .tier p { font-size: 13.5px; margin: 0; }
+  .join { background: var(--accent-solid); color: #fff; border-radius: 10px; padding: 14px 18px; margin-top: 12px; font-size: 14px; }
+  .join b { color: #fff; }
+  .limits { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; }
+  @media (max-width: 900px) { .limits { grid-template-columns: 1fr; } }
+  .limit { background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--weak); border-radius: 0 9px 9px 0; padding: 11px 13px; font-size: 13px; }
+  .limit b { display: block; margin-bottom: 3px; }
+  .group-card ul { margin: 6px 0 0; padding-left: 18px; font-size: 13.5px; }
+  .group-card li { margin: 2px 0; }
+</style>
+</head>
+<body>
+<main class="page">
+  <div class="eyebrow">Build plan · revised 11 Oct 2026 · submission 18 Oct</div>
+  <h1>Before It Hits — what we build, before we build it</h1>
+  <p class="lede">
+    Cities get a rainfall forecast and issue a warning for the whole city. The water still gathers in the same
+    low spots it gathered in last year. This plan defines a tool where you <b>draw a box on the map and ask what happens there</b> —
+    and get back which places the ground traps water in, why, who is nearby, and what this particular city can afford to do about it
+    before the rain arrives.
+  </p>
+
+  <div class="flow" id="flow"></div>
+
+  <section class="section">
+    <h2>Two tiers, and they explain each other</h2>
+    <p class="muted" style="max-width:900px">
+      Honest resolution is the thing that shapes this whole product. A 30 m elevation model carries about half a metre of
+      vertical error — the same size as the flood depths we would otherwise be quoting. So we split what we claim in two.
+    </p>
+    <div class="tiers" id="tiers"></div>
+    <div class="join" id="join"></div>
+  </section>
+
+  <section class="section">
+    <h2>Six groups, sixteen features</h2>
+    <div class="grid g3" id="groups"></div>
+  </section>
+
+  <section class="section">
+    <h2>What we will not claim</h2>
+    <p class="muted small" style="max-width:900px">Written down before building, because every one of these is a question a judge could ask on stage.</p>
+    <div class="limits" id="limits"></div>
+  </section>
+
+  <section class="section">
+    <h2>How this plan is organised</h2>
+    <div class="grid g3" id="pages"></div>
+  </section>
+
+  <section class="section">
+    <h2>Decisions</h2>
+    <div class="tablewrap"><table class="t" id="decisions"></table></div>
+  </section>
+
+  <section class="section">
+    <h2>Scope</h2>
+    <div class="grid g2">
+      <div class="card">
+        <h3>Built</h3>
+        <p class="small muted">Flood screening on any drawn box, anywhere · Kochi's official KSDMA depth layer · heat by area · who is nearby · what gets cut off · preparations bounded by the city's real budget · news · the test harness.</p>
+      </div>
+      <div class="card">
+        <h3>Designed for, not built</h3>
+        <p class="small muted">Urban heat (deeper), cyclone and storm surge, air quality, earthquake. Earthquake is the one that forces the hazard interface to be genuinely general — it is detected rather than forecast, which stops us quietly assuming everything is a weather prediction.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="assets/common.js"></script>
+<script src="assets/data.js"></script>
+<script>
+(function () {
+  const { el } = UI;
+  const P = PLAN;
+
+  const stages = [
+    ['01', 'Draw a box', 'Drag a rectangle anywhere on the map. Its corners become the area we analyse, computed on demand.', ['F1']],
+    ['02', 'Ask', 'A question in your own language, plus how much rain — forecast, a what-if, or a real past storm.', ['F2', 'F3']],
+    ['03', 'Work it out', 'Where the ground traps water and why, the official depth layer if one exists, who is nearby, what gets cut off.', ['F4', 'F5', 'F7', 'F8']],
+    ['04', 'Prepare', 'Preparations this city can actually afford, ranked, with the before and after.', ['F9', 'F10']],
+    ['05', 'Tell', 'Briefing and local-language messages, what is being reported now, and plainly what we do not know.', ['F11', 'F12', 'F13']],
+  ];
+  const flow = document.getElementById('flow');
+  stages.forEach(([n, h, p, fs]) => flow.appendChild(el('div', { class: 'stage' }, [
+    el('div', { class: 'n', text: n }), el('h3', { text: h }), el('p', { text: p }),
+    el('div', { class: 'chips' }, fs.map((f) => el('a', { href: 'features.html#' + f, class: 'badge', text: f }))),
+  ])));
+
+  const tiers = document.getElementById('tiers');
+  tiers.appendChild(el('div', { class: 'tier screen' }, [
+    el('div', { class: 'where', text: 'Screening tier · works on any box, anywhere' }),
+    el('h3', { text: 'Where water collects, and why' }),
+    el('div', { class: 'says', text: 'this junction is the low point · 3 ha drain into it · it fills before its neighbours' }),
+    el('p', { class: 'muted', text: 'Our own terrain physics, computed on demand: fill the depressions, follow the flow, rank what actually receives water. Relative — never centimetres. It works anywhere because elevation, roads and population are global layers.' }),
+  ]));
+  tiers.appendChild(el('div', { class: 'tier valid' }, [
+    el('div', { class: 'where', text: 'Validated tier · only where an authority publishes' }),
+    el('h3', { text: 'How deep, officially' }),
+    el('div', { class: 'says', text: 'KSDMA 1-in-50-year layer · depth in cm · published by the state' }),
+    el('p', { class: 'muted', text: 'Not our output. Kerala publishes depth-valued flood hazard rasters by return period, so for Kochi we display the authority’s own data — and we get independent ground truth to check our screening against.' }),
+  ]));
+  document.getElementById('join').innerHTML =
+    '<b>How they join:</b> tonight’s forecast rainfall maps to a return period → that selects the official depth layer → our screening explains <i>which</i> local low points fill first and why. ' +
+    'One says how deep. The other says why here. Neither pretends to be the other.';
+
+  const g = document.getElementById('groups');
+  P.groups.forEach((grp) => {
+    const fs = P.features.filter((f) => f.group === grp.id);
+    g.appendChild(el('div', { class: 'card group-card' }, [
+      el('h3', { text: grp.name }), el('div', { class: 'sub', text: grp.desc }),
+      el('ul', null, fs.map((f) => el('li', null, [
+        el('a', { href: 'features.html#' + f.id, text: f.id + ' ' + f.name }),
+        f.tier === 'next' ? el('span', { class: 'tiny muted', text: '  (next)' }) : null,
+      ]))),
+    ]));
+  });
+
+  const limits = [
+    ['No absolute depths from our model', 'At 30 m the vertical error equals the depth we would report. We rank places against each other instead.'],
+    ['No clock on the animation', 'It is a fill sequence — the order places collect water. Arrival times need drainage data that is not public anywhere.'],
+    ['No per-building claims', 'Buildings route water and spread population. We never say anything about an individual building or household.'],
+    ['No indoor heat', 'Dropped. It needed roof, floor and ventilation data that does not exist for Indian cities.'],
+    ['No dispatch or evacuation routing', 'Planning and preparedness only. Google’s terms bar emergency-response use, and we could not validate dispatch anyway.'],
+    ['No drainage, no tides', 'Storm-drain networks are not public anywhere, and neither elevation source contains bathymetry. We overstate pooling where drains work.'],
+  ];
+  const lm = document.getElementById('limits');
+  limits.forEach(([h, p]) => lm.appendChild(el('div', { class: 'limit' }, [el('b', { text: h }), p])));
+
+  const pages = [
+    ['features.html', 'Features', 'Sixteen features. What each returns, which layers and agents it needs, and the honest limit on each.'],
+    ['layers.html', 'Layers & elevation', 'The layer stack, and why elevation accuracy is the constraint that shapes the entire product.'],
+    ['maps.html', 'Maps per feature', 'What runs once, what runs on every box you draw, and the runtime budget.'],
+    ['cities.html', 'Kochi & data', 'Why Kochi, what its data actually supports, and what is missing.'],
+    ['agents.html', 'AI agents', 'Fourteen agents, and the hard line: Gemini never produces a number.'],
+    ['architecture.html', 'Architecture', 'Google Cloud services and the flows — answering, watching, and testing.'],
+    ['screens.html', 'Product screens', 'Clickable mockup: draw a box, ask, watch the fill sequence, read the briefing.'],
+  ];
+  const pg = document.getElementById('pages');
+  pages.forEach(([href, h, p]) => pg.appendChild(el('a', { class: 'card link', href }, [el('h3', { text: h }), el('div', { class: 'sub', text: p })])));
+
+  const t = document.getElementById('decisions');
+  t.appendChild(el('tr', null, [el('th', { text: 'Decision' }), el('th', { text: 'Where it landed' }), el('th', { text: 'Why' })]));
+  P.decisions.forEach((d) => t.appendChild(el('tr', null, [
+    el('td', { class: 'rowhead', text: d.q }), el('td', { text: d.rec }), el('td', { class: 'muted', text: d.why }),
+  ])));
+})();
+</script>
+</body>
+</html>

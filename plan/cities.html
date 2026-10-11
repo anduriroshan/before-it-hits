@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cities & data — Before It Hits</title>
+<script>(function(){try{var t=localStorage.getItem('biht-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .findings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  @media (max-width: 800px) { .findings { grid-template-columns: 1fr; } }
+  .finding { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .finding b { display: block; margin-bottom: 4px; }
+  .finding p { margin: 0; font-size: 13.5px; color: var(--muted); }
+  .rec { background: var(--accent-solid); color: #fff; border-radius: 12px; padding: 16px 18px; margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .rec h3 { color: #fff; }
+  .rec p { color: #c9d1d9; font-size: 13.5px; margin: 0; }
+  @media (max-width: 900px) { .rec { grid-template-columns: 1fr; } }
+  .ccards { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+  .ccard { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; scroll-margin-top: 70px; font-size: 13.5px; }
+  .ccard:target { outline: 2px solid var(--ink); }
+  .ccard h3 { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 18px; margin-bottom: 2px; }
+  .ccard .area { color: var(--muted); font-size: 12.5px; margin-bottom: 8px; }
+  .ccard h4 { margin: 12px 0 4px; }
+  .ccard ul { margin: 0; padding-left: 18px; }
+  .ccard li { margin: 2px 0; }
+  .ccard .srcs { font-size: 12px; }
+  .ccard .srcs a { display: inline-block; margin-right: 8px; }
+  table.cm td { min-width: 190px; font-size: 12.5px; }
+  table.cm td .s { display: block; }
+  table.cm td .p { display: block; color: var(--muted); font-size: 11.5px; margin-top: 3px; }
+  table.cm th.city { min-width: 190px; }
+  .fq td.c { text-align: center; }
+</style>
+</head>
+<body>
+<main class="page wide">
+  <div class="eyebrow">Kochi & data</div>
+  <h1>Why Kochi, and exactly what its data supports</h1>
+  <p class="lede">The screening tier works on any box you draw, anywhere — elevation, roads and population are global layers. Kochi is the one city built deep, because it is the only candidate we found with <b>official depth-valued flood hazard maps</b> to check ourselves against. Each cell below says where a layer comes from, how good it is, and how it gets processed. <span class="q good"></span>good <span class="q ok"></span>ok <span class="q weak"></span>weak <span class="q gap"></span>gap. Anything marked [u] is unconfirmed at source.</p>
+
+  <h2>What the research changed</h2>
+  <div class="findings" id="findings"></div>
+
+  <div class="rec">
+    <div><h3>Chosen: Kochi</h3><p>The only candidate with official depth-valued hazard rasters published by the state authority. That turns “trust our model” into “here is how our model compares to the authority’s own data”.</p></div>
+    <div><h3>Rejected: Singapore</h3><p>Easily the best APIs — open rainfall, flood alerts with named roads and coordinates. But no public national elevation data at all, and flood-prone land is down to about 23 hectares nationally. Almost nothing left to warn about.</p></div>
+    <div><h3>Rejected: Vijayawada & Vizag</h3><p>The strongest human story (35 deaths, ~270,000 affected in 2024). But AP’s GIS services are broken or login-gated, there is no official hazard raster, ward boundaries were redrawn in 2025, and Vijayawada likely sits outside the bare-earth elevation coverage.</p></div>
+  </div>
+
+  <h2>Kochi</h2>
+  <div class="ccards" id="cards"></div>
+
+  <h2>Layer by layer</h2>
+  <div class="tablewrap"><table class="t cm" id="matrix"></table></div>
+
+  <h2>Feature confidence</h2>
+  <p class="muted small">How well Kochi’s data supports each feature today. Hover a dot for the source and the processing.</p>
+  <div class="tablewrap"><table class="t fq" id="fq"></table></div>
+</main>
+
+<script src="assets/common.js"></script>
+<script src="assets/data.js"></script>
+<script src="assets/data-cities.js"></script>
+<script>
+(function () {
+  const { el, qdot, badge, byId } = UI;
+  const P = PLAN, C = CITIES;
+  const PR = byId(P.profiles), L = byId(P.layers), F = byId(P.features);
+
+  const fd = document.getElementById('findings');
+  C.findings.forEach((f) => fd.appendChild(el('div', { class: 'finding' }, [el('b', { text: f.h }), el('p', { text: f.p })])));
+
+  const cards = document.getElementById('cards');
+  C.cities.forEach((c) => cards.appendChild(el('div', { class: 'ccard', id: c.id }, [
+    el('h3', null, [el('span', { text: c.name }), badge(c.depth === 'deep' ? 'Full depth' : 'Approximate', c.depth === 'deep' ? 'core' : 'next')]),
+    el('div', { class: 'area', text: c.country + ' · ' + c.area }),
+    el('div', { class: 'chips' }, [
+      ...c.profiles.map((p) => el('a', { class: 'badge ' + P.hazards[PR[p].hazard].cls, href: 'maps.html#profiles', text: PR[p].name })),
+      ...c.profilesMaybe.map((p) => el('a', { class: 'badge', href: 'maps.html#profiles', text: PR[p].name + ' (if access granted)' })),
+    ]),
+    el('h4', { text: 'Why it floods' }), el('div', { text: c.character }),
+    el('h4', { text: 'Heat system' }), el('div', { text: c.heat }),
+    el('h4', { text: 'What the city has' }), el('ul', null, c.inventory.map((x) => el('li', { text: x }))),
+    el('h4', { text: 'Event to replay' }), el('ul', null, c.replay.map((x) => el('li', { text: x }))),
+    el('h4', { text: 'People & channels' }), el('div', { text: c.languages.join(', ') + ' · alerts via ' + c.app }),
+    el('h4', { text: 'Sources' }), el('div', { class: 'srcs' }, c.sources.map(([t, u]) => el('a', { href: u, target: '_blank', rel: 'noopener', text: t }))),
+  ])));
+
+  const m = document.getElementById('matrix');
+  m.appendChild(el('tr', null, [el('th', { text: 'Layer' }), ...C.cities.map((c) => el('th', { class: 'city' }, el('a', { href: '#' + c.id, text: c.name })))]));
+  C.layerRows.forEach(([id, label]) => m.appendChild(el('tr', null, [
+    el('td', { class: 'rowhead' }, id === 'tide' ? label : el('a', { href: 'layers.html#' + id, text: id + ' ' + label })),
+    ...C.cities.map((c) => { const x = c.layers[id]; return el('td', null, x ? [el('span', { class: 's' }, [qdot(x.q), x.src]), el('span', { class: 'p', text: x.proc })] : '—'); }),
+  ])));
+
+  const fq = document.getElementById('fq');
+  fq.appendChild(el('tr', null, [el('th', { text: 'Feature' }), ...C.cities.map((c) => el('th', { class: 'c', text: c.name }))]));
+  Object.keys(C.variants).forEach((fid) => fq.appendChild(el('tr', null, [
+    el('td', { class: 'rowhead' }, el('a', { href: 'features.html#' + fid, text: fid + ' ' + F[fid].name })),
+    ...C.cities.map((c) => { const x = C.variants[fid][c.id]; const td = el('td', { class: 'c' }, qdot(x.q)); UI.tip(td, `<b>${c.name} · ${F[fid].name}</b><br>${x.data}<br><span style="opacity:.75">${x.proc}</span>`); return td; }),
+  ])));
+})();
+</script>
+</body>
+</html>

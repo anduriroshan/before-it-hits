@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Features — Before It Hits</title>
+<script>(function(){try{var t=localStorage.getItem('biht-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 18px 0 6px; }
+  details.x > summary .fid { font-family: var(--mono); font-size: 12px; color: var(--faint); width: 30px; }
+  details.x > summary .fname { font-weight: 600; }
+  details.x > summary .fshort { color: var(--muted); font-size: 13.5px; flex: 1; }
+  details.x > summary .chips { flex-shrink: 0; }
+  .fbody { display: grid; grid-template-columns: 1.3fr 1fr; gap: 18px; }
+  @media (max-width: 900px) { .fbody { grid-template-columns: 1fr; } }
+  .fbody ul { margin: 4px 0 10px; padding-left: 18px; font-size: 13.5px; }
+  .contractline { font-family: var(--mono); font-size: 12.5px; background: var(--bg); border-radius: 6px; padding: 8px 10px; margin: 4px 0 10px; }
+  .sv { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  .sv > div { border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+  .sv .same { background: var(--act-soft); }
+  .sv .vary { background: var(--heat-soft); }
+  .sv h4 { margin-bottom: 4px; color: var(--ink); }
+  .refs a.badge { text-decoration: none; }
+  .matrix td.c, .matrix th.c { text-align: center; padding: 6px 4px; }
+  .matrix th.c { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; font-weight: 500; height: 150px; vertical-align: bottom; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--ink); }
+  .citytable td:first-child { white-space: nowrap; font-weight: 600; }
+</style>
+</head>
+<body>
+<main class="page">
+  <div class="eyebrow">Features</div>
+  <h1>Sixteen features, defined by what they return</h1>
+  <p class="lede">Each feature is defined by its output contract, not its implementation. Open one to see the layers and agents it needs, what stays identical everywhere, what changes with the area you draw — and the honest limit on what it can claim.</p>
+
+  <div class="filters">
+    <span class="small muted">Hazard</span><span id="fHaz"></span>
+    <span class="small muted" style="margin-left:10px">Show</span><span id="fTier"></span>
+    <button class="btn" id="expand">Expand all</button>
+  </div>
+
+  <div id="list"></div>
+
+  <section class="section">
+    <h2>Which layers each feature needs</h2>
+    <p class="muted small">Dots mark a layer the feature reads. Layer names link to the layer stack.</p>
+    <div class="tablewrap"><table class="t matrix" id="matrix"></table></div>
+  </section>
+</main>
+
+<script src="assets/common.js"></script>
+<script src="assets/data.js"></script>
+<script src="assets/data-cities.js"></script>
+<script>
+(function () {
+  const { el, badge, seg, byId } = UI;
+  const P = PLAN;
+  const C = window.CITIES || null;
+  const L = byId(P.layers), A = byId(P.agents);
+  let haz = 'all', tier = 'all', expandAll = false;
+
+  document.getElementById('fHaz').appendChild(seg([['all', 'All'], ['flood', 'Flood'], ['heat', 'Heat']], haz, (v) => { haz = v; draw(); }));
+  document.getElementById('fTier').appendChild(seg([['all', 'All'], ['core', 'Core'], ['next', 'Next']], tier, (v) => { tier = v; draw(); }));
+  document.getElementById('expand').onclick = (e) => {
+    expandAll = !expandAll; e.target.textContent = expandAll ? 'Collapse all' : 'Expand all';
+    document.querySelectorAll('details.x').forEach((d) => (d.open = expandAll));
+  };
+
+  function hazBadges(f) { return f.hazards.map((h) => badge(P.hazards[h].name, P.hazards[h].cls)); }
+
+  function cityTable(f) {
+    if (!C || !C.variants || !C.variants[f.id]) return el('p', { class: 'small muted', text: 'No city-specific sourcing — this runs the same way on any area.' });
+    const rows = C.variants[f.id];
+    const t = el('table', { class: 't citytable' });
+    t.appendChild(el('tr', null, [el('th', { text: 'City' }), el('th', { text: 'Data source' }), el('th', { text: 'Processing' })]));
+    C.cities.forEach((c) => {
+      const r = rows[c.id]; if (!r) return;
+      t.appendChild(el('tr', null, [
+        el('td', null, [UI.qdot(r.q), c.name]),
+        el('td', { html: r.data }), el('td', { class: 'muted', html: r.proc }),
+      ]));
+    });
+    return el('div', { class: 'tablewrap' }, t);
+  }
+
+  function featureCard(f) {
+    const d = el('details', { class: 'x', id: f.id, open: expandAll || location.hash === '#' + f.id ? '' : null });
+    d.appendChild(el('summary', null, [
+      el('span', { class: 'fid', text: f.id }),
+      el('span', { class: 'fname', text: f.name }),
+      el('span', { class: 'fshort', text: f.short }),
+      el('span', { class: 'chips' }, [...hazBadges(f), badge(f.tier === 'core' ? 'Core' : 'Next', f.tier), f.internal ? badge('Internal') : null]),
+    ]));
+    const left = el('div', null, [
+      el('h4', { text: 'Examples' }), el('ul', null, f.examples.map((x) => el('li', { text: x }))),
+      el('h4', { text: 'Returns' }), el('div', { class: 'contractline', text: f.output }),
+      el('div', { class: 'sv' }, [
+        el('div', { class: 'same' }, [el('h4', { text: 'Same everywhere' }), el('div', { text: f.same })]),
+        el('div', { class: 'vary' }, [el('h4', { text: 'Changes with the area' }), el('div', { text: f.varies })]),
+      ]),
+      f.honest ? el('div', { class: 'note warn', style: 'margin-bottom:10px' }, [el('b', { text: 'Honest limit. ' }), f.honest]) : null,
+    ]);
+    const right = el('div', { class: 'refs' }, [
+      el('h4', { text: 'Layers it reads' }),
+      el('div', { class: 'chips', style: 'margin-bottom:12px' }, f.layers.map((id) => el('a', { class: 'badge', href: 'layers.html#' + id, title: L[id].type, text: id + ' ' + L[id].name }))),
+      el('h4', { text: 'Agents' }),
+      f.agents.length
+        ? el('div', { class: 'chips', style: 'margin-bottom:12px' }, f.agents.map((id) => el('a', { class: 'badge ai', href: 'agents.html#' + id, text: A[id].name })))
+        : el('p', { class: 'small muted', text: 'None — deterministic engine only. No language model touches the numbers.' }),
+      ['F3', 'F4', 'F5', 'F6', 'F7', 'F8'].includes(f.id) ? el('a', { class: 'small', href: 'maps.html#' + f.id, text: 'How its maps are processed →' }) : null,
+    ]);
+    d.appendChild(el('div', { class: 'body' }, [
+      el('div', { class: 'fbody' }, [left, right]),
+      el('h4', { style: 'margin-top:6px', text: 'In Kochi' }),
+      cityTable(f),
+    ]));
+    return d;
+  }
+
+  function draw() {
+    const list = document.getElementById('list');
+    list.innerHTML = '';
+    P.groups.forEach((g) => {
+      const fs = P.features.filter((f) => (haz === 'all' || f.hazards.includes(haz)) && (tier === 'all' || f.tier === tier) && f.group === g.id);
+      if (!fs.length) return;
+      list.appendChild(el('h2', { text: g.name }));
+      list.appendChild(el('p', { class: 'muted small', text: g.desc }));
+      fs.forEach((f) => list.appendChild(featureCard(f)));
+    });
+  }
+  draw();
+
+  const m = document.getElementById('matrix');
+  const ls = P.layers.filter((l) => l.id !== 'L0');
+  m.appendChild(el('tr', null, [el('th', { text: 'Feature' }), ...ls.map((l) => el('th', { class: 'c' }, el('a', { href: 'layers.html#' + l.id, text: l.id + ' ' + l.name })))]));
+  P.features.forEach((f) => m.appendChild(el('tr', null, [
+    el('td', { class: 'rowhead' }, el('a', { href: '#' + f.id, text: f.id + ' ' + f.name, onclick: () => { const d = document.getElementById(f.id); if (d) d.open = true; } })),
+    ...ls.map((l) => el('td', { class: 'c' }, f.layers.includes(l.id) ? el('span', { class: 'dot', title: l.name }) : null)),
+  ])));
+})();
+</script>
+</body>
+</html>

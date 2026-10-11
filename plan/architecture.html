@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture — Before It Hits</title>
+<script>(function(){try{var t=localStorage.getItem('biht-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .arch { display: grid; grid-template-columns: 1fr 330px; gap: 14px; }
+  @media (max-width: 1100px) { .arch { grid-template-columns: 1fr; } }
+  /* Light island: the diagram's colours are tuned for a light canvas. */
+  .diagram {
+    --ink: #1b1f24; --muted: #5b6470; --faint: #8a929c; --line: #e3e6ea; --line-strong: #cfd4da;
+    --card: #ffffff; --card-alt: #fbfbfc; background: #fff; color: var(--ink);
+    border: 1px solid var(--line); border-radius: 12px; padding: 10px;
+  }
+  .diagram svg { width: 100%; height: auto; display: block; }
+  .flowsteps { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; font-size: 13.5px; }
+  .flowsteps ol { margin: 8px 0 0; padding-left: 20px; }
+  .flowsteps li { margin: 5px 0; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 800px) { .split { grid-template-columns: 1fr; } }
+  .split ul { margin: 6px 0 0; padding-left: 18px; font-size: 13.5px; }
+  pre.tree { background: #0f1419; color: #d6deeb; border-radius: 10px; padding: 14px 16px; font: 12.5px/1.6 var(--mono); overflow: auto; }
+  pre.tree .c { color: #7f8c98; }
+  .bars { display: grid; gap: 6px; }
+  .bar { display: grid; grid-template-columns: 210px 1fr 62px; gap: 10px; align-items: center; font-size: 13px; }
+  .bar .track { background: var(--bg); border-radius: 4px; height: 14px; position: relative; overflow: hidden; }
+  .bar .fill { position: absolute; top: 0; bottom: 0; border-radius: 4px; }
+</style>
+</head>
+<body>
+<main class="page wide">
+  <div class="eyebrow">Architecture</div>
+  <h1>Google Cloud architecture and four flows</h1>
+  <p class="lede">One web app with a selection tool, two Cloud Run services (agents and engine), and a terrain store that makes drawing a box anywhere cheap. Almost nothing is precomputed — the point is that an arbitrary box gets analysed in seconds.</p>
+
+  <div style="margin:14px 0 10px" id="flowSeg"></div>
+  <div class="arch">
+    <div class="diagram"><svg id="arch" viewBox="0 0 1180 620"></svg></div>
+    <div class="flowsteps" id="flowSteps"></div>
+  </div>
+
+  <h2>Services</h2>
+  <div class="tablewrap"><table class="t" id="services"></table></div>
+
+  <h2>What is staged once vs. computed per box</h2>
+  <div class="split">
+    <div class="card">
+      <h3>Staged once — before anyone asks</h3>
+      <ul>
+        <li>Copy bare-earth terrain tiles into our own storage as cloud-optimised files</li>
+        <li>Fetch the official hazard rasters and record source, date, return periods and licence</li>
+        <li>Fit the modelled population to published ward totals</li>
+        <li>Extract the city's budget lines and capabilities from its documents</li>
+      </ul>
+      <p class="small muted" style="margin-top:8px">Re-hosting terrain is the important one: the public clipping service allows only 50 calls a day for non-academic use, which would fail during judging.</p>
+    </div>
+    <div class="card">
+      <h3>Computed per box — every time you draw</h3>
+      <ul>
+        <li>Windowed read of just that box, over range requests</li>
+        <li>Reproject and resample onto a 10 m working grid</li>
+        <li>Burn in buildings as walls and roads as shallow trenches</li>
+        <li>Fill depressions, accumulate flow, rank pooling spots</li>
+        <li>Clip the official layer for the matching return period</li>
+        <li>Count who is nearby and rank preparations within the budget</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Latency budget for one box</h2>
+  <p class="muted small">From the published benchmarks. The elevation read dominates — the hydrology is not the bottleneck, which is what makes an interactive selection tool viable at all.</p>
+  <div class="bars" id="bars"></div>
+
+  <h2>Guard rails, enforced in the architecture</h2>
+  <div class="grid g3">
+    <div class="note go"><b>No personal data.</b> Population is modelled from published totals. There is no household register to leak, and messages are drafted for a person to send, never sent by us.</div>
+    <div class="note go"><b>Grounded news is never stored.</b> The licence forbids caching or analysing grounded results, so the display path renders client-side and the storage path uses a separately licensed corpus. Two paths, by design, not by habit.</div>
+    <div class="note go"><b>Nothing derived from map imagery.</b> Depths and terrain come from the elevation store only. We never measure, trace or cache map tiles — which the terms prohibit and which would also be bad science.</div>
+  </div>
+</main>
+
+<script src="assets/common.js"></script>
+<script src="assets/data.js"></script>
+<script>
+(function () {
+  const { el, svg, seg } = UI;
+  const P = PLAN;
+
+  const N = {
+    user:   { x: 16,  y: 250, w: 130, h: 68, t: 'City officer', s: 'browser', c: '#1b1f24' },
+    web:    { x: 182, y: 250, w: 162, h: 68, t: 'Web app', s: 'map + selection tool', c: '#475569' },
+    api:    { x: 386, y: 196, w: 238, h: 176, t: 'Agent API · Cloud Run', s: 'FastAPI + ADK', c: '#0e7490',
+              chips: ['Coordinator', 'Scenario', 'Forecast', 'Planner', 'News', 'Narrator ⇄ Verifier', 'Watcher'] },
+    gem:    { x: 392, y: 40,  w: 200, h: 64, t: 'Gemini', s: 'Agent Platform', c: '#0e7490' },
+    ext:    { x: 640, y: 40,  w: 170, h: 64, t: 'Maps Platform', s: 'Weather · Places', c: '#2563eb' },
+    news:   { x: 846, y: 40,  w: 300, h: 64, t: 'News sources', s: 'GDELT corpus · grounded search (display only)', c: '#2563eb' },
+    eng:    { x: 668, y: 220, w: 160, h: 112, t: 'Engine · Cloud Run', s: 'terrain · fill · flow · rank', c: '#1b1f24' },
+    dem:    { x: 884, y: 170, w: 262, h: 58, t: 'Terrain store · Cloud Storage', s: 'bare-earth + fallback, cloud-optimised', c: '#8a6d3b' },
+    official: { x: 884, y: 244, w: 262, h: 58, t: 'Official hazard rasters', s: 'KSDMA, by return period', c: '#0d9466' },
+    store:  { x: 884, y: 318, w: 262, h: 58, t: 'Firestore + BigQuery', s: 'runs · traces · scores', c: '#8a6d3b' },
+    sch:    { x: 182, y: 430, w: 162, h: 58, t: 'Scheduler + Pub/Sub', s: 'every few hours', c: '#475569' },
+    harness:{ x: 386, y: 414, w: 300, h: 146, t: 'Test harness · Cloud Run Job', s: 'seeded world, hidden ground truth', c: '#7c3aed',
+              chips: ['Weather', 'Infrastructure', 'Traffic', 'Population', 'Reporter', 'Scorer'] },
+    jobs:   { x: 726, y: 414, w: 420, h: 58, t: 'Region staging · Cloud Run Jobs', s: 'stage terrain · fetch rasters · fit population', c: '#7c3aed' },
+    open:   { x: 726, y: 492, w: 420, h: 58, t: 'Open data', s: 'DeltaDTM · Copernicus · OSM · WorldPop · Landsat', c: '#8a6d3b' },
+  };
+
+  const E = [
+    ['user', 'web', ['ask'], 'draws a box'],
+    ['web', 'api', ['ask'], 'bbox + question'],
+    ['api', 'gem', ['ask', 'watch', 'test'], 'understand · plan · write · verify'],
+    ['api', 'ext', ['ask', 'watch'], 'rainfall'],
+    ['api', 'news', ['ask'], 'reporting'],
+    ['api', 'eng', ['ask', 'watch', 'test'], 'analyse box'],
+    ['eng', 'dem', ['ask', 'watch', 'test'], 'windowed read'],
+    ['eng', 'official', ['ask', 'watch'], 'clip by return period'],
+    ['api', 'store', ['ask', 'watch', 'test'], 'run + trace'],
+    ['store', 'web', ['watch'], 'briefing'],
+    ['sch', 'api', ['watch'], 'wake Watcher'],
+    ['harness', 'api', ['test'], 'synthetic feeds'],
+    ['harness', 'gem', ['test'], 'world agents narrate'],
+    ['harness', 'store', ['test'], 'scores'],
+    ['jobs', 'open', ['onboard'], 'download'],
+    ['jobs', 'dem', ['onboard'], 'stage tiles'],
+    ['jobs', 'official', ['onboard'], 'fetch rasters'],
+    ['jobs', 'gem', ['onboard'], 'read documents'],
+  ];
+
+  const FLOWS = {
+    ask: { name: 'Draw a box and ask', color: '#0e7490', steps: [
+      'The officer drags a rectangle on the map; the app sends its corners and the question.',
+      'Scenario turns the box and the text into a spec, picking the terrain profile from where the box landed.',
+      'Forecast gets expected rainfall and maps it to a return period.',
+      'Engine reads just that box from the terrain store, fills depressions, accumulates flow and ranks pooling spots — seconds, not hours.',
+      'The official hazard raster is clipped for the matching return period and shown alongside, never merged.',
+      'News gathers what is being reported; the stored corpus is processed, the grounded panel is display-only.',
+      'Planner ranks preparations within the city’s real budget line; Narrator writes, Verifier checks every claim.',
+      'Run, inputs and full trace saved; map layers and briefing stream back.',
+    ] },
+    watch: { name: 'Prepare before anyone asks', color: '#c2410c', steps: [
+      'Scheduler wakes the Watcher for saved areas every few hours.',
+      'It compares the forecast against the region’s own warning thresholds.',
+      'If a threshold is crossed it writes the spec itself and runs the same pipeline.',
+      'A briefing lands in the officer’s inbox. We prepare it; we never issue public alerts.',
+    ] },
+    test: { name: 'Test without waiting for rain', color: '#7c3aed', steps: [
+      'A seeded world is built on the real city geometry — wards, roads, elevation.',
+      'The physics is computed in code from that seed, so the same scenario always gives the same answer.',
+      'World agents generate the mess: storms, pump failures, closures, resident reports, and news-style articles that exercise the News agent.',
+      'The product sees only those feeds — never the hidden ground truth of which ward actually floods.',
+      'The scorer compares what was flagged against what was true: detection rate, false alarms, success index.',
+      'Twenty seeded scenarios run on every commit. Simulated and real-event scores are reported separately, never averaged.',
+    ] },
+    onboard: { name: 'Stage a region', color: '#8a6d3b', steps: [
+      'Copy bare-earth terrain tiles into our own storage as cloud-optimised files.',
+      'Fetch any official hazard rasters and record source, date, return periods and licence.',
+      'Read the city’s documents for budget lines and capabilities.',
+      'Fit the modelled population to published ward totals.',
+      'After this the whole region is drawable — no per-box preparation needed.',
+    ] },
+  };
+
+  let flow = 'ask';
+  const s = document.getElementById('arch');
+  const center = (n) => [n.x + n.w / 2, n.y + n.h / 2];
+  function edgePts(a, b) {
+    const [ax, ay] = center(a), [bx, by] = center(b);
+    const clip = (n, x, y, tx, ty) => {
+      const dx = tx - x, dy = ty - y;
+      const sx = dx ? (n.w / 2) / Math.abs(dx) : Infinity, sy = dy ? (n.h / 2) / Math.abs(dy) : Infinity;
+      const k = Math.min(sx, sy);
+      return [x + dx * k, y + dy * k];
+    };
+    return [clip(a, ax, ay, bx, by), clip(b, bx, by, ax, ay)];
+  }
+  function draw() {
+    s.innerHTML = '';
+    const col = FLOWS[flow].color;
+    s.appendChild(svg('defs', null, [
+      svg('marker', { id: 'ar', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, svg('path', { d: 'M0 0L10 5L0 10z', fill: col })),
+      svg('marker', { id: 'arf', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto-start-reverse' }, svg('path', { d: 'M0 0L10 5L0 10z', fill: '#d5dae1' })),
+    ]));
+    E.forEach(([a, b, fl, label]) => {
+      const on = fl.includes(flow);
+      const [[x1, y1], [x2, y2]] = edgePts(N[a], N[b]);
+      s.appendChild(svg('line', { x1, y1, x2, y2, stroke: on ? col : '#e8eaee', 'stroke-width': on ? 2.4 : 1.1, 'marker-end': on ? 'url(#ar)' : 'url(#arf)' }));
+      if (on && Math.hypot(x2 - x1, y2 - y1) >= 86) {
+        const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, w = label.length * 5.7 + 12;
+        s.appendChild(svg('rect', { x: mx - w / 2, y: my - 9, width: w, height: 17, rx: 4, fill: '#fff', stroke: col, 'stroke-width': 0.8 }));
+        s.appendChild(svg('text', { x: mx, y: my + 3.5, 'text-anchor': 'middle', 'font-size': 10, fill: col, text: label }));
+      }
+    });
+    const active = new Set();
+    E.forEach(([a, b, fl]) => { if (fl.includes(flow)) { active.add(a); active.add(b); } });
+    Object.entries(N).forEach(([id, n]) => {
+      const on = active.has(id);
+      const g = svg('g', { opacity: on ? 1 : 0.32 });
+      g.appendChild(svg('rect', { x: n.x, y: n.y, width: n.w, height: n.h, rx: 10, fill: '#fff', stroke: on ? n.c : '#cfd4da', 'stroke-width': on ? 1.8 : 1 }));
+      g.appendChild(svg('rect', { x: n.x, y: n.y, width: 5, height: n.h, rx: 2, fill: n.c }));
+      g.appendChild(svg('text', { x: n.x + 14, y: n.y + 22, 'font-size': 13, 'font-weight': 600, fill: '#1b1f24', text: n.t }));
+      if (n.s) g.appendChild(svg('text', { x: n.x + 14, y: n.y + 38, 'font-size': 10.5, fill: '#5b6470', text: n.s }));
+      if (n.chips) {
+        let cx = n.x + 14, cy = n.y + 52;
+        n.chips.forEach((c) => {
+          const w = c.length * 6 + 14;
+          if (cx + w > n.x + n.w - 8) { cx = n.x + 14; cy += 23; }
+          g.appendChild(svg('rect', { x: cx, y: cy, width: w, height: 19, rx: 9.5, fill: n.c, opacity: 0.12 }));
+          g.appendChild(svg('text', { x: cx + w / 2, y: cy + 13, 'text-anchor': 'middle', 'font-size': 10.5, fill: n.c, text: c }));
+          cx += w + 6;
+        });
+      }
+      s.appendChild(g);
+    });
+    const fsBox = document.getElementById('flowSteps');
+    fsBox.innerHTML = '';
+    fsBox.appendChild(el('h3', { style: 'color:' + col, text: FLOWS[flow].name }));
+    fsBox.appendChild(el('ol', null, FLOWS[flow].steps.map((x) => el('li', { text: x }))));
+  }
+  document.getElementById('flowSeg').appendChild(seg(Object.entries(FLOWS).map(([k, v]) => [k, v.name]), flow, (v) => { flow = v; draw(); }));
+  draw();
+
+  const st = document.getElementById('services');
+  st.appendChild(el('tr', null, [el('th', { text: 'Component' }), el('th', { text: 'Google Cloud' }), el('th', { text: 'What it does' })]));
+  P.services.forEach((x) => st.appendChild(el('tr', null, [el('td', { class: 'rowhead', text: x.name }), el('td', { text: x.gcp }), el('td', { class: 'muted', text: x.does })])));
+
+  const LAT = [
+    ['Understand the box + question', 1.7, '#0e7490'],
+    ['Rainfall + return period', 1.9, '#2563eb'],
+    ['Read elevation for the box', 3.2, '#8a6d3b'],
+    ['Fill, flow, rank (the physics)', 0.9, '#1b1f24'],
+    ['Official layer clip', 0.5, '#0d9466'],
+    ['Plan + write + verify', 7.6, '#7c3aed'],
+  ];
+  const tot = LAT.reduce((a, b) => a + b[1], 0);
+  let acc = 0;
+  const bars = document.getElementById('bars');
+  LAT.forEach(([n, t, c]) => {
+    bars.appendChild(el('div', { class: 'bar' }, [
+      el('span', { text: n }),
+      el('div', { class: 'track' }, el('div', { class: 'fill', style: `left:${(acc / tot) * 100}%;width:${(t / tot) * 100}%;background:${c}` })),
+      el('span', { class: 'mono', text: t.toFixed(1) + ' s' }),
+    ]));
+    acc += t;
+  });
+  bars.appendChild(el('div', { class: 'bar' }, [el('b', { text: 'Total' }), el('div'), el('b', { class: 'mono', text: '~' + tot.toFixed(0) + ' s' })]));
+})();
+</script>
+</body>
+</html>
