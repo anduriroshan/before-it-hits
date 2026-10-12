@@ -128,7 +128,7 @@ footer { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 12px;
 .rank.s1, .s1 { background: var(--p1); color: var(--ink) !important; }
 
 #legend {
-  position: absolute; bottom: 24px; right: 16px; z-index: 5;
+  position: absolute; bottom: 24px; left: 16px; z-index: 5;
   background: rgba(255,255,255,.95); border: 1px solid var(--line); border-radius: 10px;
   padding: 10px 12px; font-size: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.08); max-width: 230px;
 }
@@ -198,7 +198,6 @@ select#region {
 .forecast .muted { color: var(--faint); }
 
 /* ---- replay: a real storm, scored honestly -------------------------------------------------- */
-#replay { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
 .rverdict { padding: 10px 12px; border-radius: 9px; margin: 8px 0 12px; background: var(--bg); }
 .rverdict.ok { border-left: 3px solid var(--accent); }
 .rverdict.warn { border-left: 3px solid var(--warn); }
@@ -250,8 +249,8 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 .section-collapse > summary { color: var(--accent); }
 
 /* Who is nearby (F7) */
-.people { margin-top: 16px; padding: 12px 14px; background: var(--bg); border-radius: 10px; }
-.people h2 { margin: 0 0 4px; }
+.people { margin: 0 0 10px; padding: 12px 14px; background: var(--bg); border-radius: 12px; }
+.card-title { font-size: 14px; font-weight: 600; margin: 0 0 4px; }
 .peoplenum { margin: 0; font-size: 13.5px; }
 .peoplenum b { font-size: 20px; font-variant-numeric: tabular-nums; }
 .fine { margin-top: 8px; }
@@ -269,8 +268,6 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 .newslist .src { display: block; color: var(--faint); font-size: 11px; margin-top: 2px; }
 
 /* ---- roads over time: playback controls, severity list, agent outlook ------------------------ */
-#timeline { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; }
-#timeline h2 { margin-top: 0; }
 .tag-modelled {
   font-size: 10px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600;
   color: var(--warn); background: #fdf2e3; border-radius: 999px; padding: 2px 7px; vertical-align: middle;
@@ -298,7 +295,7 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 /* ---- the storm scrubber: a temporary overlay fixed at the centre bottom of the map -------- */
 #tl-float {
   position: absolute; z-index: 6; left: 50%; bottom: 20px; transform: translateX(-50%);
-  width: 360px; max-width: calc(100% - 32px);
+  width: 420px; max-width: calc(100% - 32px);
   background: rgba(255, 255, 255, 0.97); border: 1px solid var(--line); border-radius: 12px;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22); padding: 9px 13px 10px;
 }
@@ -327,14 +324,6 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 #prep-infeasible .meta { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
 #prep-source { margin-top: 8px; }
 
-/* ---- forecast-first: the what-if override disclosure --------------------------------------- */
-.whatif { margin: 6px 0 10px; border: 1px solid var(--line); border-radius: 9px; padding: 0 10px; }
-.whatif > summary { cursor: pointer; padding: 8px 2px; font-size: 12.5px; color: var(--muted); font-weight: 600; list-style: none; }
-.whatif > summary::-webkit-details-marker { display: none; }
-.whatif > summary::before { content: '\25b8 '; color: var(--faint); }
-.whatif[open] > summary { color: var(--ink); }
-.whatif[open] > summary::before { content: '\25be '; }
-.whatif .field { margin: 2px 0 8px; }
 .fwin { display: inline-block; margin: 2px 8px 2px 0; font-size: 12px; color: var(--muted); }
 .fwin b { color: var(--ink); }
 /* ---- live observed rainfall (Singapore / NEA gauges) --------------------------------------- */
@@ -361,7 +350,7 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 
 .tabs { flex: 0 0 auto; display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--line); }
 .tabs [role="tab"] {
-  position: relative; border: 0; border-radius: 0; background: none; padding: 9px 14px;
+  position: relative; border: 0; border-radius: 0; background: none; padding: 9px 12px;
   font-size: 13.5px; font-weight: 600; color: var(--muted);
   border-bottom: 2px solid transparent; margin-bottom: -1px;
 }
@@ -374,8 +363,7 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 .pane-pad { padding: 14px 18px 30px; }
 .pane-title { margin-top: 4px; }
 .empty { padding: 22px 6px; text-align: center; color: var(--muted); }
-#results:not([hidden]) ~ #details-empty,
-#timeline:not([hidden]) ~ #details-empty { display: none; }
+.pane-pad:has(#results:not([hidden])) #details-empty { display: none; }
 
 .maphint {
   position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 6;
@@ -502,6 +490,9 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 .whatif-inline output { font-family: var(--mono); font-weight: 400; color: var(--accent); }
 .whatif-inline input[type=range] { margin: 2px 0 8px; }
 .wi-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.whatif-inline .wi-len { justify-content: flex-start; align-items: center; gap: 6px; margin: 0; font-size: 12.5px; font-weight: 400; color: var(--muted); }
+.whatif-inline select { width: auto; padding: 3px 6px; font-size: 12.5px; }
+.whatif-inline > .tiny { margin-top: 6px; }
 .btn-sm {
   flex: 0 0 auto; padding: 5px 14px; font-size: 12.5px; font-weight: 600; border-radius: 8px;
   background: var(--accent); color: #fff; border-color: var(--accent);
@@ -540,5 +531,47 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 .rc-foot { margin-top: 6px; }
 .chat-fine { margin-top: 12px !important; }
 
-/* The legend steps up out of the way while the road scrubber is on screen, so the two never overlap. */
-#mapwrap:has(#tl-float:not([hidden])) #legend { bottom: 96px; }
+/* On a narrower map the legend steps up out of the way of the road scrubber, so they never overlap. */
+@media (max-width: 1360px) {
+  #mapwrap:has(#tl-float:not([hidden])) #legend { bottom: 150px; }
+}
+
+/* ---- plain-language cards: one idea each, folded away until wanted -------------------------- */
+.card { border: 1px solid var(--line); border-radius: 12px; margin: 0 0 10px; background: #fff; }
+.card > summary {
+  cursor: pointer; list-style: none; padding: 11px 14px; font-size: 14px; font-weight: 600;
+  display: flex; align-items: center; gap: 8px; border-radius: 12px;
+}
+.card > summary::-webkit-details-marker { display: none; }
+.card > summary::after {
+  content: ''; margin-left: auto; flex: 0 0 auto; width: 7px; height: 7px;
+  border-right: 1.5px solid var(--faint); border-bottom: 1.5px solid var(--faint);
+  transform: rotate(45deg); transition: transform .15s;
+}
+.card[open] > summary::after { transform: rotate(-135deg); }
+.card > summary:hover { background: var(--bg); }
+.card-body { padding: 2px 14px 14px; }
+.card-body > :first-child { margin-top: 0; }
+.card details.block { margin-top: 10px; }
+
+.summary { padding: 14px 16px; margin: 0 0 12px; background: #f0f9fc; border: 1px solid #cfe7ee; border-radius: 12px; }
+.summary p { margin: 0 0 6px; font-size: 14.5px; line-height: 1.5; }
+.summary p:last-child { margin-bottom: 0; }
+.summary b { font-weight: 700; }
+
+.rain-summary { padding: 14px 16px; margin: 0 0 12px; background: #f0f9fc; border: 1px solid #cfe7ee; border-radius: 12px; }
+.rs-class { font-size: 18px; font-weight: 700; margin-bottom: 2px; }
+.rs-line { font-size: 13.5px; color: var(--muted); }
+.rs-line b { color: var(--ink); }
+.rs-effect { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #cfe7ee; font-size: 14px; }
+.rs-effect:empty { display: none; }
+.rs-fine { margin-top: 8px; font-size: 11px; color: var(--faint); line-height: 1.4; }
+
+/* ---- the scrubber shows the rain it steps through ------------------------------------------- */
+.tl-src { font-size: 11px; color: var(--muted); margin-bottom: 5px; }
+.tl-src b { color: var(--ink); }
+.tl-src .live { color: #0a7d34; font-weight: 600; }
+.tl-bars { display: flex; align-items: flex-end; gap: 1px; height: 34px; margin-bottom: 3px; }
+.tb { flex: 1 1 0; min-width: 2px; background: #bcd6f4; border-radius: 1px 1px 0 0; }
+.tb.past { background: var(--water); }
+.tl-axis { display: flex; justify-content: space-between; margin: -2px 0 4px; font-size: 10.5px; color: var(--faint); }

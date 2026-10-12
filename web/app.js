@@ -27,6 +27,12 @@ const state = {
   tl: { feats: [], dur: 6, step: 6, total: 100, cum: [], steps: 6, real: false },
 };
 
+/* Late answers from the loaders (forecast, gauges, preparations, road outlook) must not land on an
+   area that has since been replaced or erased. Each loader takes a ticket; clearing the area voids
+   them all, and a newer request voids the older one. */
+const seq = { forecast: 0, now: 0, prep: 0, outlook: 0 };
+const voidLoaders = () => { for (const k of Object.keys(seq)) seq[k] += 1; };
+
 function setStatus(text, isError = false) {
   const el = $('status');
   el.hidden = !text;
@@ -77,14 +83,13 @@ async function boot() {
   selectRegion(state.regions[0].name);
   wireToolbar();
   wireTimeline();
-  $('news').addEventListener('toggle', () => { if ($('news').open) loadNews(); });
 
   if (!cfg.maps_api_key) {
     mapFailed('No Maps API key is configured. Set MAPS_API_KEY in .env.local and restart.');
     return;
   }
   const s = document.createElement('script');
-  s.src = `https://maps.googleapis.com/maps/api/js?key=${cfg.maps_api_key}&v=weekly&callback=initMap`;
+  s.src = `https://maps.googleapis.com/maps/api/js?key=${cfg.maps_api_key}&v=weekly&language=en&callback=initMap`;
   s.async = true;
   s.onerror = () => mapFailed('The Maps script could not be fetched. Check the network connection.');
   document.head.appendChild(s);
@@ -105,7 +110,7 @@ function buildRegionPicker() {
 }
 
 /* Switching city resets everything derived from the old one: results, box, official layer. */
-function selectRegion(name) {
+function selectRegion(name, opts = {}) {
   const region = state.regions.find((r) => r.name === name);
   if (!region) return;
   state.region = region;
@@ -124,8 +129,8 @@ function selectRegion(name) {
   $('rain-nogauge').hidden = Boolean(region.live_rainfall);
   loadReplay(region);
   resetNews(region);
-  clearAll();
-  chatReset();
+  clearAll({ quiet: true });
+  if (!opts.keepChat) chatReset();
   if (state.mapReady) frameRegion(region);
 }
 
@@ -188,15 +193,17 @@ function setTool(tool) {
   if (state.mapReady) state.map.setOptions({ draggable: tool !== 'box', draggableCursor: tool === 'box' ? 'crosshair' : null });
 }
 
-function clearAll() {
+function clearAll(opts = {}) {
   if (state.rect) { state.rect.setMap(null); state.rect = null; }
   if (state.layer) { state.layer.setMap(null); state.layer = null; }
   if (state.officialLayer) { state.officialLayer.setMap(null); state.officialLayer = null; }
   clearRoadLayer();
   $('timeline').hidden = true;
   $('prep').hidden = true;
-  clearedArea(Boolean(state.lastBbox));
+  voidLoaders();
+  clearedArea(Boolean(state.lastBbox) && !opts.quiet);
   state.lastBbox = null;
+  state.areaLabel = null;
   $('results').hidden = true;
   setStatus('');
   setTool('pan');
@@ -222,6 +229,7 @@ function wireToolbar() {
     const btn = ev.target.closest('button');
     if (!btn || btn.classList.contains('collapse')) return;
     if (btn.dataset.action === 'erase') clearAll();
+    else if (btn.dataset.action === 'labels') cycleLabels();
     else if (btn.dataset.tool) setTool(btn.dataset.tool);
   });
   document.addEventListener('keydown', (ev) => {
@@ -236,6 +244,44 @@ function wireToolbar() {
 
 /* ---- map ------------------------------------------------------------------------------------ */
 
+/* ---- map labels ------------------------------------------------------------------------------
+   Google's default basemap puts a business or attraction on nearly every building, which buries the
+   pooling layer. Three densities, "Clean" by default: shops, restaurants, transit icons and road
+   shields go, while the names that orient you stay -- areas, streets, roads, water, parks. "Minimal"
+   also drops the names of small local streets and of neighbourhoods, keeping districts and main roads. */
+const POI_OFF = [
+  { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+  { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+  { featureType: 'road', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+  { featureType: 'administrative.land_parcel', stylers: [{ visibility: 'off' }] },
+];
+const MAP_STYLES = {
+  full: [],
+  clean: POI_OFF,
+  // Keeps district-level names and main roads; drops the dense neighbourhood and side-street names.
+  minimal: [...POI_OFF,
+    { featureType: 'road.local', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+    { featureType: 'administrative.neighborhood', elementType: 'labels', stylers: [{ visibility: 'off' }] }],
+};
+const LABEL_ORDER = ['full', 'clean', 'minimal'];
+const LABEL_NAMES = { full: 'Full', clean: 'Clean', minimal: 'Minimal' };
+
+try { state.labels = localStorage.getItem('bih.labels'); } catch { state.labels = null; }
+if (!MAP_STYLES[state.labels]) state.labels = 'clean';
+
+function applyLabels() {
+  if (state.mapReady) state.map.setOptions({ styles: MAP_STYLES[state.labels] });
+  $('labels-mode').textContent = LABEL_NAMES[state.labels];
+  $('labels-btn').title = `Map labels: ${LABEL_NAMES[state.labels]}. Click to change how many are shown.`;
+}
+
+function cycleLabels() {
+  state.labels = LABEL_ORDER[(LABEL_ORDER.indexOf(state.labels) + 1) % LABEL_ORDER.length];
+  try { localStorage.setItem('bih.labels', state.labels); } catch { /* private mode: not fatal */ }
+  applyLabels();
+}
+
 window.initMap = function initMap() {
   try {
     const [w, s, e, n] = state.region.bbox_wsen;
@@ -243,6 +289,7 @@ window.initMap = function initMap() {
     state.map = new google.maps.Map($('map'), {
       center: bounds.getCenter(), zoom: 12,
       streetViewControl: false, fullscreenControl: false,
+      styles: MAP_STYLES[state.labels],
       // Google's controls default to the top-left, where our tool palette lives. Map type goes to
       // the top-right as a compact dropdown; zoom sits below it, clear of the legend.
       mapTypeControl: true,
@@ -257,6 +304,7 @@ window.initMap = function initMap() {
     // event, which meant one unlucky async error left the toolbar hidden with nothing on screen
     // to say why. UI chrome should never depend on a map event firing.
     enableBoxDrawing();
+    applyLabels();
     // Stroke widths are in pixels, so the road layer is restyled as the zoom changes.
     state.map.addListener('zoom_changed', () => {
       if (state.roadLayer) styleRoads(cumAt(state.tl.step));
@@ -389,15 +437,14 @@ const DEFAULT_PREDICT_Q =
   'Using the live rainfall forecast, what could happen to this area and its roads over the coming day?';
 
 function predictBox(bbox, label) {
-  state.lastBbox = bbox;
-  state.whatif = false;
   setTab('agent');
-  chatNote(`${label || 'Drawn box'} \u00b7 ${boxKm2(bbox).toFixed(1)} km\u00b2`);
   if (state.agents) {
-    loadForecast(bbox);    // the Rain tab, and it seeds the what-if slider
-    loadRainNow(bbox);     // live gauges, where a city has an open feed
+    setArea(bbox, label || 'Drawn box');
     sendQuestion(DEFAULT_PREDICT_Q, { auto: true });
   } else {
+    state.lastBbox = bbox;
+    state.areaLabel = label || 'Drawn box';
+    state.whatif = false;
     analyse(bbox);         // no agent layer configured: fall back to a direct screening
   }
 }
@@ -443,6 +490,7 @@ async function analyse(bbox) {
 /* Live observed rainfall from the region's gauge network, where one is wired (Singapore / NEA).
    Fire-and-forget and region-gated: a gauge outage, or a city with no open feed, costs nothing. */
 async function loadRainNow(bbox) {
+  const my = ++seq.now;
   const el = $('rainnow');
   el.hidden = true;
   const live = state.region && state.region.live_rainfall;
@@ -450,7 +498,7 @@ async function loadRainNow(bbox) {
   try {
     const q = `region=${encodeURIComponent(state.region.name)}&bbox=${bbox.join(',')}`;
     const d = await fetch(`/api/rainfall-now?${q}`).then((r) => r.json());
-    if (!d.available) return;
+    if (my !== seq.now || !d.available) return;
     renderRainNow(d, live);
   } catch { /* observed rain is context only; the screening is unaffected */ }
 }
@@ -476,8 +524,8 @@ function renderRainNow(d, live) {
 /* The forecast is live and can fail. It is fetched separately from the analysis so that a
    weather outage costs you the rainfall panel and nothing else. */
 async function loadForecast(bbox) {
-  const el = $('forecast');
-  el.innerHTML = '<span class="muted">checking the forecast\u2026</span>';
+  const my = ++seq.forecast;
+  $('rain-summary').innerHTML = '<p class="muted small">checking the forecast\u2026</p>';
   $('rainchart').hidden = true;
   try {
     const r = await fetch('/api/forecast', {
@@ -485,28 +533,38 @@ async function loadForecast(bbox) {
       body: JSON.stringify({ bbox, hours: 48 }),
     });
     const body = await r.json();
+    if (my !== seq.forecast) return;
     if (!r.ok) throw new Error(body.detail || 'no forecast available');
     state.forecast = body;
     renderForecast();
   } catch (err) {
+    if (my !== seq.forecast) return;
     state.forecast = null;
-    el.innerHTML = `<span class="muted">No live forecast (${esc(err.message)}). `
-      + 'Use \u201cTest a what-if\u201d below to set the rainfall by hand.</span>';
+    $('rain-summary').innerHTML = `<p class="muted small">No live forecast right now (${esc(err.message)}). `
+      + 'Use \u201cTry a heavier storm\u201d below to set the rainfall by hand.</p>';
   }
 }
 
 function renderForecast() {
   const f = state.forecast;
   if (!f) return;
+  const day = f.peaks['24'] || f.peaks[Object.keys(f.peaks).pop()] || { mm: f.total_mm };
+  $('rain-summary').innerHTML =
+    `<div class="rs-class">${rainClass(day.mm)}</div>`
+    + `<div class="rs-line"><b>${f.total_mm} mm</b> expected over the next ${f.hours_ahead} hours`
+    + ` \u00b7 the wettest 24 hours: <b>${day.mm} mm</b></div>`
+    + '<div class="rs-effect" id="rain-effect"></div>'
+    + '<div class="rs-fine">The words follow the India Meteorological Department\u2019s daily rainfall '
+    + 'classes. This is a model forecast, not a measurement.</div>';
   const windows = Object.entries(f.peaks)
-    .map(([h, p]) => `<span class="fwin">${h} h: <b>${p.mm}</b> mm</span>`).join('');
+    .map(([h, p]) => `<span class="fwin">wettest ${h} h: <b>${p.mm}</b> mm</span>`).join('');
   $('forecast').innerHTML = `
-    <div class="line"><span class="muted">Live forecast, next ${f.hours_ahead} h:</span>
-      <span class="num">${f.total_mm} mm</span></div>
     <div class="windows">${windows}</div>
-    <div class="why">Worst rolling window, not the daily total. A point forecast at the box centre;
-      no return period inferred. The agent predicts from this \u2014 the what-if slider only overrides it.</div>`;
+    <div class="why">A forecast for one point at the centre of the area, not a rainfall map: a heavy burst
+      can be smaller than the area, and the corners can differ. It comes from the Google Weather API.
+      No flood return period is worked out from it.</div>`;
   renderRainChart(f);
+  applyRainEffect();
   seedWhatIf();
 }
 
@@ -517,7 +575,7 @@ function seedWhatIf() {
   if (seed == null || state.whatif) return;
   $('rain').value = String(Math.max(0, Math.round(seed)));
   // The slider moves in 5 mm steps, so say the forecast's own figure rather than the snapped one.
-  $('rainout').textContent = `${+Number(seed).toFixed(1)} mm · forecast`;
+  $('rainout').textContent = `${+Number(seed).toFixed(1)} mm \u00b7 forecast`;
 }
 
 /* ---- roads over time: a rain-driven playback (F8) -------------------------------------------
@@ -530,9 +588,10 @@ function clearRoadLayer() {
   $('tl-float').hidden = true;
 }
 
-/* The cumulative-rainfall curve the playback steps through. With the live forecast the agent
-   hands us the real per-hour amounts (the true shape); a what-if has no real shape, so the total
-   is spread evenly across the chosen storm length. */
+/* The cumulative-rainfall curve the playback steps through. With the live forecast the agent hands us
+   the real per-hour amounts of the exact window it ran the engine on, so the last step is the total
+   the engine used. A what-if has no real shape, so its total is spread evenly across the chosen storm
+   length: an assumption, and the card says so. */
 function buildCumulative(total, dur, profile) {
   if (profile && profile.length) {
     const cum = [0];
@@ -550,6 +609,32 @@ function setDurationSelect(dur) {
   $('tl-duration').value = String(near);
 }
 
+/* Real clock times for the forecast window, in the city's own time zone: "Wed 3 PM", not "hour 24". */
+function clockAt(step, o = { weekday: 'short', hour: 'numeric' }) {
+  if (!state.tl.start) return `+${step} h`;
+  const t = new Date(new Date(state.tl.start).getTime() + step * 3600e3);
+  const tz = state.region && state.region.timezone;
+  try { return new Intl.DateTimeFormat([], { timeZone: tz || undefined, ...o }).format(t); }
+  catch { return new Intl.DateTimeFormat([], o).format(t); }
+}
+
+/* The hourly rain the scrubber is stepping through, drawn above it, so it is plain to see that this is
+   the forecast's own data: how much falls, and in which hours. Scaled to at least 1 mm an hour so a
+   drizzle does not look like a storm. */
+function renderPlaybackStrip(profile) {
+  const bars = $('tl-bars');
+  const axis = $('tl-axis');
+  if (!state.tl.real) { bars.hidden = true; axis.hidden = true; return; }
+  const max = Math.max(1, ...profile);
+  bars.innerHTML = profile.map((mm, i) =>
+    `<span class="tb" style="height:${mm > 0 ? Math.max(10, (mm / max) * 100) : 4}%" `
+    + `title="${clockAt(i)} · ${fmtMm(mm)} mm"></span>`).join('');
+  axis.children[0].textContent = clockAt(0);
+  axis.children[1].textContent = clockAt(profile.length);
+  bars.hidden = false;
+  axis.hidden = false;
+}
+
 /* `driver` is set when the answer came from the agent: the rainfall, the window and, in forecast
    mode, the real hourly shape it settled on. The playback follows the agent, not the slider. */
 function renderTimeline(res, driver) {
@@ -562,8 +647,9 @@ function renderTimeline(res, driver) {
 
   const profile = driver && driver.profile;
   state.tl.real = Boolean(profile && profile.length);
+  state.tl.start = state.tl.real ? driver.profileStart : null;
   if (driver) {
-    state.tl.total = Math.round(driver.total);
+    state.tl.total = driver.total;
     state.tl.dur = Math.max(1, Math.round(driver.dur || 6));
   } else {
     state.tl.total = Number($('rain').value);
@@ -574,16 +660,30 @@ function renderTimeline(res, driver) {
   $('tl-step').max = state.tl.steps;
   if (!state.tl.real) setDurationSelect(state.tl.dur);
   $('tl-duration').parentElement.style.display = state.tl.real ? 'none' : '';
+  renderPlaybackStrip(profile || []);
 
-  $('timeline-sub').textContent =
-    `${feats.length} road stretches pass through a pooling spot. Drag to watch them pool as rain `
-    + 'accumulates, ordered by how little rain each needs.';
+  // Where the numbers on the scrubber come from, in plain sight: a forecast, or a hypothesis.
+  const meta = driver && driver.forecastMeta;
+  const fetched = meta && meta.fetched_at
+    ? new Date(meta.fetched_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit',
+        timeZone: (state.region && state.region.timezone) || undefined }) : null;
+  $('tl-src').innerHTML = state.tl.real
+    ? `<span class="live">Live forecast</span> · Google Weather API${fetched ? ` · fetched ${fetched}` : ''}`
+    : `<b>What-if, not a forecast</b> · ${fmtMm(state.tl.total)} mm assumed to fall evenly over ${state.tl.dur} h`;
+
+  const floods = Math.min(...feats.map((f) => f.properties.rain_to_flood_mm));
+  const dry = state.tl.real && state.tl.total < floods;
+  $('timeline-sub').textContent = dry
+    ? 'In this forecast the rain stays below what any road here needs to go under, so nothing is '
+      + 'marked. Use “Try a heavier storm” to see what a bigger one would do.'
+    : `${feats.length} road stretches run through the low spots. Drag the bar on the map to watch them `
+      + 'go under as the rain builds, the most vulnerable first.';
   $('tl-note').innerHTML =
-    'Modelled road difficulty from rain <b>pooling</b> &mdash; not a traffic measurement, and not '
-    + 'a forecast of standing water hours later. It shows cumulative rainfall assuming <b>none of '
-    + 'it drains</b> (the worst case, since storm-drain data is not public), so a long storm '
-    + 'saturates; streets with working drains clear sooner.'
-    + (state.tl.real ? ' Timed to the live forecast.' : '');
+    'Modelled road difficulty from where rain collects &mdash; not a traffic measurement, and not a '
+    + 'forecast of standing water hours later. It adds up the rain assuming <b>none of it drains '
+    + 'away</b> (the worst case, since storm-drain data is not public), so a long storm saturates; '
+    + 'streets with working drains clear sooner.'
+    + (state.tl.real ? ' The hourly rain is the live forecast’s own.' : '');
 
   if (state.mapReady) {
     const layer = new google.maps.Data({ map: state.map });
@@ -591,7 +691,7 @@ function renderTimeline(res, driver) {
     state.roadLayer = layer;
     $('tl-float').hidden = false;
   }
-  stepTo(state.tl.steps);               // open on the full storm; drag back to watch it build
+  stepTo(state.tl.steps);               // open on the full window; drag back to watch it build
   loadRoadOutlook(res);                 // the agent's qualitative, region-specific read (if any)
 }
 
@@ -630,9 +730,10 @@ function stepTo(step) {
   styleRoads(cum);                       // instant: one setStyle, no animation
   const on = state.tl.feats.filter((f) => f.properties.rain_to_flood_mm <= cum);
   const km = on.reduce((a, f) => a + f.properties.length_m, 0) / 1000;
-  const when = state.tl.real ? `hour ${step} of the forecast` : `${step} h in`;
-  $('tl-read').innerHTML =
-    `<b>~${Math.round(cum)} mm</b> fallen &middot; ${when} &middot; ${on.length} stretches &middot; ${km.toFixed(1)} km`;
+  [...$('tl-bars').children].forEach((b, i) => b.classList.toggle('past', i < step));
+  const when = state.tl.real ? `by ${clockAt(step)}` : `${step} h into the storm`;
+  const roads = on.length ? `${on.length} stretches · ${km.toFixed(1)} km` : 'no roads under yet';
+  $('tl-read').innerHTML = `<b>~${fmtMm(cum)} mm</b> ${when} · ${roads}`;
   const ARTERIAL = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'];
   const seen = new Set();               // a long road can have several stretches; list it once
   const worst = on.filter((f) => f.properties.name && ARTERIAL.includes(f.properties.highway))
@@ -644,7 +745,7 @@ function stepTo(step) {
     const p = f.properties;
     const li = document.createElement('li');
     li.innerHTML = `<span class="rsev s${p.severity}"></span><b>${esc(p.name)}</b>`
-      + `<span class="meta">${esc(p.highway)} &middot; difficult from ~${p.rain_to_flood_mm} mm</span>`;
+      + `<span class="meta">goes under from ~${p.rain_to_flood_mm} mm of rain</span>`;
     return li;
   }));
 }
@@ -672,6 +773,7 @@ function inr(n) {
 }
 
 async function loadPreparations(rainfallMm) {
+  const my = ++seq.prep;
   const sec = $('prep');
   sec.hidden = true;
   if (!state.lastBbox || !state.region || state.region.preparations === false) return;
@@ -680,7 +782,7 @@ async function loadPreparations(rainfallMm) {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ bbox: state.lastBbox, region: state.region.name, rainfall_mm: rainfallMm }),
     }).then((r) => { if (!r.ok) throw new Error('no prep'); return r.json(); });
-    if (!d.available || !d.items || !d.items.length) return;
+    if (my !== seq.prep || !d.available || !d.items || !d.items.length) return;
     renderPreparations(d);
   } catch { /* the screening and the list stand without this */ }
 }
@@ -740,6 +842,7 @@ function renderPreparations(d) {
 }
 
 async function loadRoadOutlook(res) {
+  const my = ++seq.outlook;
   const el = $('road-outlook');
   el.hidden = true;
   if (!state.agents || !state.lastBbox) return;
@@ -751,7 +854,7 @@ async function loadRoadOutlook(res) {
         rainfall_mm: state.tl.total, duration_h: state.tl.dur,
       }),
     }).then((r) => { if (!r.ok) throw new Error('no outlook'); return r.json(); });
-    if (!d.outlook) return;
+    if (my !== seq.outlook || !d.outlook) return;
     el.hidden = false;
     el.innerHTML = `<div class="ro-head">What this might mean here <span class="tag-modelled">agent &middot; grounded</span></div>`
       + `<p>${esc(d.outlook)}</p>`
@@ -768,46 +871,62 @@ function renderPeople(ex) {
   if (!ex || !ex.available || !ex.people_in_worst_spots) { el.hidden = true; return; }
   el.hidden = false;
   el.innerHTML = `
-    <h2>Who is nearby</h2>
-    <p class="peoplenum"><b>~${ex.people_in_worst_spots.toLocaleString()}</b> people in the worst
-      spots<span class="muted">, of ~${ex.people_in_box.toLocaleString()} modelled in this box</span></p>
-    <details class="fine"><summary>How this is modelled</summary>
+    <div class="card-title">Who lives in the worst spots that fill</div>
+    <p class="peoplenum"><b>~${ex.people_in_worst_spots.toLocaleString()}</b> people<span class="muted">, out of
+      about ${ex.people_in_box.toLocaleString()} living in this box</span></p>
+    <details class="fine"><summary>How is this estimated?</summary>
       <ul>${ex.caveats.map((c) => `<li>${esc(c)}</li>`).join('')}</ul></details>`;
 }
 
 /* ---- in the news now (A13) -----------------------------------------------------------------
-   Live, display-only, and loaded only when the panel is opened — GDELT rate-limits hard and the
-   screening must never wait on it. Never stored, never scored, changes no number on the page. */
+   Its own tab. Context only: it changes no number anywhere. The news index is slow (tens of seconds
+   on a cold hit), so the server answers from a cache and, when it has nothing yet, says "pending";
+   this asks again every few seconds and says plainly what it is doing, rather than sit on a spinner. */
 function resetNews(region) {
   state.newsFor = null;
-  $('news').open = false;
-  $('news-body').innerHTML = '<p class="muted small">Open to load live reports for this city.</p>';
+  $('news-body').innerHTML = '<p class="muted small">Opens when you visit this tab.</p>';
+  if (state.tab === 'news') loadNews();
 }
 
-async function loadNews() {
+async function loadNews(attempt = 0) {
   const region = state.region;
-  if (!region || state.newsFor === region.name) return;
-  state.newsFor = region.name;
-  const body = $('news-body');
-  body.innerHTML = '<p class="muted small">checking the news…</p>';
+  if (!region) return;
+  if (attempt === 0) {
+    if (state.newsFor === region.name) return;
+    state.newsFor = region.name;
+    $('news-body').innerHTML = '<p class="muted small">checking the news\u2026</p>';
+  }
+  const stillHere = () => state.region === region && state.newsFor === region.name;
   try {
-    const d = await fetch(`/api/news?region=${encodeURIComponent(region.name)}`)
-      .then((r) => { if (!r.ok) throw new Error('news unavailable'); return r.json(); });
+    const res = await fetch(`/api/news?region=${encodeURIComponent(region.name)}`);
+    if (!stillHere()) return;                       // they switched city while this was loading
+    const d = await res.json();
+    if (d.pending) {
+      $('news-body').innerHTML = '<p class="muted small">The news index is slow today \u2014 still '
+        + 'looking. This can take up to a minute the first time.</p>';
+      if (attempt < 25) setTimeout(() => { if (stillHere()) loadNews(attempt + 1); }, 3000);
+      else throw new Error('timed out');
+      return;
+    }
+    if (!res.ok) throw new Error(d.detail || 'news unavailable');
     renderNews(d);
   } catch {
-    state.newsFor = null;        // let a later open retry
-    body.innerHTML = '<p class="muted small">No live news right now (the index may be busy).</p>';
+    if (!stillHere()) return;
+    state.newsFor = null;                           // let a later visit retry
+    $('news-body').innerHTML = '<p class="muted small">No live news right now \u2014 the news index is '
+      + 'busy or not answering. Visit this tab again in a minute.</p>';
   }
 }
 
 function renderNews(d) {
-  const arts = (d.articles || []).slice(0, 6).map((a) =>
+  const arts = (d.articles || []).slice(0, 8).map((a) =>
     `<li><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a>
-      <span class="src">${esc(a.domain)}${a.seen ? ' · ' + esc(a.seen.slice(0, 10)) : ''}</span></li>`).join('');
+      <span class="src">${esc(a.domain)}${a.seen ? ' \u00b7 ' + esc(a.seen.slice(0, 10)) : ''}</span></li>`).join('');
+  const age = d.age_s != null && d.age_s >= 90 ? ` Updated ${Math.round(d.age_s / 60)} min ago.` : '';
   $('news-body').innerHTML = `
     ${d.digest ? `<p class="digest">${esc(d.digest)}</p>` : ''}
     <ul class="newslist">${arts || '<li class="muted small">No recent reports found.</li>'}</ul>
-    <p class="muted tiny">${esc(d.note)}</p>`;
+    <p class="muted tiny">${esc(d.note)}${age}</p>`;
 }
 
 /* ---- checked against a real storm ----------------------------------------------------------
@@ -886,6 +1005,7 @@ function setTab(name) {
   }
   if (name === 'details') $('tab-details').querySelector('.dot').hidden = true;
   if (name === 'agent') toBottom();
+  if (name === 'news') loadNews();                 // lazy: the news index is only asked when wanted
 }
 
 function wireTabs() {
@@ -907,9 +1027,18 @@ function notifyDetails() {
   if (state.tab !== 'details') $('tab-details').querySelector('.dot').hidden = false;
 }
 
-/* ---- Rain tab: the forecast's hourly shape ---------------------------------------------------
-   The same hourly series the agent reads, drawn. Scaled to at least 2 mm/h so a drizzle does not
-   look like a storm, and labelled as a model forecast rather than a measurement. */
+/* ---- Rain tab: what is forecast, in plain words ----------------------------------------------
+   One headline, one picture, everything else folded away. The words for how much rain it is follow
+   the India Meteorological Department's daily classes, and are labelled as such. */
+
+function rainClass(mm24) {
+  if (mm24 < 2.5) return 'Little or no rain';
+  if (mm24 < 15.6) return 'Light rain';
+  if (mm24 < 64.5) return 'Moderate rain';
+  if (mm24 < 115.6) return 'Heavy rain';
+  if (mm24 < 204.5) return 'Very heavy rain';
+  return 'Extremely heavy rain';
+}
 
 function renderRainChart(f) {
   const el = $('rainchart');
@@ -928,31 +1057,53 @@ function renderRainChart(f) {
   }).join('');
   const day = { weekday: 'short', hour: 'numeric' };
   el.innerHTML =
-    `<div class="rc-head"><b>Hourly rainfall, next ${hrs.length} h</b>`
+    `<div class="rc-head"><b>When it rains, hour by hour</b>`
     + `<span class="muted tiny">scale 0–${+max.toFixed(1)} mm per hour</span></div>`
     + `<div class="bars">${bars}</div>`
     + `<div class="rc-axis"><span>${fmt(hrs[0].t, { hour: 'numeric' })}</span>`
     + `<span>${fmt(hrs[Math.floor(hrs.length / 2)].t, day)}</span>`
     + `<span>${fmt(hrs[hrs.length - 1].t, day)}</span></div>`
     + `<div class="rc-foot muted tiny">${peak.mm > 0
-      ? `Wettest hour: ${peak.mm} mm, ${fmt(peak.t, day)}.` : 'No measurable rain forecast in this window.'} `
-    + `A model forecast, not a measurement${tz ? ` · times in ${esc(tz.split('/').pop().replace('_', ' '))}` : ''}.</div>`;
+      ? `Wettest hour: ${peak.mm} mm, ${fmt(peak.t, day)}.` : 'No measurable rain in this window.'}`
+    + `${tz ? ` Times in ${esc(tz.split('/').pop().replace('_', ' '))}.` : ''}</div>`;
   el.hidden = false;
 }
 
 function resetRain() {
   state.forecast = null;
-  $('forecast').innerHTML =
-    '<p class="muted small">Draw a box or pick an area, and its live forecast appears here.</p>';
+  state.rainEffect = null;
+  $('rain-summary').innerHTML = '<p class="muted small">Pick an area and its rain forecast appears here.</p>';
+  $('forecast').innerHTML = '';
   $('rainchart').hidden = true;
   $('rainnow').hidden = true;
+}
+
+/* How many low spots fill at the rainfall being looked at. Counted by spot, not by map polygon: one
+   spot can be drawn as several polygons, and the totals everywhere else count spots. */
+const spotsThatFill = (res) => new Set(res.geojson.features
+  .filter((f) => f.properties.fills_at_rainfall).map((f) => f.properties.id)).size;
+
+/* What that rainfall does to this area, from the engine's own result, shown under the headline. */
+function updateRainEffect(res, driver) {
+  const fills = spotsThatFill(res);
+  const total = res.screening.depressions.length;
+  const real = Boolean(driver && driver.profile);
+  const mm = driver ? driver.total : Number($('rain').value);
+  state.rainEffect = `${real ? 'At that rainfall' : `In the what-if (${fmtMm(mm)} mm)`}, `
+    + `<b>${fills}</b> of the <b>${total}</b> low spots in this area fill.`;
+  applyRainEffect();
+}
+
+function applyRainEffect() {
+  const el = document.getElementById('rain-effect');
+  if (el && state.rainEffect) el.innerHTML = state.rainEffect;
 }
 
 /* An erased or replaced area makes any in-flight answer stale, so stop it. */
 function clearedArea(hadArea) {
   if (chat.abort) chat.abort.abort();
   resetRain();
-  if (hadArea) chatNote('Area cleared — draw a new box to continue.');
+  if (hadArea) chatNote('Area cleared — draw a new box, or name a place, to continue.');
 }
 
 /* ---- the agent: a chat -----------------------------------------------------------------------
@@ -960,7 +1111,12 @@ function clearedArea(hadArea) {
    bubble shows the agents working (the trace), folds that to one line when they finish, and shows
    the answer. Nothing about how answers are made changed: the engine computes, the models only
    phrase, and a Verifier checks every figure. The trace stays one click away because it is the
-   proof of that. */
+   proof of that.
+
+   The chat remembers: each answer is noted in `chat.history`, which is sent with the next message
+   so "and the roads?" or "same storm for Vyttila" can be understood. The history only helps the
+   agent work out what a message means; every figure still comes from the engine. A message can name
+   a place instead of using the drawn box, or ask what something means, so neither needs a box. */
 
 const SUGGESTIONS = [
   { q: 'Which spots fill first here?' },
@@ -968,6 +1124,8 @@ const SUGGESTIONS = [
   { q: 'Roughly how many people are exposed?', needs: 'people' },
   { q: 'How does this compare with the official map?', needs: 'official' },
 ];
+
+const ASK_ME = ['What does pooling rank mean?', 'How far can I trust this?'];
 
 const ICON = {
   drop: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c-5.33 4.55-8 8.48-8 11.8 0 4.98 3.8 8.2 8 8.2s8-3.22 8-8.2C20 10.48 17.33 6.55 12 2z"/></svg>',
@@ -986,7 +1144,8 @@ const NEXT_STEP = {
   'A7 Verifier': 'Finishing…',
 };
 
-const chat = { busy: false, abort: null, run: 0 };
+const chat = { busy: false, abort: null, run: 0, history: [] };
+const MAX_HISTORY = 6;
 
 const mk = (tag, cls, html) => {
   const n = document.createElement(tag);
@@ -1026,9 +1185,15 @@ function addUser(text) {
 
 function chatNote(text) { push(mk('div', 'chat-note', `<span>${esc(text)}</span>`)); }
 
+/* What the agent is allowed to know of the conversation. Short, and only what a message might refer
+   to: the question, the area, the storm that was used, and the headline that came back. */
+function remember(entry) {
+  chat.history.push(entry);
+  if (chat.history.length > MAX_HISTORY) chat.history.shift();
+}
+
 function chooseArea(p) {
   setTool('pan');
-  showRect(p.bbox);
   predictBox(p.bbox, p.label);
 }
 
@@ -1044,19 +1209,34 @@ function areaChips(region) {
   return wrap;
 }
 
+function askChips(questions) {
+  const wrap = mk('div', 'chips');
+  for (const q of questions) {
+    const b = mk('button', 'chip chip-alt');
+    b.type = 'button';
+    b.textContent = q;
+    b.onclick = () => sendQuestion(q);
+    wrap.appendChild(b);
+  }
+  return wrap;
+}
+
 function chatReset() {
   if (chat.abort) chat.abort.abort();
+  chat.history = [];
   $('chat').replaceChildren();
   const region = state.region;
   const { m, b } = agentBubble();
   if (state.agents) {
     b.innerHTML =
       `<p><b>Hi — I'm the flood-screening agent${region ? ' for ' + esc(region.title) : ''}.</b></p>`
-      + '<p>Draw a box on the map, or pick an area below. I predict from the <b>live rainfall '
-      + 'forecast</b> — where water collects, which roads are hit, who is exposed — and then '
-      + 'you can ask me anything about it.</p>';
+      + '<p>Pick an area below, draw a box on the map, or just <b>name a place</b> — “will '
+      + 'Vyttila flood tonight?”. I predict from the live rainfall forecast, and you can ask me '
+      + 'what anything means.</p>';
     b.appendChild(mk('div', 'chat-label', 'Start with an area'));
     b.appendChild(areaChips(region));
+    b.appendChild(mk('div', 'chat-label', 'Or ask'));
+    b.appendChild(askChips(ASK_ME));
     b.appendChild(mk('p', 'muted tiny chat-fine',
       'I never write a number myself: every figure comes from the engine and is checked before you see it.'));
   } else {
@@ -1067,6 +1247,65 @@ function chatReset() {
     b.appendChild(areaChips(region));
   }
   push(m);
+}
+
+/* ---- finding a place the user named ----------------------------------------------------------
+   The agent says which place the message names; the browser finds it on the map. Presets first
+   (exact and instant), then Google's geocoder. The box is a fixed size around the point, the same
+   scale as the preset areas, and the place must fall inside a city that has data. */
+
+const normName = (s) => String(s).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+function regionAt(lat, lng) {
+  const inside = (r) => {
+    const [w, s, e, n] = r.bbox_wsen;
+    return lng >= w && lng <= e && lat >= s && lat <= n;
+  };
+  return (state.region && inside(state.region) ? state.region : state.regions.find(inside)) || null;
+}
+
+async function resolvePlace(name) {
+  const want = normName(name);
+  for (const r of state.regions) {
+    for (const p of r.presets || []) {
+      const have = normName(p.label);
+      if (want && have && (want === have || want.includes(have) || have.includes(want))) {
+        return { bbox: p.bbox, label: p.label, region: r.name };
+      }
+    }
+  }
+  if (!(window.google && google.maps && google.maps.Geocoder)) return null;
+  const geocoder = new google.maps.Geocoder();
+  const [w, s, e, n] = state.region.bbox_wsen;
+  const tries = [
+    { address: `${name}, ${state.region.title}`, bounds: { west: w, south: s, east: e, north: n } },
+    { address: name },
+  ];
+  for (const req of tries) {
+    try {
+      const { results } = await geocoder.geocode(req);
+      const loc = results && results[0] && results[0].geometry.location;
+      if (!loc) continue;
+      const lat = loc.lat();
+      const lng = loc.lng();
+      const r = regionAt(lat, lng);
+      const d = 0.014;                                    // about 1.5 km each way
+      if (r) return { bbox: [lng - d, lat - d, lng + d, lat + d], label: name, region: r.name };
+    } catch { /* no result, or a quota error: try the next form */ }
+  }
+  return null;
+}
+
+/* Select an area: remember it, show it, and load its forecast. */
+function setArea(bbox, label) {
+  state.lastBbox = bbox;
+  state.areaLabel = label;
+  state.whatif = false;
+  setTool('pan');
+  showRect(bbox);
+  chatNote(`${label} · ${boxKm2(bbox).toFixed(1)} km²`);
+  loadForecast(bbox);      // the Rain tab, and it seeds the what-if slider
+  loadRainNow(bbox);       // live gauges, where a city has an open feed
 }
 
 /* ---- one agent turn -------------------------------------------------------------------------- */
@@ -1147,9 +1386,39 @@ function factChips(ev) {
   if (n != null) out.push(`<b>${n.toLocaleString()}</b> ${n === 1 ? 'place collects' : 'places collect'} water`);
   const ex = r.exposure;
   if (ex && ex.available && ex.people_in_worst_spots) {
-    out.push(`~<b>${ex.people_in_worst_spots.toLocaleString()}</b> people in the worst spots`);
+    out.push(`~<b>${ex.people_in_worst_spots.toLocaleString()}</b> people in the worst spots that fill`);
   }
   return out;
+}
+
+function copyButton(getText) {
+  const c = mk('button', 'icon-btn', ICON.copy);
+  c.type = 'button';
+  c.title = 'Copy';
+  c.setAttribute('aria-label', 'Copy the answer');
+  c.onclick = () => {
+    navigator.clipboard.writeText(getText()).then(() => {
+      c.title = 'Copied';
+      setTimeout(() => { c.title = 'Copy'; }, 1500);
+    }).catch(() => {});
+  };
+  return c;
+}
+
+function actionsRow(turn, { details }) {
+  const acts = mk('div', 'a-actions');
+  if (turn.text) acts.appendChild(copyButton(() => turn.text));
+  const r = mk('button', 'icon-btn', ICON.redo);
+  r.type = 'button'; r.title = 'Ask again'; r.setAttribute('aria-label', 'Ask again');
+  r.onclick = () => sendQuestion(turn.question, { auto: turn.auto, replace: turn.m });
+  acts.appendChild(r);
+  if (details) {
+    const d = mk('button', 'linkbtn', 'Open details →');
+    d.type = 'button';
+    d.onclick = () => setTab('details');
+    acts.appendChild(d);
+  }
+  return acts;
 }
 
 function renderAnswer(turn, ev) {
@@ -1179,28 +1448,7 @@ function renderAnswer(turn, ev) {
   }
   const facts = factChips(ev);
   if (facts.length) a.appendChild(mk('div', 'facts', facts.map((f) => `<span class="fact">${f}</span>`).join('')));
-
-  const acts = mk('div', 'a-actions');
-  if (turn.text) {
-    const c = mk('button', 'icon-btn', ICON.copy);
-    c.type = 'button'; c.title = 'Copy'; c.setAttribute('aria-label', 'Copy the answer');
-    c.onclick = () => {
-      navigator.clipboard.writeText(turn.text).then(() => {
-        c.title = 'Copied';
-        setTimeout(() => { c.title = 'Copy'; }, 1500);
-      }).catch(() => {});
-    };
-    acts.appendChild(c);
-  }
-  const r = mk('button', 'icon-btn', ICON.redo);
-  r.type = 'button'; r.title = 'Ask again'; r.setAttribute('aria-label', 'Ask again');
-  r.onclick = () => sendQuestion(turn.question, { auto: turn.auto, replace: turn.m });
-  acts.appendChild(r);
-  const d = mk('button', 'linkbtn', 'Open details →');
-  d.type = 'button';
-  d.onclick = () => setTab('details');
-  acts.appendChild(d);
-  a.appendChild(acts);
+  a.appendChild(actionsRow(turn, { details: true }));
 }
 
 function addFollowups(turn, ev) {
@@ -1232,22 +1480,29 @@ function addFollowups(turn, ev) {
 function toggleWhatIf(turn, sc) {
   const existing = turn.answer.querySelector('.whatif-inline');
   if (existing) { existing.remove(); return; }
-  const hours = Math.max(1, Math.round(sc.duration_h || 3));
+  // How long the rain takes to fall is the user's call; it starts at the window of the last answer.
+  const lengths = [3, 6, 12, 24];
+  const want = sc.duration_h || 3;
+  const near = lengths.reduce((a, b) => (Math.abs(b - want) < Math.abs(a - want) ? b : a));
   const w = mk('div', 'whatif-inline',
     '<label>A heavier storm <output>100 mm</output></label>'
     + '<input type="range" min="10" max="300" step="10" value="100" aria-label="Rainfall in millimetres">'
-    + `<div class="wi-row"><span class="muted tiny">over ${hours} h · asks the agent for a checked briefing</span>`
-    + '<button type="button" class="btn-sm">Run</button></div>');
+    + '<div class="wi-row"><label class="wi-len">falling over '
+    + '<select aria-label="How long the rain falls">'
+    + lengths.map((h) => `<option value="${h}"${h === near ? ' selected' : ''}>${h} h</option>`).join('')
+    + '</select></label><button type="button" class="btn-sm">Run</button></div>'
+    + '<div class="muted tiny">Asks the agent for a checked briefing. The rain is assumed to fall evenly.</div>');
   const range = w.querySelector('input');
   range.oninput = () => { w.querySelector('output').textContent = `${range.value} mm`; };
   w.querySelector('button').onclick = () =>
-    sendQuestion(`What if ${range.value} mm of rain falls in ${hours} hours here?`);
+    sendQuestion(`What if ${range.value} mm of rain falls in ${w.querySelector('select').value} hours here?`);
   turn.answer.appendChild(w);
   if (nearBottom()) toBottom();
 }
 
 function finishTurn(turn, ev) {
   const removed = (ev.removed || []).length;
+  const sc = ev.scenario || {};
   settle(turn, ev.briefing
     ? `Checked by the verifier · ${turn.steps} steps · ${(turn.ms / 1000).toFixed(1)} s`
       + (removed ? ` · ${removed} claim${removed > 1 ? 's' : ''} removed` : '')
@@ -1256,26 +1511,77 @@ function finishTurn(turn, ev) {
   const stick = nearBottom();
   renderAnswer(turn, ev);
   addFollowups(turn, ev);
+  remember({
+    q: turn.auto ? `Forecast for ${state.areaLabel || 'the area'}` : turn.question,
+    area: state.areaLabel, mode: sc.mode, rainfall_mm: sc.rainfall_mm, duration_h: sc.duration_h,
+    headline: ev.briefing ? ev.briefing.headline : null,
+  });
   const c = $('chat');
   if (turn.m.offsetHeight > c.clientHeight) turn.m.scrollIntoView({ block: 'start' });
   else if (stick) toBottom();
 }
 
-function onAskEvent(turn, ev) {
-  if (ev.event === 'step') addTraceRow(turn, ev);
-  else if (ev.event === 'error') errorTurn(turn, ev.detail);
-  else if (ev.event === 'done') {
-    // The agent settled a rainfall and a window (from the live forecast, or the figure in the
-    // question). The map, the result list and the road playback follow that, not the slider.
-    if (ev.result) {
-      const sc = ev.scenario || {};
-      const driver = { total: sc.rainfall_mm ?? Number($('rain').value),
-                       dur: sc.duration_h || 6,
-                       profile: ev.rain_profile || null };   // the live forecast's hourly shape
-      try { render(ev.result, driver); notifyDetails(); } catch (err) { setStatus(`Could not draw the result: ${err.message}`, true); }
-    }
-    finishTurn(turn, ev);
+/* A reply with no analysis in it: an explanation, or a request for somewhere to look. */
+function finishText(turn, label, text, { followups, areas, cls }) {
+  settle(turn, label, cls);
+  turn.work.open = false;
+  const stick = nearBottom();
+  const a = turn.answer;
+  a.hidden = false;
+  a.replaceChildren(...String(text).split('\n').filter(Boolean).map((p) => mk('p', null, esc(p))));
+  turn.text = String(text);
+  if (areas) a.appendChild(areaChips(state.region));
+  a.appendChild(actionsRow(turn, { details: false }));
+  if (followups) {
+    const box = mk('div', 'followups');
+    const qs = state.lastBbox ? SUGGESTIONS.filter((s) => !s.needs).map((s) => s.q) : ASK_ME;
+    qs.filter((q) => q !== turn.question).slice(0, 3).forEach((q) => {
+      const c = mk('button', 'chip');
+      c.type = 'button';
+      c.textContent = q;
+      c.onclick = () => sendQuestion(q);
+      box.appendChild(c);
+    });
+    a.appendChild(box);
   }
+  if (stick) toBottom();
+}
+
+function finishExplain(turn, ev) {
+  finishText(turn, ev.answer_checked
+    ? `Answered from the product reference · ${(turn.ms / 1000).toFixed(1)} s` : 'No checked answer',
+  ev.answer, { followups: true });
+  remember({ q: turn.question, area: state.areaLabel,
+             headline: String(ev.answer || '').slice(0, 160) });
+}
+
+function finishNeedsArea(turn, ev) {
+  finishText(turn, 'I need a place first', ev.answer, { areas: true });
+}
+
+function onAskEvent(turn, ev) {
+  if (ev.event === 'step') { addTraceRow(turn, ev); return null; }
+  if (ev.event === 'error') { errorTurn(turn, ev.detail); return null; }
+  if (ev.event === 'place_needed') return { place: ev.place };
+  if (ev.event === 'done') {
+    if (ev.kind === 'explain') finishExplain(turn, ev);
+    else if (ev.kind === 'needs_area') finishNeedsArea(turn, ev);
+    else {
+      // The agent settled a rainfall and a window (from the live forecast, or the figure in the
+      // question). The map, the result list and the road playback follow that, not the slider.
+      if (ev.result) {
+        const sc = ev.scenario || {};
+        const driver = { total: sc.rainfall_mm ?? Number($('rain').value),
+                         dur: sc.duration_h || 6,
+                         profile: ev.rain_profile || null,           // the forecast's hourly shape
+                         profileStart: ev.rain_profile_start || null, // when that window starts
+                         forecastMeta: ev.forecast_meta || null };
+        try { render(ev.result, driver); notifyDetails(); } catch (err) { setStatus(`Could not draw the result: ${err.message}`, true); }
+      }
+      finishTurn(turn, ev);
+    }
+  }
+  return null;
 }
 
 /* ---- sending --------------------------------------------------------------------------------- */
@@ -1288,6 +1594,66 @@ function setComposerBusy(busy) {
   btn.setAttribute('aria-label', busy ? 'Stop' : 'Send');
 }
 
+async function readEvents(res, onEvent) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let cut;
+    while ((cut = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, cut).trim();
+      buf = buf.slice(cut + 1);
+      if (line) onEvent(JSON.parse(line));
+    }
+  }
+}
+
+/* One round trip. If the agent says the message names a place, the browser finds it and the same
+   turn asks again with the box; `placeResolved` stops that happening more than once. */
+async function askLoop(turn, q, placeResolved) {
+  const ctl = new AbortController();
+  chat.abort = ctl;
+  const res = await fetch('/api/ask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal: ctl.signal,
+    body: JSON.stringify({
+      question: q, bbox: state.lastBbox || null, region: state.region.name,
+      rainfall_mm: Number($('rain').value),
+      return_period: $('rp').value ? Number($('rp').value) : null,
+      history: chat.history, area_label: state.areaLabel || null,
+      place_resolved: placeResolved || null,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || 'the agent layer could not answer that');
+  }
+  let place = null;
+  await readEvents(res, (ev) => { const r = onAskEvent(turn, ev); if (r && r.place) place = r.place; });
+  if (place) { await continueWithPlace(turn, q, place, placeResolved); return; }
+  if (!turn.finished) errorTurn(turn, 'The answer ended before it was finished.');
+}
+
+async function continueWithPlace(turn, q, place, alreadyResolved) {
+  if (alreadyResolved) { errorTurn(turn, `I could not pin down ${place} on the map.`); return; }
+  turn.label.textContent = `Finding ${place} on the map…`;
+  const hit = await resolvePlace(place);
+  if (!hit) {
+    const cities = state.regions.map((r) => r.title).join(' and ');
+    finishText(turn, 'Could not find that place',
+      `I could not find “${place}” inside the areas I have data for (${cities}). `
+      + 'Draw a box on the map or pick one of these:', { areas: true });
+    return;
+  }
+  if (hit.region !== state.region.name) selectRegion(hit.region, { keepChat: true });
+  setArea(hit.bbox, hit.label);
+  await askLoop(turn, q, place);
+}
+
 async function sendQuestion(q, opts = {}) {
   q = (q || '').trim();
   if (!q) return;
@@ -1295,54 +1661,15 @@ async function sendQuestion(q, opts = {}) {
   // A new area replaces whatever was running for the old one; anything else waits its turn.
   if (chat.busy) {
     if (!opts.auto) return;
-    chat.abort.abort();
-  }
-  if (!state.lastBbox) {
-    if (!opts.auto) addUser(q);
-    const { m, b } = agentBubble();
-    b.innerHTML = '<p>I answer about a specific place, so I need an area first.</p>'
-      + '<p class="muted small">Draw a box on the map (the Box tool, or press B), or pick one:</p>';
-    b.appendChild(areaChips(state.region));
-    push(m);
-    return;
+    if (chat.abort) chat.abort.abort();
   }
   if (!opts.auto && !opts.replace) addUser(q);
   const turn = startTurn(q, opts);
-  const ctl = new AbortController();
   const run = ++chat.run;
-  chat.abort = ctl;
   chat.busy = true;
   setComposerBusy(true);
   try {
-    const res = await fetch('/api/ask', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: ctl.signal,
-      body: JSON.stringify({
-        question: q, bbox: state.lastBbox, region: state.region.name,
-        rainfall_mm: Number($('rain').value),
-        return_period: $('rp').value ? Number($('rp').value) : null,
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.detail || 'the agent layer could not answer that');
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let cut;
-      while ((cut = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, cut).trim();
-        buf = buf.slice(cut + 1);
-        if (line) onAskEvent(turn, JSON.parse(line));
-      }
-    }
-    if (!turn.finished) errorTurn(turn, 'The answer ended before it was finished.');
+    await askLoop(turn, q, null);
   } catch (err) {
     if (err.name === 'AbortError') stopTurn(turn);
     else errorTurn(turn, err.message);
@@ -1373,7 +1700,7 @@ function wireAsk(enabled) {
   }
   form.addEventListener('submit', (e) => {
     e.preventDefault();
-    if (chat.busy) { chat.abort.abort(); return; }          // the send button is Stop while running
+    if (chat.busy) { if (chat.abort) chat.abort.abort(); return; }   // the send button is Stop while running
     const q = box.value;
     box.value = '';
     growComposer();
@@ -1386,6 +1713,25 @@ function wireAsk(enabled) {
   });
   box.addEventListener('input', growComposer);
   $('chat-new').onclick = () => chatReset();
+}
+
+/* The findings in plain sentences, from the engine's own numbers, before any detail. */
+function renderSummary(res, driver) {
+  const sc = res.screening;
+  const n = sc.depressions.length;
+  const top = sc.depressions.filter((d) => d.pooling_index >= 4).length;
+  const fills = spotsThatFill(res);
+  const mm = driver ? driver.total : Number($('rain').value);
+  const lines = [
+    `In this <b>${res.grid.area_km2} km\u00b2</b> area, <b>${n.toLocaleString()}</b> low ${n === 1 ? 'spot' : 'spots'} `
+    + `can collect rain water. The <b>${top.toLocaleString()}</b> worst ${top === 1 ? 'one is' : 'ones are'} shown in the darkest blue.`,
+    `At <b>${fmtMm(mm)} mm</b> of rain, <b>${fills.toLocaleString()}</b> of them fill up.`,
+  ];
+  const ex = res.exposure;
+  if (ex && ex.available && ex.people_in_worst_spots) {
+    lines.push(`Roughly <b>${ex.people_in_worst_spots.toLocaleString()}</b> people live in the worst spots that fill at this rainfall.`);
+  }
+  $('summary').innerHTML = lines.map((l) => `<p>${l}</p>`).join('');
 }
 
 function render(res, driver) {
@@ -1431,13 +1777,13 @@ function render(res, driver) {
   }
 
   $('results').hidden = false;
-  $('pitcount').textContent = sc.depressions.length.toLocaleString();
-  $('pitword').textContent = sc.depressions.length === 1 ? 'place collects water' : 'places collect water';
+  renderSummary(res, driver);
+  updateRainEffect(res, driver);
   $('gridline').textContent =
-    `${res.grid.area_km2} km² at ${res.grid.res_m} m · ${res.region.title}` +
+    `${res.grid.area_km2} km² analysed at ${res.grid.res_m} m resolution · ${res.region.title}` +
     (res.grid.despiked_px ? ` · ${res.grid.despiked_px} bad pixels repaired` : '');
 
-  $('spots').replaceChildren(...sc.depressions.slice(0, 8).map((d) => {
+  $('spots').replaceChildren(...sc.depressions.slice(0, 5).map((d) => {
     const li = document.createElement('li');
     const rank = document.createElement('span');
     rank.className = `rank s${d.pooling_index}`;
@@ -1445,9 +1791,10 @@ function render(res, driver) {
     const body = document.createElement('div');
     const where = d.nearest_road
       ? `<b>${esc(d.nearest_road.name)}</b> <span class="muted">· ${d.nearest_road.distance_m} m</span>`
-      : `<b>${esc(d.id)}</b>`;
-    body.innerHTML = `${where} — ${d.contributing_ha} ha drains in` +
-      `<div class="meta">fills ${d.fill_order}${ordinal(d.fill_order)}</div>`;
+      : `<b>Low spot ${esc(String(d.id).replace(/^d_0*/, ''))}</b> <span class="muted">\u00b7 no named road close by</span>`;
+    body.innerHTML = `${where}` +
+      `<div class="meta">fills ${d.fill_order}${ordinal(d.fill_order)} of ${sc.depressions.length} \u00b7 `
+      + `rain from about ${d.contributing_ha >= 10 ? Math.round(d.contributing_ha) : d.contributing_ha} ha of land runs into it</div>`;
     li.append(rank, body);
     li.onclick = () => zoomTo(d.id);
     return li;

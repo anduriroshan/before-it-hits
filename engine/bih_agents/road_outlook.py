@@ -85,9 +85,13 @@ def write(region_title: str, findings: dict, articles: list[dict], *,
 
 
 def for_box(result: dict, *, region_title: str, rainfall_mm: float, duration_h: float,
-            news_query: str | None = None) -> dict | None:
+            news_query: str | None = None, articles: list | None = None) -> dict | None:
+    """`articles` are headlines the caller already has (the service passes its cached ones, so an
+    analysis never waits on, or adds load to, the news index). None means fetch them here."""
     findings = summarise(result, rainfall_mm=rainfall_mm, duration_h=duration_h,
                          region_title=region_title)
+    if articles is not None:
+        return write(region_title, findings, articles)
     try:
         articles = news.fetch(news_query or f'"{region_title.split(",")[0]}" (flood OR rain)',
                               timespan="3m", max_records=12)

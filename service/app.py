@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -124,6 +124,16 @@ def area_km2(bbox) -> float:
     return abs(e - w) * abs(n - s) * 111.32**2 * math.cos(math.radians((s + n) / 2))
 
 
+@app.on_event("startup")
+def warm_the_news() -> None:
+    """Fetch each city's news in the background so the first visit to the News tab is instant."""
+    if os.environ.get("BIH_NO_NEWS_WARM"):
+        return
+    from bih_agents import news
+    news.warm([(r.name, r.manifest.get("title") or r.name, r.manifest.get("news_query"))
+               for r in regions().values()], gap_s=news.MIN_GAP_S)
+
+
 @app.get("/api/health")
 def health() -> dict:
     rs = regions()
@@ -199,9 +209,11 @@ def road_outlook(req: RoadOutlookRequest) -> dict:
     res = analyse_area((w, s, e, n), rainfall_mm=req.rainfall_mm, res_m=10.0, region=r)
     res.pop("debug", None)
     res.pop("debug_excluded", None)
-    out = ro.for_box(res, region_title=r.manifest.get("title") or r.name,
-                     rainfall_mm=req.rainfall_mm, duration_h=req.duration_h,
-                     news_query=r.manifest.get("news_query"))
+    from bih_agents import news
+    title = r.manifest.get("title") or r.name
+    heads = news.peek(r.name, title, query=r.manifest.get("news_query")) or []
+    out = ro.for_box(res, region_title=title, rainfall_mm=req.rainfall_mm, duration_h=req.duration_h,
+                     news_query=r.manifest.get("news_query"), articles=heads)
     return out or {"outlook": None}
 
 
@@ -247,11 +259,13 @@ def news_for_region(region: str | None = None) -> dict:
     grounded, display-only path and must never be able to slow or break the screening."""
     from bih_agents import news
     r = region_or_404(region)
-    try:
-        return news.for_region(r.manifest.get("title") or r.name,
-                               query=r.manifest.get("news_query"))
-    except news.NewsUnavailable as exc:
-        raise HTTPException(503, str(exc)) from exc
+    got = news.get(r.name, r.manifest.get("title") or r.name, query=r.manifest.get("news_query"))
+    if got["status"] == "ok":
+        return {**got["data"], "age_s": got["age_s"], "stale": got["stale"]}
+    if got["status"] == "pending":
+        # The index is slow; the browser asks again rather than hold a request open for a minute.
+        return JSONResponse({"pending": True}, status_code=202)
+    raise HTTPException(503, got.get("error") or "the news index is unavailable")
 
 
 @app.get("/api/rainfall-now")
@@ -287,18 +301,33 @@ def config() -> dict:
     return {"maps_api_key": os.environ.get("MAPS_API_KEY", ""), "agents": llm.available()}
 
 
+class HistoryTurn(BaseModel):
+    """One earlier turn, as the browser remembers it. Only used to work out what a new message
+    refers to; it is never treated as evidence (see scenario.clean_history)."""
+    q: str = Field("", max_length=300)
+    area: str | None = Field(None, max_length=80)
+    mode: str | None = Field(None, max_length=12)
+    rainfall_mm: float | None = Field(None, ge=0, le=1000)
+    duration_h: float | None = Field(None, ge=0, le=240)
+    headline: str | None = Field(None, max_length=300)
+
+
 class AskRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=500)
-    bbox: list[float] = Field(..., min_length=4, max_length=4)
+    # Optional: a message can be about the product, or name a place for the browser to find first.
+    bbox: list[float] | None = Field(None, min_length=4, max_length=4)
     region: str | None = None
     rainfall_mm: float = Field(100.0, ge=0, le=1000, description="whatever the slider shows")
     return_period: int | None = 50
     res_m: float = Field(10.0, ge=5, le=30)
+    history: list[HistoryTurn] = Field(default_factory=list, max_length=12)
+    area_label: str | None = Field(None, max_length=80)
+    place_resolved: str | None = Field(None, max_length=80)
 
 
 @app.post("/api/ask")
 def ask(req: AskRequest) -> StreamingResponse:
-    """Ask about the drawn box in plain language.
+    """Send one message in the conversation: about the drawn box, a named place, or the product.
 
     Streams newline-delimited JSON rather than answering once at the end. The run takes about ten
     seconds and most of that is two model calls, so watching the agents hand over - including the
@@ -309,15 +338,18 @@ def ask(req: AskRequest) -> StreamingResponse:
     Every failure is in-band: once the first line is sent the status code is already 200, so the
     request is validated up front and anything after that arrives as an event.
     """
-    w, s, e, n = req.bbox
-    if not (w < e and s < n):
-        raise HTTPException(422, "bbox must be west < east and south < north")
-    km2 = area_km2(req.bbox)
-    if km2 > MAX_AREA_KM2:
-        raise HTTPException(422, f"box is {km2:.0f} km2; the limit is {MAX_AREA_KM2:.0f} km2")
     r = region_or_404(req.region)
-    if not r.covers((w, s, e, n)):
-        raise HTTPException(422, f"that box is outside the staged region ({r.manifest.get('title')})")
+    box = None
+    if req.bbox is not None:
+        w, s, e, n = req.bbox
+        if not (w < e and s < n):
+            raise HTTPException(422, "bbox must be west < east and south < north")
+        km2 = area_km2(req.bbox)
+        if km2 > MAX_AREA_KM2:
+            raise HTTPException(422, f"box is {km2:.0f} km2; the limit is {MAX_AREA_KM2:.0f} km2")
+        if not r.covers((w, s, e, n)):
+            raise HTTPException(422, f"that box is outside the staged region ({r.manifest.get('title')})")
+        box = (w, s, e, n)
     if not llm.available():
         raise HTTPException(503, "the agent layer is not configured on this deployment "
                                  "(no GEMINI_API_KEY); the screening itself still works")
@@ -328,15 +360,25 @@ def ask(req: AskRequest) -> StreamingResponse:
     def work():
         t0 = time.perf_counter()
         try:
-            out = coordinator.run(question=req.question, bbox=(w, s, e, n), region=r,
+            out = coordinator.run(question=req.question, bbox=box, region=r,
                                   slider_mm=req.rainfall_mm, return_period=req.return_period,
-                                  res_m=req.res_m,
+                                  res_m=req.res_m, history=[t.model_dump() for t in req.history],
+                                  area_label=req.area_label, place_resolved=req.place_resolved,
                                   emit=lambda step: events.put({"event": "step", **step}))
-            out["result"]["timings_s"]["total"] = time.perf_counter() - t0
-            events.put({"event": "done", "briefing": out["briefing"],
+            if out["kind"] == "place_needed":
+                # The browser looks the place up on the map and asks again with the box.
+                events.put({"event": "place_needed", "place": out["place"],
+                            "scenario": out["scenario"]})
+                return
+            if out.get("result"):
+                out["result"]["timings_s"]["total"] = time.perf_counter() - t0
+            events.put({"event": "done", "kind": out["kind"], "answer": out.get("answer"),
+                        "answer_checked": out.get("answer_checked"), "briefing": out["briefing"],
                         "withheld": out["withheld"], "removed": out["removed"],
                         "scenario": out["scenario"], "result": out["result"],
-                        "rain_profile": out.get("rain_profile")})
+                        "rain_profile": out.get("rain_profile"),
+                        "rain_profile_start": out.get("rain_profile_start"),
+                        "forecast_meta": out.get("forecast_meta")})
         except Exception as exc:                 # a thread dying silently would hang the stream
             events.put({"event": "error", "detail": f"{type(exc).__name__}: {exc}"})
         finally:

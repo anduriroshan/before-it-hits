@@ -28,6 +28,12 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.1 3.1a2.2 2.2 0 0 1 3.1 0l2.7 2.7a2.2 2.2 0 0 1 0 3.1l-8.3 8.3H18v2.3H8.6l-3.3-3.3a2.2 2.2 0 0 1 0-3.1l9.8-10zM9.9 17.2l2.2-2.2-4.2-4.2-2.2 2.2 4.2 4.2z"/></svg>
       <span>Erase</span>
     </button>
+    <div class="tool-sep"></div>
+    <!-- Map label density: Google's default basemap labels every shop, which buries our layer. -->
+    <button class="tool" data-action="labels" id="labels-btn" title="Map labels: click to change how many are shown">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v3h5.5v12h3V7H19V4z"/></svg>
+      <span id="labels-mode">Clean</span>
+    </button>
   </div>
 
   <!-- Shown only while the box tool is armed: the one moment the map needs an instruction. -->
@@ -39,6 +45,7 @@
     <p class="muted small">The analysis itself does not need the map — pick a preset area in the chat
       and the results will still appear.</p>
   </div>
+
   <div id="legend" hidden>
     <button class="collapse" data-collapse="legend" title="Hide the legend" aria-expanded="true">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z"/></svg>
@@ -47,14 +54,18 @@
     <div class="scale">
       <span class="s5">5</span><span class="s4">4</span><span class="s3">3</span><span class="s2">2</span><span class="s1">1</span>
     </div>
-    <div class="muted small">most water collects → least</div>
+    <div class="muted small">5 = most water collects, 1 = least</div>
     <div class="muted small" id="legend-note"></div>
   </div>
 
   <!-- The storm scrubber: a temporary overlay fixed at the centre bottom of the map. Slider-only:
-       each step renders instantly, no autoplay. It appears with a box and is removed on erase. -->
+       each step renders instantly, no autoplay. It appears with a box and is removed on erase.
+       In forecast mode it shows the hourly rain it is stepping through, so the data is visible. -->
   <div id="tl-float" hidden>
+    <div class="tl-src" id="tl-src"></div>
+    <div class="tl-bars" id="tl-bars" hidden></div>
     <input type="range" id="tl-step" min="0" max="6" step="1" value="6" aria-label="Hour into the storm">
+    <div class="tl-axis" id="tl-axis" hidden><span></span><span></span></div>
     <div class="tl-floatrow">
       <span class="tl-floatread" id="tl-read"></span>
       <label class="tl-dur" title="Storm length"><span>over</span>
@@ -84,6 +95,7 @@
     <button type="button" role="tab" id="tab-agent" data-tab="agent" aria-selected="true" aria-controls="pane-agent">Agent</button>
     <button type="button" role="tab" id="tab-rain" data-tab="rain" aria-selected="false" aria-controls="pane-rain" tabindex="-1">Rain</button>
     <button type="button" role="tab" id="tab-details" data-tab="details" aria-selected="false" aria-controls="pane-details" tabindex="-1">Details<span class="dot" hidden></span></button>
+    <button type="button" role="tab" id="tab-news" data-tab="news" aria-selected="false" aria-controls="pane-news" tabindex="-1">News</button>
   </nav>
 
   <!-- ===== Agent: a chat ===== -->
@@ -92,7 +104,7 @@
     <form id="composer" class="composer" autocomplete="off">
       <div class="composer-box">
         <textarea id="question" rows="1" maxlength="500"
-                  placeholder="Ask about the area on the map…" aria-label="Message the agent"></textarea>
+                  placeholder="Ask about a place, or what anything means…" aria-label="Message the agent"></textarea>
         <button id="asksend" type="submit" class="send" aria-label="Send" title="Send (Enter)"></button>
       </div>
       <div class="composer-foot">
@@ -102,119 +114,145 @@
     </form>
   </section>
 
-  <!-- ===== Rain ===== -->
+  <!-- ===== Rain: what is forecast, in plain words ===== -->
   <section id="pane-rain" class="tabpane scroll" role="tabpanel" aria-labelledby="tab-rain" hidden>
     <div class="pane-pad">
-      <h2 class="pane-title">Rain <span class="muted">for the selected area</span></h2>
-      <div id="forecast" class="forecast"></div>
+      <div id="rain-summary" class="rain-summary"></div>
       <div id="rainchart" class="rainchart" hidden></div>
       <div id="rainnow" class="rainnow" hidden></div>
       <p id="rain-nogauge" class="muted tiny" hidden>No open rain-gauge feed is wired for this city,
         so there is no live &ldquo;falling now&rdquo; reading here &mdash; only the model forecast.</p>
 
-      <details id="whatif" class="whatif" open>
-        <summary>Test a what-if &mdash; override the forecast</summary>
-        <div class="field">
-          <label for="rain">Rainfall <output id="rainout">100 mm</output></label>
-          <input type="range" id="rain" min="0" max="300" step="5" value="100">
-          <p class="muted tiny">A quick map-only test: the map and Details update at once. For a written,
-            checked briefing at a heavier storm, use <b>What if it rains more?</b> under an answer in the chat.</p>
-          <button type="button" id="rain-reset" class="linkbtn">Reset to the forecast</button>
+      <details id="whatif" class="card">
+        <summary>Try a heavier storm</summary>
+        <div class="card-body">
+          <div class="field">
+            <label for="rain">Rainfall <output id="rainout">100 mm</output></label>
+            <input type="range" id="rain" min="0" max="300" step="5" value="100">
+            <p class="muted small">Drag to see what a heavier storm than the forecast would do to this
+              area. The map and Details update at once. For a written, checked answer, use
+              <b>What if it rains more?</b> under a reply in the chat.</p>
+            <button type="button" id="rain-reset" class="linkbtn">Back to the forecast</button>
+          </div>
         </div>
+      </details>
+
+      <details class="card">
+        <summary>Forecast details</summary>
+        <div class="card-body"><div id="forecast" class="forecast"></div></div>
       </details>
     </div>
   </section>
 
-  <!-- ===== Details ===== -->
+  <!-- ===== Details: the findings, summary first ===== -->
   <section id="pane-details" class="tabpane scroll" role="tabpanel" aria-labelledby="tab-details" hidden>
     <div class="pane-pad">
-      <div class="field">
-        <label for="rp">Official flood layer <output id="rpout">1-in-50-year</output></label>
-        <select id="rp">
-          <option value="">none — screening only</option>
-        </select>
+      <div id="details-empty" class="empty">
+        <p><b>Nothing here yet.</b></p>
+        <p class="muted small">Pick an area in the Agent tab, or draw a box on the map. The findings
+          appear here: where water collects, who lives there, which roads are affected, and what the
+          city can do about it.</p>
       </div>
 
       <section id="results" hidden>
-        <div class="headline">
-          <strong id="pitcount"></strong> <span id="pitword">places collect water</span>
-          <div class="muted small" id="gridline"></div>
-        </div>
+        <div id="summary" class="summary"></div>
 
-        <h2>Where it gathers first</h2>
-        <p class="muted small">Ranked by how much water ends up stuck there, not by depth.</p>
-        <ol id="spots"></ol>
+        <details class="card" open>
+          <summary>The worst spots</summary>
+          <div class="card-body">
+            <p class="muted small">Darker blue on the map = more water collects. Ranks compare spots
+              within this box only. Click one to zoom to it.</p>
+            <ol id="spots"></ol>
+          </div>
+        </details>
 
         <div id="people" class="people" hidden></div>
 
-        <section id="official-wrap" hidden>
-          <h2>The authority&rsquo;s own depth map</h2>
-          <div id="official"></div>
-        </section>
-
-        <details class="block">
+        <details class="card">
           <summary>Roads through the worst spots</summary>
-          <ul id="roads"></ul>
+          <div class="card-body"><ul id="roads"></ul></div>
         </details>
+      </section>
 
-        <details id="excluded-wrap" class="block" hidden>
-          <summary>Left out of the ranking</summary>
-          <ul id="excluded"></ul>
-        </details>
+      <details id="timeline" class="card" hidden>
+        <summary>Roads that go under first <span class="tag-modelled">modelled</span></summary>
+        <div class="card-body">
+          <p class="muted small" id="timeline-sub"></p>
+          <ol id="tl-roads" class="tl-roads"></ol>
+          <div id="road-outlook" class="road-outlook" hidden></div>
+          <p class="muted tiny" id="tl-note"></p>
+        </div>
+      </details>
 
-        <details class="block" open>
-          <summary>What we do not know</summary>
+      <details id="prep" class="card" hidden>
+        <summary>What the city can do <span class="tag-modelled">plan</span></summary>
+        <div class="card-body">
+          <p class="muted small" id="prep-sub"></p>
+          <div id="prep-budget" class="prep-budget"></div>
+          <ol id="prep-items" class="prep-items"></ol>
+          <div id="prep-note" class="prep-note" hidden></div>
+          <details id="prep-infeasible" class="block" hidden>
+            <summary>Not within this budget line</summary>
+            <ul id="prep-infeasible-list"></ul>
+          </details>
+          <p class="muted tiny" id="prep-source"></p>
+        </div>
+      </details>
+
+      <details class="card">
+        <summary>Compare with the government&rsquo;s flood map</summary>
+        <div class="card-body">
+          <div class="field">
+            <label for="rp">Flood return period <output id="rpout">1-in-50-year</output></label>
+            <select id="rp">
+              <option value="">none — screening only</option>
+            </select>
+            <p class="muted tiny">A 1-in-50-year flood is one that is expected about once every 50 years.</p>
+          </div>
+          <section id="official-wrap" hidden>
+            <div id="official"></div>
+          </section>
+        </div>
+      </details>
+
+      <details class="card">
+        <summary>How sure are we?</summary>
+        <div class="card-body">
           <ul id="caveats" class="caveats"></ul>
-        </details>
-
-        <p class="muted tiny" id="timings"></p>
-      </section>
-
-      <section id="timeline" hidden>
-        <h2>Roads over time <span class="tag-modelled">modelled</span></h2>
-        <p class="muted small" id="timeline-sub"></p>
-        <ol id="tl-roads" class="tl-roads"></ol>
-        <div id="road-outlook" class="road-outlook" hidden></div>
-        <p class="muted tiny" id="tl-note"></p>
-      </section>
-
-      <section id="prep" hidden>
-        <h2>Prepare within budget <span class="tag-modelled">plan</span></h2>
-        <p class="muted small" id="prep-sub"></p>
-        <div id="prep-budget" class="prep-budget"></div>
-        <ol id="prep-items" class="prep-items"></ol>
-        <div id="prep-note" class="prep-note" hidden></div>
-        <details id="prep-infeasible" class="block" hidden>
-          <summary>Not within this budget line</summary>
-          <ul id="prep-infeasible-list"></ul>
-        </details>
-        <p class="muted tiny" id="prep-source"></p>
-      </section>
-
-      <div id="details-empty" class="empty">
-        <p><b>Nothing here yet.</b></p>
-        <p class="muted small">Draw a box on the map or pick an area in the Agent tab, and the ranked
-          spots, who is exposed, the roads and the preparation plan appear here.</p>
-      </div>
-
-      <details id="replay" class="section-collapse" hidden>
-        <summary>Checked against a real storm</summary>
-        <div id="replay-body"></div>
+          <details id="excluded-wrap" class="block" hidden>
+            <summary>Left out of the ranking</summary>
+            <ul id="excluded"></ul>
+          </details>
+          <details id="replay" class="block" hidden>
+            <summary>Tested against a real storm</summary>
+            <div id="replay-body"></div>
+          </details>
+          <details class="block">
+            <summary>Technical details</summary>
+            <p class="muted tiny" id="gridline"></p>
+            <p class="muted tiny" id="timings"></p>
+          </details>
+        </div>
       </details>
 
-      <details id="news" class="section-collapse">
-        <summary>In the news now</summary>
-        <div id="news-body"><p class="muted small">Open to load live reports for this city.</p></div>
-      </details>
-
-      <details class="section-collapse">
+      <details class="card">
         <summary>About this city</summary>
-        <p class="note" id="regionnote"></p>
+        <div class="card-body"><p class="note" id="regionnote"></p></div>
       </details>
 
       <footer>
         <p class="small muted" id="credits"></p>
       </footer>
+    </div>
+  </section>
+
+  <!-- ===== News ===== -->
+  <section id="pane-news" class="tabpane scroll" role="tabpanel" aria-labelledby="tab-news" hidden>
+    <div class="pane-pad">
+      <h2 class="pane-title">In the news <span class="muted">about floods in this city</span></h2>
+      <p class="muted small">Recent reports from the GDELT news index, for context. Nothing here changes
+        the numbers on the map.</p>
+      <div id="news-body"><p class="muted small">Opens when you visit this tab.</p></div>
     </div>
   </section>
 </aside>

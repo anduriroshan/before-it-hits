@@ -246,7 +246,7 @@ KEYS
 Without `GEMINI_API_KEY` the agent layer reports itself unavailable and the ask box does not
 appear. Everything else works unchanged.
 
-Tests: `./.venv/Scripts/python.exe -m pytest engine` — 143 tests, all offline, no network, no
+Tests: `./.venv/Scripts/python.exe -m pytest engine` — 181 tests, all offline, no network, no
 staged data and no model. The agent tests stub both models out on purpose: what is worth testing
 there is the part that holds when the model is wrong, and that part is deterministic by design.
 
@@ -260,9 +260,9 @@ engine/bih_engine/   terrain, hydrology, osm, routes, official, store  — no I/
 engine/bih_agents/   scenario, narrator, verifier, coordinator, news, and the facts bundle
 engine/bih_engine/   ...terrain, hydrology, osm, routes, official, exposure, preparations, replay, store
 engine/tools/        staging jobs: the only code that talks to Overpass or a data portal
-engine/tests/        143 tests on synthetic terrain where the answer is known
+engine/tests/        181 tests on synthetic terrain where the answer is known
 service/             FastAPI: bbox + rainfall in, screening + official layer out
-web/                 map, modal tool palette, and the right-hand panel: Agent (chat), Rain, Details
+web/                 map, modal tool palette, and the right-hand panel: Agent (chat with memory), Rain, Details, News
 plan/                the design written before building
 PROGRESS.md          what is done and what is not
 ```

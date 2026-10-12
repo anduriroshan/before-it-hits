@@ -1,4 +1,4 @@
-"""A1 Coordinator: holds the question and the drawn box, runs the specialists, keeps the trace.
+"""A1 Coordinator: holds the message and the conversation, runs the specialists, keeps the trace.
 
 The division of labour is the point of the whole layer, so it is worth stating plainly:
 
@@ -15,16 +15,48 @@ each claim the Verifier removed, because those are the moments the design is act
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 
 from bih_engine import analyse_area, forecast
 from bih_engine.forecast import ForecastUnavailable
 
-from . import facts, llm, narrator, scenario, verifier
+from . import facts, guide, llm, narrator, scenario, verifier
 
 # A briefing nobody checked is worse than no briefing, so these are the only two outcomes.
 WITHHELD_UNCHECKED = ("The briefing was withheld: the checking agent could not be reached, and "
                       "this product does not publish a briefing that nothing has checked.")
 WITHHELD_FAILED = ("The briefing was withheld: its main claim was not supported by the results.")
+NEEDS_AREA = ("I answer about a specific place, so I need one first. Draw a box on the map, pick "
+              "an area below, or name a place and I will find it.")
+
+# What a message with no analysis to show carries, so every kind of reply has the same shape.
+def _reply(question, spec, trace, **kw) -> dict:
+    base = {"kind": "analysis", "question": question, "scenario": spec, "facts": None, "result": None,
+            "rain_profile": None, "rain_profile_start": None, "forecast_meta": None,
+            "briefing": None, "withheld": None, "removed": [], "answer": None,
+            "answer_checked": False, "place": None, "trace": trace.steps}
+    base.update(kw)
+    return base
+
+
+def _choose_window(requested, peaks: dict) -> str | None:
+    """Which of the forecast's window lengths to run on. The one the question asked about if there
+    is one, else the coming day: the default question is about the coming day, and a window that
+    is long enough to show rain starting and stopping is what makes the playback readable."""
+    available = sorted(int(k) for k in peaks)
+    if not available:
+        return None
+    if requested:
+        return str(min(available, key=lambda w: abs(w - float(requested))))
+    return "24" if 24 in available else str(available[-1])
+
+
+def _profile_for(hours: list, start_iso: str, length: int) -> list[float] | None:
+    """The hourly amounts of exactly the window the engine ran on, so the playback ends on the same
+    total the engine used rather than on a different slice of the forecast."""
+    idx = next((i for i, h in enumerate(hours) if h.get("t") == start_iso), 0)
+    seg = [h["mm"] for h in hours[idx: idx + length]]
+    return seg or None
 
 
 class Trace:
@@ -70,26 +102,36 @@ def _default_spec(slider_mm: float, return_period: int | None, question: str) ->
         "rainfall_mm": float(slider_mm), "rainfall_source": "the rainfall already set on screen",
         "duration_h": None, "return_period_years": return_period, "ignored_figure": False,
         "needs_clarification": False, "question_back": "",
+        "intent": "analyse", "place": "", "reused_previous_rainfall": False,
     }
 
 
 def run(*, question: str, bbox, region, slider_mm: float = 100.0,
-        return_period: int | None = 50, res_m: float = 10.0, emit=None) -> dict:
-    """Answer a question about one drawn box. Never raises for a model failure."""
+        return_period: int | None = 50, res_m: float = 10.0, emit=None,
+        history=None, area_label: str | None = None, place_resolved: str | None = None) -> dict:
+    """Answer one message in a conversation. Never raises for a model failure.
+
+    `bbox` may be None: the message may be about the product rather than an area, or name a place
+    the client has yet to find on the map. `history` is the earlier turns, used by A2 only to work
+    out what a message refers to. `place_resolved` says the client already found the named place
+    and `bbox` is it, so the place is not asked for again.
+    """
     trace = Trace(emit)
+    history = scenario.clean_history(history)
     periods = region.official_return_periods if region is not None else []
 
     # --- A2 Scenario: the question becomes parameters -------------------------------------
     t0 = time.perf_counter()
     spec, raw = None, None
     try:
-        reply = scenario.read(question)
+        reply = scenario.read(question, history=history,
+                              area_label=area_label if bbox is not None else None)
         raw = reply.data or {}
         spec = scenario.settle(raw, question=question, slider_mm=slider_mm,
                                published_return_periods=list(periods),
-                               forecast_peak_mm=None)
+                               forecast_peak_mm=None, history=history)
         trace.add("A2 Scenario", "ok", reply.ms, spec["reading"], model=reply.model,
-                  detail={k: spec[k] for k in ("mode", "rainfall_mm", "rainfall_source",
+                  detail={k: spec[k] for k in ("intent", "mode", "rainfall_mm", "rainfall_source",
                                                "return_period_years", "audience")})
         if spec["ignored_figure"]:
             trace.add("A2 Scenario", "guarded", 0,
@@ -102,8 +144,30 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
     if spec["return_period_years"] is None:
         spec["return_period_years"] = return_period
 
+    region_title = region.manifest.get("title") if region is not None else None
+
+    # --- a message about the product, not about an area: answered from the reference ---------
+    if spec["intent"] == "explain":
+        t0 = time.perf_counter()
+        text = guide.answer(question, history=history, area_label=area_label,
+                            region_title=region_title)
+        trace.add("A8 Guide", "ok" if text else "failed", int((time.perf_counter() - t0) * 1000),
+                  "Answered from the product reference; no area was analysed." if text
+                  else "No clean answer could be had.")
+        return _reply(question, spec, trace, kind="explain", answer=text or guide.FALLBACK,
+                      answer_checked=bool(text))
+
+    # --- they named somewhere: the browser finds it on the map and asks again ---------------
+    if spec["place"] and not place_resolved:
+        return _reply(question, spec, trace, kind="place_needed", place=spec["place"])
+
+    if bbox is None:
+        return _reply(question, spec, trace, kind="needs_area", answer=NEEDS_AREA)
+
     # --- A3 Forecast: a tool, not a model, until we have bulletins worth reading -----------
     rain_profile = None     # the forecast's real hourly shape, when forecast mode succeeds
+    profile_start = None    # when that window starts (ISO, UTC), so the UI can label real hours
+    forecast_meta = None    # where it came from and when it was fetched, shown beside the playback
     observed = None         # live gauge rainfall "now", where the region has an open feed
     if spec["mode"] == "replay":
         trace.add("A3 Forecast", "unavailable", 0,
@@ -114,16 +178,20 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
         t0 = time.perf_counter()
         try:
             f = forecast.for_bbox(tuple(bbox), hours=48).as_dict()
-            window = "3" if "3" in f["peaks"] else next(iter(f["peaks"]), None)
+            window = _choose_window(spec.get("duration_h"), f["peaks"])
             if window:
-                spec["rainfall_mm"] = f["peaks"][window]["mm"]
+                peak = f["peaks"][window]
+                spec["rainfall_mm"] = peak["mm"]
                 spec["duration_h"] = float(window)
-                spec["rainfall_source"] = f"the worst {window} h in the next {f['hours_ahead']} h"
-            # The real hourly shape, so the road playback can follow the forecast's own build-up
-            # rather than spreading a total evenly. Capped so the scrubber stays usable.
-            rain_profile = [h["mm"] for h in f.get("hours", [])][:24] or None
+                spec["rainfall_source"] = f"the wettest {window} h in the next {f['hours_ahead']} h"
+                # The hourly amounts of exactly this window, so the road playback ends on the
+                # same total the engine ran on instead of on a different slice of the forecast.
+                rain_profile = _profile_for(f.get("hours", []), peak["starts"], int(window))
+                profile_start = peak["starts"]
+                forecast_meta = {"source": f["source"], "window_hours": int(window),
+                                 "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
             trace.add("A3 Forecast", "ok", int((time.perf_counter() - t0) * 1000),
-                      f"Worst {window} h window: {spec['rainfall_mm']} mm.", detail=f["peaks"])
+                      f"Wettest {window} h window: {spec['rainfall_mm']} mm.", detail=f["peaks"])
             observed = _observed_now(region, bbox, trace)
         except ForecastUnavailable as exc:
             trace.add("A3 Forecast", "failed", int((time.perf_counter() - t0) * 1000),
@@ -149,11 +217,11 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
     if observed:
         rainfall_facts["falling_now_at_gauges"] = observed
     bundle = facts.build(result, question=question, rainfall=rainfall_facts,
-                         region_title=(region.manifest.get("title") if region else None))
+                         region_title=region_title)
 
-    out = {"question": question, "scenario": spec, "facts": bundle, "result": result,
-           "rain_profile": rain_profile, "briefing": None, "withheld": None,
-           "removed": [], "trace": trace.steps}
+    out = _reply(question, spec, trace, kind="analysis", facts=bundle, result=result,
+                 rain_profile=rain_profile, rain_profile_start=profile_start,
+                 forecast_meta=forecast_meta)
 
     # --- A6 Narrator and A7 Verifier, up to two trips back --------------------------------
     briefing, problems = None, []

@@ -57,6 +57,10 @@ Hard rules, each of which is checked afterwards by a separate agent:
 Answer the question in the JSON. At most {MAX_BULLETS} bullets, one claim each, plainest English,
 no adjectives doing work the figures should do.
 
+Write for someone who is not an expert. Say "low spots where water collects" rather than "pooling
+spots"; if you mention a rank, say what scale it is on ("rank 5 of 5"); and if you use a technical
+word, explain it in a few words or leave it out. Plain words, short sentences.
+
 Name a spot by its nearest named road when it has one - "the low point beside Pipeline Road" -
 rather than by its id. An id like d_73 means nothing to the person reading this. Keep the id out
 of the sentence entirely when a road name is there."""

@@ -1,4 +1,4 @@
-"""A2 Scenario: turn a drawn box plus a free-text question into something the engine can run.
+"""A2 Scenario: turn a message in an ongoing conversation into something the engine can run.
 
 A language model is the right tool here and nowhere near the answer: the input is paraphrase,
 colloquial place names and more than one language, while the output is a handful of parameters.
@@ -38,11 +38,22 @@ SCHEMA = {
                                               "figure, copied character for character. Empty if "
                                               "no figure was stated."},
         "duration_h": {"type": "NUMBER",
-                       "description": "Hours the stated rainfall falls over, or -1."},
+                       "description": "Hours the stated rainfall falls over; or, for a forecast "
+                                      "question, the window asked about. -1 if unstated."},
         "return_period_years": {"type": "INTEGER",
                                 "description": "Only if the asker named one, else -1."},
         "focus": {"type": "STRING",
                   "description": "What they actually want to know, in one short line."},
+        "intent": {"type": "STRING", "enum": ["analyse", "explain"],
+                   "description": "analyse = a prediction or finding for an area; explain = what a "
+                                  "term means, how this works, how far to trust it, or why the "
+                                  "last answer said what it said."},
+        "place": {"type": "STRING",
+                  "description": "A place the asker names that is not the selected area, exactly "
+                                 "as written in THIS message. Empty if none."},
+        "same_rainfall_as_before": {"type": "BOOLEAN",
+                                    "description": "True only if they ask to reuse the previous "
+                                                   "answer's storm ('the same rainfall')."},
         "audience": {"type": "STRING", "enum": ["officer", "resident"]},
         "needs_clarification": {"type": "BOOLEAN"},
         "question_back": {"type": "STRING",
@@ -50,26 +61,84 @@ SCHEMA = {
                                          "question to ask back. Otherwise empty."},
     },
     "required": ["reading", "mode", "rainfall_mm", "rainfall_stated_as", "duration_h",
-                 "return_period_years", "focus", "audience", "needs_clarification",
-                 "question_back"],
+                 "return_period_years", "focus", "intent", "place", "same_rainfall_as_before",
+                 "audience", "needs_clarification", "question_back"],
 }
 
-SYSTEM = """You read a question about flooding in one drawn box on a map and turn it into
-parameters. You do not answer it and you do not know anything about the place.
+SYSTEM = """You read one message in an ongoing conversation about flooding on a map and turn it
+into parameters. You do not answer it and you do not know anything about any place.
+
+You may be given the earlier turns and the area currently selected. Use them only to work out what
+the message refers to: "and the roads?" is about the same area and storm as the last answer.
+`focus` must restate the message as a complete question in its own right ("which roads are hit
+first in Palarivattom") so that nothing downstream needs the history.
 
 Rules:
-- Never invent a rainfall figure. If the asker gave one, copy it and the words it came from. If
-  they said something vague like "heavy rain" or "a storm", set rainfall_mm to -1 and let the
-  system use the forecast or the slider.
-- Choose mode "forecast" only when the question is actually about what is coming: it mentions the
-  forecast, tonight, tomorrow, the next few hours or days, or what is expected. "Which spots fill
-  first here" is not about the forecast - that is "whatif", and the rainfall already on screen
-  will be used. Choosing "forecast" silently replaces a figure the asker set themselves, so only
-  choose it when they asked you to.
+- intent "analyse" when they want a prediction or finding for an area: the selected one, or a place
+  they name. intent "explain" when they ask what a term means, how this works, how far to trust it,
+  or why the last answer said what it said - anything answerable without analysing an area afresh.
+- place: only a place the message itself names that is not the selected area (a neighbourhood, road,
+  landmark or city), exactly as written. Never take one from the history. Empty otherwise.
+- Never invent a rainfall figure. If the asker gave one in THIS message, copy it and the words it
+  came from. If they said something vague like "heavy rain" or "a storm", set rainfall_mm to -1.
+  If they ask to reuse the last storm ("the same rainfall", "same storm", "as before"), set
+  same_rainfall_as_before and leave rainfall_mm at -1: the system copies the figure itself.
+- mode "forecast" only when the message is about what is coming: it mentions the forecast, tonight,
+  tomorrow, the next few hours or days, or what is expected. "Which spots fill first here" is not
+  about the forecast - that is "whatif", and the rainfall already on screen will be used. Choosing
+  "forecast" silently replaces a figure the asker set themselves, so only choose it when they asked.
+- duration_h: the hours a stated rainfall falls over; or, for a forecast question, the window they
+  ask about ("the next 6 hours" is 6, "tonight" is 12, "today" or "tomorrow" is 24). -1 if unstated.
 - Choose "replay" only when they name a specific past event.
-- Ask back only when the question could mean two genuinely different analyses. Not knowing a
+- Ask back only when the message could mean two genuinely different analyses. Not knowing a
   rainfall figure is not ambiguity: that has a default.
 - audience "resident" only if they clearly ask for wording for the public."""
+
+MAX_HISTORY = 6
+
+
+def clean_history(raw) -> list[dict]:
+    """The client's record of the conversation, reduced to what A2 may read. It is the user's own
+    session, so nothing here is trusted as evidence - it only helps resolve what a message refers
+    to - but it is still bounded and typed so a malformed one cannot reach a prompt as-is."""
+    out = []
+    for t in (raw or [])[-MAX_HISTORY:]:
+        if not isinstance(t, dict):
+            continue
+
+        def txt(k, n=240):
+            v = t.get(k)
+            return " ".join(str(v).split())[:n] if v else None
+
+        def num(k, lo, hi):
+            v = t.get(k)
+            ok = isinstance(v, (int, float)) and not isinstance(v, bool) and lo <= v <= hi
+            return float(v) if ok else None
+
+        out.append({"q": txt("q") or "", "area": txt("area", 80), "mode": txt("mode", 12),
+                    "rainfall_mm": num("rainfall_mm", 0, 1000), "duration_h": num("duration_h", 0, 240),
+                    "headline": txt("headline")})
+    return out
+
+
+def _history_block(history: list[dict]) -> str:
+    lines = []
+    for t in history:
+        bits = [f'asked: "{t["q"]}"']
+        if t.get("area"):
+            bits.append(f'area: {t["area"]}')
+        if t.get("rainfall_mm") is not None:
+            r = f'rainfall used: {t["rainfall_mm"]:g} mm'
+            if t.get("duration_h"):
+                r += f' over {t["duration_h"]:g} h'
+            if t.get("mode"):
+                r += f' ({t["mode"]})'
+            bits.append(r)
+        if t.get("headline"):
+            bits.append(f'answered: "{t["headline"]}"')
+        lines.append("- " + "; ".join(bits))
+    return "\n".join(lines)
+
 
 _NUM = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 
@@ -83,41 +152,76 @@ def _figure_is_the_askers(spec: dict, question: str) -> bool:
                for m in _NUM.finditer(quoted))
 
 
-def read(question: str, *, context: str = "", model: str = llm.FAST_MODEL) -> llm.Reply:
-    prompt = f"Question: {question}"
-    if context:
-        prompt += f"\n\nWhat is already on screen: {context}"
+def read(question: str, *, history: list | None = None, area_label: str | None = None,
+         model: str = llm.FAST_MODEL) -> llm.Reply:
+    history = clean_history(history)
+    prompt = f"Selected area: {area_label or 'none'}\n"
+    if history:
+        prompt += f"Earlier in this conversation (oldest first):\n{_history_block(history)}\n"
+    prompt += f"\nMessage: {question}"
     return llm.ask(prompt, model=model, system=SYSTEM, schema=SCHEMA, temperature=0.0)
+
+
+def _place_is_in_the_message(place: str, question: str) -> bool:
+    """A named place must literally be in the message. The model may not carry one over from the
+    history or make one up, because a place decides which part of the map gets analysed."""
+    return bool(place) and place.lower() in " ".join(question.lower().split())
+
+
+def _clean_place(spec: dict, question: str) -> str:
+    place = " ".join(str(spec.get("place") or "").split())[:80]
+    place = "".join(c for c in place if c.isalnum() or c in " .,'-&()/")
+    return place if _place_is_in_the_message(place, question) else ""
 
 
 def settle(spec: dict, *, question: str, slider_mm: float,
            published_return_periods: list | None = None,
-           forecast_peak_mm: float | None = None) -> dict:
+           forecast_peak_mm: float | None = None,
+           history: list | None = None) -> dict:
     """Turn the model's reading into parameters, keeping where each one came from.
 
     Nothing here trusts the model with a number. Either the figure is in the asker's own words, or
-    it comes from the forecast, or it is the value already on the slider.
+    it comes from the forecast, or it is carried over by *code* from the previous answer, or it is
+    the value already on the slider.
     """
     periods = published_return_periods or []
+    history = clean_history(history)
     mode = spec.get("mode") if spec.get("mode") in MODES else "whatif"
 
     mm, source = float(slider_mm), "the rainfall already set on screen"
     stated = spec.get("rainfall_mm", NOT_STATED)
-    if stated is not None and float(stated) > 0 and _figure_is_the_askers(spec, question):
+    figure_ok = stated is not None and float(stated) > 0 and _figure_is_the_askers(spec, question)
+
+    duration = spec.get("duration_h", NOT_STATED)
+    duration = float(duration) if duration is not None and float(duration) > 0 else None
+
+    last = next((t for t in reversed(history) if t.get("rainfall_mm") is not None), None)
+    reuse = bool(spec.get("same_rainfall_as_before")) and last is not None and not figure_ok
+
+    if figure_ok:
         mm, source = float(stated), "stated in the question"
         mode = "whatif" if mode == "forecast" else mode
+    elif reuse:
+        if last.get("mode") == "forecast":
+            # "The same storm" after a forecast means the same kind of prediction for the new place,
+            # which is a fresh live forecast, not last time's number pasted onto it.
+            mode, source = "forecast", "the live forecast, as in the previous answer"
+        else:
+            mm, source = float(last["rainfall_mm"]), "the same rainfall as the previous answer"
+            mode = "whatif"
+            duration = duration or last.get("duration_h")
     elif mode == "forecast" and forecast_peak_mm is not None:
         mm, source = float(forecast_peak_mm), "the worst forecast window for this box"
 
     rp = spec.get("return_period_years", -1)
     rp = int(rp) if isinstance(rp, (int, float)) and int(rp) in periods else None
 
-    duration = spec.get("duration_h", NOT_STATED)
-    duration = float(duration) if duration is not None and float(duration) > 0 else None
-
     return {
         "reading": (spec.get("reading") or "").strip(),
         "focus": (spec.get("focus") or "").strip(),
+        "intent": "explain" if spec.get("intent") == "explain" else "analyse",
+        "place": _clean_place(spec, question),
+        "reused_previous_rainfall": reuse,
         "audience": spec.get("audience") if spec.get("audience") in ("officer", "resident")
                     else "officer",
         "mode": mode,
@@ -125,8 +229,7 @@ def settle(spec: dict, *, question: str, slider_mm: float,
         "rainfall_source": source,
         "duration_h": duration,
         "return_period_years": rp,
-        "ignored_figure": bool(stated and float(stated) > 0
-                               and not _figure_is_the_askers(spec, question)),
+        "ignored_figure": bool(stated and float(stated) > 0 and not figure_ok),
         "needs_clarification": bool(spec.get("needs_clarification")),
         "question_back": (spec.get("question_back") or "").strip(),
     }
