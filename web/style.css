@@ -26,14 +26,18 @@ html, body {
   color: var(--ink);
 }
 
-body { display: grid; grid-template-columns: 380px 1fr; }
-@media (max-width: 820px) { body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; } }
+/* Map on the left, panel on the right. */
+body { display: grid; grid-template-columns: minmax(0, 1fr) 440px; }
+@media (max-width: 900px) {
+  body { grid-template-columns: 1fr; grid-template-rows: 46vh 1fr; }
+  #panel { border-left: 0; border-top: 1px solid var(--line); }
+}
 
 #panel {
   background: var(--card);
-  border-right: 1px solid var(--line);
-  overflow-y: auto;
-  padding: 20px 22px 28px;
+  border-left: 1px solid var(--line);
+  display: flex; flex-direction: column;
+  min-height: 0; overflow: hidden;
 }
 
 /* Google Maps empties the element it is constructed on, so anything that floats over the map
@@ -48,28 +52,13 @@ body { display: grid; grid-template-columns: 380px 1fr; }
 }
 #mapfallback p { max-width: 42ch; }
 
-.presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-button.preset {
-  flex: 0 0 auto; padding: 5px 10px; font-size: 12.5px; border-radius: 999px;
-  background: var(--bg); color: var(--muted);
-}
-button.preset:hover { color: var(--ink); border-color: var(--accent); }
-
 h1 { font-size: 20px; margin: 0 0 2px; letter-spacing: -0.01em; }
 h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); margin: 22px 0 6px; }
 p { margin: 0 0 8px; }
 .sub { color: var(--muted); font-size: 13px; }
 .muted { color: var(--muted); }
 .small { font-size: 12.5px; }
-.hint { font-size: 12.5px; color: var(--faint); margin-top: 8px; }
 
-header { border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 16px; }
-
-.controls label {
-  display: flex; justify-content: space-between; align-items: baseline;
-  font-size: 13px; font-weight: 600; margin-bottom: 6px;
-}
-.controls output { font-family: var(--mono); font-weight: 400; color: var(--accent); }
 input[type=range] { width: 100%; accent-color: var(--accent); margin: 0 0 12px; }
 
 button {
@@ -101,7 +90,7 @@ button:hover { border-color: var(--faint); }
 #map.drawing * { cursor: crosshair !important; }
 
 #status {
-  margin-top: 16px; padding: 11px 13px; border-radius: 8px;
+  flex: 0 0 auto; margin: 0 14px 8px; padding: 9px 12px; border-radius: 8px;
   background: var(--bg); font-size: 13.5px; border-left: 3px solid var(--accent);
 }
 #status.error { border-left-color: #b91c1c; color: #7f1d1d; background: #fef2f2; }
@@ -201,70 +190,12 @@ select#region {
   background: var(--bg); border-radius: 8px; padding: 8px 10px; margin: 0 0 14px;
 }
 
-.forecast { font-size: 12.5px; margin: -4px 0 12px; }
+.forecast { font-size: 12.5px; margin: 0 0 10px; }
 .forecast .line { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
 .forecast .num { font-family: var(--mono); color: var(--accent); font-weight: 600; }
 .forecast .windows { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
-.forecast .windows button {
-  padding: 3px 8px; font-size: 11.5px; border-radius: 999px;
-  background: var(--bg); color: var(--muted); border: 1px solid var(--line);
-}
-.forecast .windows button:hover { color: var(--ink); border-color: var(--accent); }
-.forecast .windows button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
 .forecast .why { color: var(--faint); margin-top: 5px; font-size: 11.5px; line-height: 1.45; }
 .forecast .muted { color: var(--faint); }
-
-/* ---- asking, and watching the agents work --------------------------------------------------
-   The trace is deliberately as prominent as the answer. A briefing that was checked and a
-   briefing that was not look identical on the page; the only way to tell them apart is to show
-   the checking. */
-#ask { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
-.askrow { display: flex; gap: 6px; }
-.askrow input {
-  flex: 1 1 auto; min-width: 0; padding: 7px 9px; font: inherit; font-size: 13.5px;
-  border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink);
-}
-.askrow input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
-.askrow button {
-  flex: 0 0 auto; padding: 7px 14px; font-size: 13px; font-weight: 600; border-radius: 7px;
-  background: var(--accent); color: #fff; border-color: var(--accent);
-}
-.askrow button:disabled { opacity: .5; }
-.chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
-.chips button {
-  padding: 4px 9px; font-size: 11.5px; border-radius: 999px;
-  background: var(--bg); color: var(--muted);
-}
-.chips button:hover { color: var(--ink); border-color: var(--accent); }
-
-.trace { list-style: none; margin: 14px 0 0; padding: 0; font-size: 12.5px; }
-.trace .step { border-left: 2px solid var(--line); padding: 5px 0 5px 10px; margin-bottom: 2px; }
-.trace .step.ok, .trace .step.revised { border-left-color: var(--accent); }
-.trace .step.sent-back, .trace .step.trimmed, .trace .step.guarded { border-left-color: var(--warn); }
-.trace .step.failed, .trace .step.rejected, .trace .step.withheld,
-.trace .step.unavailable { border-left-color: #b91c1c; }
-.trace .head { display: flex; align-items: baseline; gap: 6px; }
-.trace .pill {
-  font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em;
-  color: var(--muted); background: var(--bg); border-radius: 999px; padding: 1px 7px;
-}
-.trace .step.sent-back .pill, .trace .step.trimmed .pill, .trace .step.guarded .pill { color: var(--warn); }
-.trace .step.failed .pill, .trace .step.rejected .pill,
-.trace .step.withheld .pill, .trace .step.unavailable .pill { color: #b91c1c; }
-.trace .ms { margin-left: auto; font-family: var(--mono); color: var(--faint); font-size: 11px; }
-.trace .note { color: var(--muted); margin-top: 2px; line-height: 1.45; }
-
-.briefing { margin-top: 14px; padding: 12px 14px; background: var(--bg); border-radius: 9px; }
-.briefing .headline { font-size: 15px; font-weight: 600; margin: 0 0 8px; line-height: 1.4; }
-.briefing .bullets { margin: 0 0 10px; padding-left: 18px; }
-.briefing .bullets li { margin-bottom: 5px; }
-.briefing .caveat { color: var(--muted); font-size: 12.5px; border-left: 2px solid var(--warn); padding-left: 9px; }
-.briefing .withheld { color: #7f1d1d; font-weight: 600; margin-bottom: 6px; }
-.briefing .removed { margin: 10px 0; font-size: 12px; }
-.briefing .removed summary { cursor: pointer; color: var(--warn); font-weight: 600; }
-.briefing .removed ul { margin: 6px 0 0; padding-left: 16px; color: var(--muted); }
-.briefing .removed .rule { font-family: var(--mono); font-size: 11px; color: #b91c1c; }
-.briefing .removed .cut { font-style: italic; color: var(--faint); margin-top: 2px; }
 
 /* ---- replay: a real storm, scored honestly -------------------------------------------------- */
 #replay { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
@@ -358,17 +289,18 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 .tl-roads li { display: flex; align-items: baseline; gap: 7px; padding: 4px 0; font-size: 13px; }
 .tl-roads .meta { color: var(--muted); font-size: 11.5px; margin-left: auto; text-align: right; white-space: nowrap; }
 .rsev { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 2px; margin-top: 3px; }
-.rsev.s5 { background: #7f1d1d; } .rsev.s4 { background: #c1121f; } .rsev.s3 { background: #e8590c; }
-.rsev.s2 { background: #f08c00; } .rsev.s1 { background: #f6c445; }
+.rsev.s5 { background: #b3122b; } .rsev.s4 { background: #e03131; } .rsev.s3 { background: #f76707; }
+.rsev.s2 { background: #f59f00; } .rsev.s1 { background: #f2c94c; }
 .road-outlook { margin-top: 12px; padding: 10px 12px; background: var(--bg); border-radius: 9px; border-left: 3px solid var(--accent); }
 .road-outlook .ro-head { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); font-weight: 600; margin-bottom: 5px; }
 .road-outlook p { font-size: 13px; line-height: 1.5; margin: 0 0 6px; }
 
-/* ---- the storm scrubber, floating on the map under the drawn box ---------------------------- */
+/* ---- the storm scrubber: a temporary overlay fixed at the centre bottom of the map -------- */
 #tl-float {
-  position: absolute; z-index: 6; width: 250px; max-width: 72%;
-  background: rgba(255, 255, 255, 0.96); border: 1px solid var(--line); border-radius: 10px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18); padding: 8px 11px 9px;
+  position: absolute; z-index: 6; left: 50%; bottom: 20px; transform: translateX(-50%);
+  width: 360px; max-width: calc(100% - 32px);
+  background: rgba(255, 255, 255, 0.97); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22); padding: 9px 13px 10px;
 }
 #tl-float #tl-step { display: block; width: 100%; margin: 0 0 5px; accent-color: var(--warn); }
 .tl-floatrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -376,3 +308,237 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 .tl-floatread b { color: var(--warn); }
 #tl-float .tl-dur { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
 #tl-float .tl-dur select { width: auto; padding: 2px 5px; font-size: 11px; }
+/* ---- preparations within budget (F9) ------------------------------------------------------- */
+.prep-budget { margin: 6px 0 10px; }
+.pb-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13px; }
+.pb-row b { color: var(--accent); }
+.pb-bar { height: 7px; border-radius: 999px; background: var(--line); margin: 5px 0 2px; overflow: hidden; }
+.pb-bar span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+.prep-items { list-style: none; margin: 0 0 8px; padding: 0; }
+.prep-items li { display: flex; align-items: baseline; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); }
+.prep-items li:first-child { border-top: none; }
+.pi-body { flex: 1 1 auto; }
+.pi-body .meta { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+.pi-cost { flex: 0 0 auto; font-family: var(--mono); font-size: 12.5px; color: var(--ink); white-space: nowrap; }
+.prep-note { margin: 4px 0 10px; padding: 10px 12px; background: var(--bg); border-radius: 9px; border-left: 3px solid var(--accent); }
+.prep-note p { font-size: 13px; line-height: 1.5; margin: 0 0 6px; }
+#prep-infeasible ul { list-style: none; margin: 0; padding: 0; }
+#prep-infeasible li { padding: 5px 0; font-size: 13px; }
+#prep-infeasible .meta { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+#prep-source { margin-top: 8px; }
+
+/* ---- forecast-first: the what-if override disclosure --------------------------------------- */
+.whatif { margin: 6px 0 10px; border: 1px solid var(--line); border-radius: 9px; padding: 0 10px; }
+.whatif > summary { cursor: pointer; padding: 8px 2px; font-size: 12.5px; color: var(--muted); font-weight: 600; list-style: none; }
+.whatif > summary::-webkit-details-marker { display: none; }
+.whatif > summary::before { content: '\25b8 '; color: var(--faint); }
+.whatif[open] > summary { color: var(--ink); }
+.whatif[open] > summary::before { content: '\25be '; }
+.whatif .field { margin: 2px 0 8px; }
+.fwin { display: inline-block; margin: 2px 8px 2px 0; font-size: 12px; color: var(--muted); }
+.fwin b { color: var(--ink); }
+/* ---- live observed rainfall (Singapore / NEA gauges) --------------------------------------- */
+.rainnow { margin: 8px 0 2px; padding: 9px 11px; background: var(--bg); border-radius: 9px; border-left: 3px solid var(--accent); }
+.rn-head { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); font-weight: 600; margin-bottom: 4px; }
+.rn-now { font-size: 13.5px; margin-bottom: 4px; }
+.rn-now b { color: var(--warn); }
+.tag-live { text-transform: none; letter-spacing: 0; color: #0a7d34; background: #e6f6ec; border-radius: 999px; padding: 2px 7px; font-size: 10.5px; margin-left: 4px; }
+
+/* ============================================================================================
+   The side panel: header, tabs (Agent / Rain / Details), and the chat.
+   The map is on the left and the panel is on the right; the agent is the first tab because it
+   is the product's main interface. Rain and Details hold the instruments and the evidence.
+   ============================================================================================ */
+
+.panel-head {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 14px 16px 10px 18px;
+}
+.panel-head .brand { min-width: 0; }
+.panel-head h1 { font-size: 18px; margin: 0; }
+.panel-head .sub { margin: 1px 0 0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.panel-head select#region { width: auto; max-width: 46%; margin: 0; padding: 6px 9px; font-size: 13px; flex: 0 0 auto; }
+
+.tabs { flex: 0 0 auto; display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+.tabs [role="tab"] {
+  position: relative; border: 0; border-radius: 0; background: none; padding: 9px 14px;
+  font-size: 13.5px; font-weight: 600; color: var(--muted);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tabs [role="tab"]:hover { color: var(--ink); }
+.tabs [role="tab"][aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.tabs .dot { position: absolute; top: 7px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: #e8590c; }
+
+.tabpane { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.tabpane.scroll { display: block; overflow-y: auto; }
+.pane-pad { padding: 14px 18px 30px; }
+.pane-title { margin-top: 4px; }
+.empty { padding: 22px 6px; text-align: center; color: var(--muted); }
+#results:not([hidden]) ~ #details-empty,
+#timeline:not([hidden]) ~ #details-empty { display: none; }
+
+.maphint {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 6;
+  padding: 6px 13px; border-radius: 999px; background: rgba(21, 25, 30, .88); color: #fff;
+  font-size: 12.5px; pointer-events: none; white-space: nowrap;
+}
+
+.field > label {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 13px; font-weight: 600; margin-bottom: 6px;
+}
+.field output { font-family: var(--mono); font-weight: 400; color: var(--accent); }
+
+.linkbtn { border: 0; background: none; padding: 0; color: var(--accent); font-size: 12px; cursor: pointer; }
+.linkbtn:hover { text-decoration: underline; border: 0; }
+
+/* ---- chat ------------------------------------------------------------------------------------ */
+.chat {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 14px 8px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.msg { display: flex; gap: 8px; min-width: 0; }
+.msg-user { justify-content: flex-end; }
+.msg-user .bubble {
+  max-width: 86%; padding: 9px 13px; border-radius: 16px 16px 4px 16px;
+  background: var(--accent); color: #fff; font-size: 14px; line-height: 1.45;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.msg-agent .avatar {
+  flex: 0 0 26px; width: 26px; height: 26px; margin-top: 2px; border-radius: 50%;
+  background: #e3f2f6; color: var(--accent); display: grid; place-items: center;
+}
+.avatar svg { width: 15px; height: 15px; fill: currentColor; }
+.msg-agent .bubble {
+  flex: 1 1 auto; min-width: 0; padding: 11px 13px; border: 1px solid var(--line);
+  border-radius: 4px 16px 16px 16px; background: var(--bg); font-size: 13.5px; line-height: 1.5;
+}
+.msg-agent .bubble p { margin: 0 0 8px; }
+.msg-agent .bubble p:last-child { margin-bottom: 0; }
+.chat-note { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 11.5px; }
+.chat-note::before, .chat-note::after { content: ''; flex: 1 1 0; height: 1px; background: var(--line); }
+.chat-label {
+  margin: 10px 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--faint);
+}
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  padding: 5px 11px; font-size: 12.5px; border-radius: 999px;
+  border: 1px solid var(--line); background: #fff; color: var(--ink);
+}
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+.chip-alt { color: var(--accent); border-color: #b9dce6; background: #f0f9fc; }
+
+/* The working block. It is open while the agents run and folds to one line when they finish; the
+   checking stays one click away, because a briefing that was checked and one that was not look
+   identical on the page and this is the only way to tell them apart. */
+.work { margin-bottom: 8px; }
+.work > summary {
+  display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none;
+  font-size: 12.5px; color: var(--muted);
+}
+.work > summary::-webkit-details-marker { display: none; }
+.work > summary::after {
+  content: ''; margin-left: auto; width: 6px; height: 6px;
+  border-right: 1.5px solid var(--faint); border-bottom: 1.5px solid var(--faint);
+  transform: rotate(45deg); transition: transform .15s;
+}
+.work[open] > summary::after { transform: rotate(-135deg); }
+.spin {
+  flex: 0 0 11px; width: 11px; height: 11px; border-radius: 50%;
+  border: 2px solid var(--line); border-top-color: var(--accent); animation: bih-spin .8s linear infinite;
+}
+.work.done .spin { animation: none; border: 0; background: var(--accent); flex-basis: 9px; width: 9px; height: 9px; }
+.work.stopped .spin { background: var(--faint); }
+.work.failed .spin { background: #b91c1c; }
+@keyframes bih-spin { to { transform: rotate(360deg); } }
+
+.trace { list-style: none; margin: 8px 0 0; padding: 0; font-size: 12px; }
+.trace .step { border-left: 2px solid var(--line); padding: 4px 0 4px 10px; margin-bottom: 2px; }
+.trace .step.ok, .trace .step.revised { border-left-color: var(--accent); }
+.trace .step.sent-back, .trace .step.trimmed, .trace .step.guarded { border-left-color: var(--warn); }
+.trace .step.failed, .trace .step.rejected, .trace .step.withheld,
+.trace .step.unavailable { border-left-color: #b91c1c; }
+.trace .head { display: flex; align-items: baseline; gap: 6px; }
+.trace .pill {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); background: #fff; border-radius: 999px; padding: 1px 7px;
+}
+.trace .step.sent-back .pill, .trace .step.trimmed .pill, .trace .step.guarded .pill { color: var(--warn); }
+.trace .step.failed .pill, .trace .step.rejected .pill,
+.trace .step.withheld .pill, .trace .step.unavailable .pill { color: #b91c1c; }
+.trace .ms { margin-left: auto; font-family: var(--mono); color: var(--faint); font-size: 11px; }
+.trace .note { color: var(--muted); margin-top: 2px; line-height: 1.45; }
+
+.a-head { font-weight: 600; font-size: 14.5px; line-height: 1.4; margin: 0 0 8px; }
+.a-bullets { margin: 0 0 10px; padding-left: 18px; }
+.a-bullets li { margin-bottom: 5px; }
+.a-caveat { color: var(--muted); font-size: 12.5px; border-left: 2px solid var(--warn); padding-left: 9px; }
+.a-withheld { color: #7f1d1d; font-weight: 600; }
+.a-error { color: #7f1d1d; }
+.a-removed { margin: 10px 0 0; font-size: 12px; }
+.a-removed summary { cursor: pointer; color: var(--warn); font-weight: 600; }
+.a-removed ul { margin: 6px 0 0; padding-left: 16px; color: var(--muted); }
+.a-removed .rule { font-family: var(--mono); font-size: 11px; color: #b91c1c; }
+.a-removed .cut { font-style: italic; color: var(--faint); margin-top: 2px; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 2px; }
+.fact {
+  padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px;
+  background: #fff; font-size: 11.5px; color: var(--muted);
+}
+.fact b { color: var(--ink); font-weight: 600; }
+.a-actions { display: flex; align-items: center; gap: 2px; margin-top: 8px; }
+.a-actions .linkbtn { margin-left: auto; }
+.icon-btn {
+  width: 28px; height: 28px; padding: 0; border: 0; border-radius: 7px; background: transparent;
+  color: var(--faint); display: grid; place-items: center;
+}
+.icon-btn:hover { background: #e9edf1; color: var(--ink); border: 0; }
+.icon-btn svg { width: 16px; height: 16px; fill: currentColor; }
+.followups { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.whatif-inline { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.whatif-inline label { display: flex; justify-content: space-between; font-size: 12.5px; font-weight: 600; margin-bottom: 4px; }
+.whatif-inline output { font-family: var(--mono); font-weight: 400; color: var(--accent); }
+.whatif-inline input[type=range] { margin: 2px 0 8px; }
+.wi-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.btn-sm {
+  flex: 0 0 auto; padding: 5px 14px; font-size: 12.5px; font-weight: 600; border-radius: 8px;
+  background: var(--accent); color: #fff; border-color: var(--accent);
+}
+
+/* ---- composer -------------------------------------------------------------------------------- */
+.composer { flex: 0 0 auto; padding: 8px 14px 12px; border-top: 1px solid var(--line); background: var(--card); }
+.composer-box {
+  display: flex; align-items: flex-end; gap: 8px; padding: 6px 6px 6px 13px;
+  border: 1px solid var(--line); border-radius: 14px; background: #fff;
+  transition: border-color .15s, box-shadow .15s;
+}
+.composer-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(14, 116, 144, .13); }
+.composer textarea {
+  flex: 1 1 auto; min-width: 0; border: 0; outline: 0; resize: none; background: transparent;
+  font: inherit; font-size: 14px; line-height: 1.4; max-height: 140px; padding: 6px 0; color: var(--ink);
+}
+.composer textarea:disabled { color: var(--faint); }
+.send {
+  flex: 0 0 34px; width: 34px; height: 34px; padding: 0; border-radius: 10px;
+  background: var(--accent); border-color: var(--accent); color: #fff; display: grid; place-items: center;
+}
+.send svg { width: 18px; height: 18px; fill: currentColor; }
+.send:hover { border-color: var(--accent); filter: brightness(1.08); }
+.send:disabled { opacity: .35; cursor: not-allowed; }
+.send.stop { background: var(--ink); border-color: var(--ink); }
+.composer-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 6px; font-size: 11px; color: var(--faint); }
+.composer-foot .linkbtn { font-size: 11px; flex: 0 0 auto; }
+
+/* ---- the Rain tab ---------------------------------------------------------------------------- */
+.rainchart { margin: 12px 0; padding: 11px 12px; background: var(--bg); border-radius: 10px; }
+.rc-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; margin-bottom: 8px; }
+.bars { display: flex; align-items: flex-end; gap: 1px; height: 72px; border-bottom: 1px solid var(--line); }
+.bar { flex: 1 1 0; min-width: 2px; background: var(--water); opacity: .85; border-radius: 1px 1px 0 0; }
+.rc-axis { display: flex; justify-content: space-between; margin-top: 3px; font-size: 10.5px; color: var(--faint); }
+.rc-foot { margin-top: 6px; }
+.chat-fine { margin-top: 12px !important; }
+
+/* The legend steps up out of the way while the road scrubber is on screen, so the two never overlap. */
+#mapwrap:has(#tl-float:not([hidden])) #legend { bottom: 96px; }

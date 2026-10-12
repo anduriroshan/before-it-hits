@@ -44,33 +44,55 @@ def build_graph(roads: list[Road], crs) -> nx.MultiGraph:
     return g
 
 
-def road_flood_thresholds(graph: nx.MultiGraph, spots: list) -> list[dict]:
-    """For each ground-level road that crosses a pooling spot, the least cumulative rainfall at
-    which it floods, and how bad the worst spot on it is.
+# A road is marked only where it actually runs through a pooling spot, with a little margin either
+# side so the stretch is visible on a map. Marking a road's whole length because one corner of it
+# clips a spot paints kilometres of street that the screening never said anything about.
+CLIP_MARGIN_M = 12.0
 
-    `spots` is a list of (geometry_in_metres, rain_to_fill_mm, severity). A road's threshold is the
-    *minimum* rain_to_fill of the spots it passes through - it floods as soon as the first of them
-    fills - and its severity is the worst of them. This is a rainfall-accumulation threshold, not a
-    clock: it says how much rain it takes, and the forecast says when that much has fallen. It
-    assumes water keeps building and never drains, which with no storm-drain data is the worst case.
+
+def _line_parts(geom) -> list:
+    """The line pieces inside any shapely result (an intersection can hand back points too)."""
+    if geom.is_empty:
+        return []
+    if geom.geom_type == "LineString":
+        return [geom]
+    if hasattr(geom, "geoms"):
+        return [part for g in geom.geoms for part in _line_parts(g)]
+    return []
+
+
+def road_flood_thresholds(graph: nx.MultiGraph, spots: list) -> list[dict]:
+    """The stretches of ground-level road that pass through a pooling spot, each with the rainfall
+    at which that stretch floods and how bad the spot it sits in is.
+
+    `spots` is a list of (geometry_in_metres, rain_to_fill_mm, severity). Each row is one stretch of
+    one road inside one spot (plus a small margin), carrying that spot's own threshold and
+    severity - so a long road through a shallow spot and a deep one is two stretches that light up
+    at different rainfall, not one road marked at the worse of the two. This is a rainfall
+    accumulation threshold, not a clock: it says how much rain it takes, and the forecast says when
+    that much has fallen. It assumes water keeps building and never drains, which with no storm-drain
+    data is the worst case.
 
     Bridges and tunnels are excluded: a bridge over a pooling spot is not cut off by it.
     """
     if not spots:
         return []
     tree = shapely.STRtree([g for g, _, _ in spots])
+    padded = [g.buffer(CLIP_MARGIN_M) for g, _, _ in spots]
     out = []
     for u, v, k, d in graph.edges(keys=True, data=True):
         if d["elevated"] or d["tunnel"]:
             continue
-        crossing = [int(i) for i in tree.query(d["geom"], predicate="intersects")]
-        if not crossing:
-            continue
-        rain = min(spots[i][1] for i in crossing)
-        sev = max(spots[i][2] for i in crossing)
-        out.append({"geom": d["geom"], "name": d["name"], "highway": d["highway"],
-                    "length_m": d["length_m"], "rain_to_flood_mm": round(rain, 1),
-                    "severity": int(sev)})
+        for i in sorted(int(i) for i in tree.query(d["geom"], predicate="intersects")):
+            parts = _line_parts(d["geom"].intersection(padded[i]))
+            if not parts:
+                continue
+            length = sum(p.length for p in parts)
+            geom = parts[0] if len(parts) == 1 else shapely.MultiLineString(parts)
+            out.append({"geom": geom, "name": d["name"], "highway": d["highway"],
+                        "length_m": round(length, 1),
+                        "rain_to_flood_mm": round(spots[i][1], 1),
+                        "severity": int(spots[i][2])})
     out.sort(key=lambda r: (r["rain_to_flood_mm"], -r["severity"]))
     return out
 

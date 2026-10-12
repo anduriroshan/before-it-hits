@@ -60,6 +60,12 @@ class Region:
     def official_return_periods(self) -> list[int]:
         return (self.manifest.get("official") or {}).get("return_periods", [])
 
+    @property
+    def preparations(self) -> dict | None:
+        """The documented preparedness budget and the measures it pays for, if staged for this
+        region. Everything in it is a figure from a city document, never one the engine invents."""
+        return self.manifest.get("preparations")
+
     def layer_path(self, layer: str) -> Path:
         return self.root / (layer + ".fgb")
 

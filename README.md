@@ -246,7 +246,7 @@ KEYS
 Without `GEMINI_API_KEY` the agent layer reports itself unavailable and the ask box does not
 appear. Everything else works unchanged.
 
-Tests: `./.venv/Scripts/python.exe -m pytest engine` — 124 tests, all offline, no network, no
+Tests: `./.venv/Scripts/python.exe -m pytest engine` — 143 tests, all offline, no network, no
 staged data and no model. The agent tests stub both models out on purpose: what is worth testing
 there is the part that holds when the model is wrong, and that part is deterministic by design.
 
@@ -258,17 +258,18 @@ Cloud Build builds the image). Add the service URL to the API key's allowed refe
 ```
 engine/bih_engine/   terrain, hydrology, osm, routes, official, store  — no I/O beyond reads
 engine/bih_agents/   scenario, narrator, verifier, coordinator, news, and the facts bundle
-engine/bih_engine/   ...terrain, hydrology, osm, routes, official, exposure, replay, store
+engine/bih_engine/   ...terrain, hydrology, osm, routes, official, exposure, preparations, replay, store
 engine/tools/        staging jobs: the only code that talks to Overpass or a data portal
-engine/tests/        124 tests on synthetic terrain where the answer is known
+engine/tests/        143 tests on synthetic terrain where the answer is known
 service/             FastAPI: bbox + rainfall in, screening + official layer out
-web/                 map, modal tool palette, results panel
+web/                 map, modal tool palette, and the right-hand panel: Agent (chat), Rain, Details
 plan/                the design written before building
 PROGRESS.md          what is done and what is not
 ```
 
 ## Status
 
-The engine, both tiers, the map, the agent layer and the 28 May 2024 replay work end to end. Not
-yet built: population and exposure, preparations within the city's budget, the News agent, and the
-seeded synthetic harness. `PROGRESS.md` tracks all of it honestly.
+The engine, both tiers, the map, the agent layer, population and exposure, the news-grounded road
+outlook, preparations within the city's budget, and the 28 May 2024 replay work end to end. Not yet
+built: before/after exposure (F10) and the seeded synthetic harness. `PROGRESS.md` tracks all of it
+honestly.

@@ -203,5 +203,40 @@
     "built_footprint_m2": 24499608,
     "note": "The staged box is greater Kochi and is not an exact match for the UA boundary, so the count is an order of magnitude, not a precise total."
   },
-  "news_query": "(Kochi OR Ernakulam) Kerala (flood OR flooding OR waterlogging OR rain)"
+  "news_query": "(Kochi OR Ernakulam) Kerala (flood OR flooding OR waterlogging OR rain)",
+  "preparations": {
+    "budget_total_inr": 50000000,
+    "budget_line": "Kochi Corporation seasonal preparedness line (about \u20b95 crore), under Kerala SDRF 2026 budget rules",
+    "measures": {
+      "clear_outlet_drain": {
+        "label": "Clear / desilt the outlet drain or canal",
+        "cost_inr": 180000,
+        "when": "before the monsoon season"
+      },
+      "pre_position_pump": {
+        "label": "Pre-position a dewatering pump",
+        "cost_inr": 420000,
+        "when": "ahead of forecast rain"
+      },
+      "barricade_low_stretch": {
+        "label": "Barricade and sign the low stretch",
+        "cost_inr": 60000,
+        "when": "ahead of forecast rain"
+      }
+    },
+    "infeasible": [
+      {
+        "op": "road_raising",
+        "label": "Raise the road level",
+        "reason": "Capital work, outside the corporation's seasonal preparedness budget line"
+      },
+      {
+        "op": "new_drain_network",
+        "label": "Lay a new storm-drain network",
+        "reason": "Multi-year capital project, not a pre-season preparation"
+      }
+    ],
+    "source": "Kerala SDRF 2026 budget rules; Operation Breakthrough canal-desilting orders; Kochi Corporation and Ernakulam DDMA (documented figures, not a live feed)"
+  },
+  "timezone": "Asia/Kolkata"
 }

@@ -42,6 +42,25 @@ class Trace:
         return step
 
 
+def _observed_now(region, bbox, trace) -> dict | None:
+    """Live gauge rainfall for the box, where the region has an open feed (Singapore / NEA). This is
+    the 'what is falling now' the agent gets beside the forecast's 'what is coming'. Never blocks the
+    run. Only mm values reach the facts - no timestamp, so no date smuggles integers into the
+    allowed set the Verifier checks against."""
+    if region is None or not region.manifest.get("live_rainfall"):
+        return None
+    try:
+        from bih_engine import rainfall_obs
+        o = rainfall_obs.near(tuple(bbox))
+    except Exception:
+        return None
+    w = o.get("wettest_nearby") or {}
+    trace.add("A3 Forecast", "ok", 0,
+              f"Live gauges now: wettest nearby {w.get('mm_5min')} mm per 5 min.")
+    return {"nearest_gauges_mm_per_5min": [g["mm_5min"] for g in o.get("nearest", [])[:3]],
+            "wettest_nearby_mm_per_5min": w.get("mm_5min")}
+
+
 def _default_spec(slider_mm: float, return_period: int | None, question: str) -> dict:
     """What we run when the Scenario agent is unreachable: exactly what is on screen."""
     return {
@@ -85,6 +104,7 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
 
     # --- A3 Forecast: a tool, not a model, until we have bulletins worth reading -----------
     rain_profile = None     # the forecast's real hourly shape, when forecast mode succeeds
+    observed = None         # live gauge rainfall "now", where the region has an open feed
     if spec["mode"] == "replay":
         trace.add("A3 Forecast", "unavailable", 0,
                   "Replaying a past storm needs historical rainfall, which the forecast service "
@@ -104,6 +124,7 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
             rain_profile = [h["mm"] for h in f.get("hours", [])][:24] or None
             trace.add("A3 Forecast", "ok", int((time.perf_counter() - t0) * 1000),
                       f"Worst {window} h window: {spec['rainfall_mm']} mm.", detail=f["peaks"])
+            observed = _observed_now(region, bbox, trace)
         except ForecastUnavailable as exc:
             trace.add("A3 Forecast", "failed", int((time.perf_counter() - t0) * 1000),
                       f"{exc}. Using the rainfall on screen instead.")
@@ -122,10 +143,12 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
               detail={"rainfall_mm": spec["rainfall_mm"], "return_period_years": rp,
                       "res_m": res_m})
 
-    bundle = facts.build(result, question=question,
-                         rainfall={"mm": spec["rainfall_mm"], "over_hours": spec["duration_h"],
-                                   "where_this_figure_came_from": spec["rainfall_source"],
-                                   "is_a_real_forecast": spec["mode"] == "forecast"},
+    rainfall_facts = {"mm": spec["rainfall_mm"], "over_hours": spec["duration_h"],
+                      "where_this_figure_came_from": spec["rainfall_source"],
+                      "is_a_real_forecast": spec["mode"] == "forecast"}
+    if observed:
+        rainfall_facts["falling_now_at_gauges"] = observed
+    bundle = facts.build(result, question=question, rainfall=rainfall_facts,
                          region_title=(region.manifest.get("title") if region else None))
 
     out = {"question": question, "scenario": spec, "facts": bundle, "result": result,

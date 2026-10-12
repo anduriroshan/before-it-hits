@@ -3,7 +3,7 @@
 Submission **18 Oct 2026**. Started tracking 11 Oct (day 1 of 8). Spec lives in `plan/` (content in `plan/assets/data.js`).
 Tick a box when the work lands and has been run, not when it is started. Plan IDs: **F** feature, **L** layer, **A** agent.
 
-**Now:** two cities live at https://before-it-hits-z5r5gsxkza-el.a.run.app, and the agent layer answers questions about a drawn box with every figure checked against the engine. **Next: the preparation/budget layer (P4), or population/exposure polish.** F8 road playback (now a slider-only instant scrubber floating under the box, timed to the live forecast's hourly shape), agent-first interaction, and news-grounded road outlook are done.
+**Now:** the side panel is a chat (Agent / Rain / Details tabs) and the road layer is thin and precise. Two cities live at https://before-it-hits-z5r5gsxkza-el.a.run.app. **The product is forecast-first:** drawing a box (or picking a preset) auto-runs the agent, which predicts from the live forecast and drives the map + playback from its real hourly shape — the rainfall slider is hidden inside a "Test a what-if" override, only for hypotheticals. The agent also gets live gauge rainfall (Singapore/NEA) beside the forecast. The preparation/budget layer (P4) is built: a prioritised, costed plan from the worst spots down, capped by the city's own documented budget, with a Planner note that may use no figure the list does not already contain. Singapore is at parity (buildings, exposure, population, live NEA rainfall). The road playback is reframed as cumulative-rainfall-with-no-drainage (worst case), so it no longer reads as "roads still clogged 24 h later". **Next: before/after exposure (F10), the demo script, and submission polish.**
 
 **Submission:** live demo + repo link (confirmed 11 Oct). So the deployed URL must stay working — it runs with `--min-instances 1` because a cold start is ~8 s against ~0.8 s warm.
 **Last updated:** 12 Oct 2026 (day 2, late night)
@@ -57,24 +57,26 @@ Tick a box when the work lands and has been run, not when it is started. Plan ID
 - [ ] Replay mode (a real past storm) — needs historical rainfall, not the forecast API
 - [x] Panel says plainly when no validated layer is selected or none exists for the region
 
-## Second city: Singapore (staged 11 Oct)
-- [x] Singapore staged: 187,348 roads, 1,983 water polygons, 3,720 waterways. 0.7-1.8 s per preset box
-- [x] **No authority publishes a depth-valued flood layer for Singapore**, so it exercises the honest "no validated layer here" path (F12) rather than hiding it
+## Second city: Singapore (staged 11 Oct, brought to parity 12 Oct)
+- [x] Singapore staged: 187,367 roads, 1,983 water polygons, 3,720 waterways. 0.7-1.8 s per preset box
+- [x] **Singapore buildings staged (12 Oct): 158,230 footprints**, so F7 exposure now works here too. Total mapped footprint 95,911,957 m² (summed in UTM 48N); OSM coverage is near-complete, so the self-consistency ratio is unusually strong. Population: SingStat mid-2023 total 5,917,648. Orchard Road box ~570 in the worst spots of ~85,000 modelled in the box
+- [x] **Live observed rainfall wired — NEA rain-gauge network via data.gov.sg (`rainfall_obs.py`, `/api/rainfall-now`), keyless, ~90 gauges at 5-minute cadence.** No other staged city has an open feed (IMD needs JWT + IP whitelisting). Nearest gauges to the drawn box + the wettest nearby, observed not forecast. Region-gated by a `live_rainfall` manifest flag; 4 tests
+- [x] **No authority publishes a depth-valued flood layer for Singapore** (checked: PUB's Flood Prone Areas dataset is aggregate hectares per year, not a per-location depth raster; PUB Water Level Sensors now need a waitlisted API key). So Singapore exercises the honest "no validated layer here" path (F12) — and preparations correctly report "not available" (no documented budget), the graceful-degradation path
 - [x] DeltaDTM caps at 30 m and Singapore's interior is higher: capped cells now masked as no-data rather than read as a real elevation, which would invent flat plateaus and a ring of false depressions. `capped_px` is reported per box
 - [x] Overpass mirror fallback in the staging tool — the main endpoint returned 504 repeatedly
-- [ ] Singapore buildings (not staged; the roads query alone took several Overpass rounds)
+- [x] The staging tool now carries `news_query`, `preparations` and `live_rainfall` from the region definition into the manifest (and preserves any hand-added block on restage), so a re-stage never silently drops them
 - [ ] Singapore is the sharpest test of our largest known bias: it has world-class drainage and we have no drainage data, so pooling should be overstated there more than anywhere. Worth measuring rather than asserting
 
 ## P3 People, routes, heat (F7, F8, F6)
-- [x] F7 exposure: roughly how many people are in the worst spots, modelled by spreading the published city population across mapped building footprints by area - `people in the worst spots = city population x (footprint in those spots / all city footprint)`. The ratio is self-consistent, so uniform OSM under-mapping cancels. By area, never per building; no floors (footprint stands in for floor area); rounded to 2 sig figs with the caveats attached every run. Palarivattom ~270 in the worst spots of ~39,000 in the box. `engine/bih_engine/exposure.py`, 6 tests. Kochi only (Singapore has no staged buildings -> honest 'not available')
+- [x] F7 exposure: roughly how many people are in the worst spots, modelled by spreading the published city population across mapped building footprints by area - `people in the worst spots = city population x (footprint in those spots / all city footprint)`. The ratio is self-consistent, so uniform OSM under-mapping cancels. By area, never per building; no floors (footprint stands in for floor area); rounded to 2 sig figs with the caveats attached every run. Palarivattom ~270 in the worst spots of ~39,000 in the box. `engine/bih_engine/exposure.py`, 6 tests. Both cities now (Singapore buildings staged 12 Oct)
 - [ ] Critical places from OSM and Places (L13) - hospitals, schools near the worst spots
 - [ ] Routes through pooling spots, and areas left with no clear route (F8)
 - [ ] Heat by area from Landsat (F6): timebox it, first thing to cut
 
-## P4 Decide (F9, F10)
-- [ ] City capabilities from documents: 5 crore preparedness line, 50,000 per ward debris, Operation Breakthrough canals (L14, A11)
-- [ ] Preparation candidates and greedy ranking under the budget
-- [ ] Planner (A5) drops what the city cannot do and explains trade-offs
+## P4 Decide (F9, F10) — preparations built 12 Oct
+- [x] City capabilities from documents, in `region.json`: the ~5 crore Kochi preparedness line and the measures it pays for (desilt an outlet, pre-position a pump, barricade a low stretch), with the capital works it explicitly does not (road raising, a new drain network) and why. Figures are the city's, not the engine's
+- [x] Preparation candidates and greedy ranking under the budget (`bih_engine/preparations.py`): worst spot first gets the structural lever, other top-ranked spots a pump, the rest a barricade; summed against the budget ceiling; low spots left out. Deterministic — no model runs in it. `/api/preparations`
+- [x] Planner (A5, `bih_agents/planner.py`) explains the trade-offs and names the highest-value lever, and **may use no figure the ranked list does not already contain** — an unsupported number or a dispatch/evacuation word is refused and the note withheld (the costed list stands alone). 13 tests
 - [ ] Before / after exposure (F10)
 
 ## P5 Agents (A1, A2, A3, A6, A7) — the layer, built 12 Oct
@@ -88,7 +90,7 @@ Tick a box when the work lands and has been run, not when it is started. Plan ID
 - [x] Caught live on the first real run: the Narrator wrote that a spot fills "starting early" — fill order is an order, not a clock — and the Verifier sent it back
 - [x] `nearest_road` filled in at last (it was `None` since P1): spots are named by the road they sit on, within 120 m and named roads only. 87% of spots named in Palarivattom, 48% in Vyttila. "The low point beside Pipeline Road" instead of `d_28`
 - [x] 95 tests. The agent tests stub both models out: what is worth testing is the part that holds when the model is wrong
-- [ ] Planner (A5): needs P4 capabilities first
+- [x] Planner (A5): built with P4 — see P4 Decide above (`planner.py`, `/api/preparations`)
 - [x] Road outlook agent (`road_outlook.py`): qualitative, region-specific read on the road timeline, grounded in recent local news. No fabricated measurement survives - every figure is checked against the deterministic findings; fails closed. `/api/road-outlook`, 6 tests
 - [x] News (A13): live GDELT headlines for the city, de-duplicated, with an optional model-written grounded digest. **Display-only by contract** - never stored, never scored, changes no number; loaded lazily only when the panel is opened (GDELT rate-limits hard). Prompt-injection resistant (ignored a planted 'SYSTEM COMPROMISED' headline). `engine/bih_agents/news.py`, 7 tests. The stored/scored GDELT path stays future work
 - [ ] Firestore for runs and traces (never grounded output). Runs are currently not persisted at all
@@ -108,6 +110,9 @@ Tick a box when the work lands and has been run, not when it is started. Plan ID
 - [ ] Malayalam area messages (drafts, never sent)
 - [x] Resolution caveat and per-layer confidence rendered on every selection (F12)
 - [x] Left panel decluttered: primary answer (spots, people, official) stays open; roads, left-out, caveats, replay and news fold into consistent collapsible blocks
+- [x] **Side panel rebuilt (12 Oct): map left, panel right, three tabs.** *Agent* is a real chat (user bubbles right, agent bubbles left, composer pinned at the bottom, Enter to send, Stop while it runs, ask-again, copy). Each answer folds the agents' work to one line ("Checked by the verifier - 5 steps - 23 s", still one click from the full trace), then shows the answer, fact chips taken from the engine's own output (not model text), suggested follow-ups, and an inline *What if it rains more?* slider that runs the hypothesis through the same agents. *Rain* is its own panel: live forecast, an hourly bar chart of the real series (region time zone), live NEA gauges where a city has them, and the what-if override. *Details* holds the ranked spots, people, official layer, roads over time, preparations, replay and news. Drawing a box or picking an area in the chat auto-runs the forecast prediction. Verified in headless Chrome at 1500x900, 1280x680 and 820 wide: no JS errors, Stop / Enter / Erase / city-switch all behave
+- [x] **Road layer cleaned up (12 Oct).** It was whole-road lines, so a km-long road that merely clipped one pooling spot was painted end to end, and rank-5 was ~5 px near-black red. The engine now returns only the stretch of each road that passes through a pooling spot (12 m margin), each with its own threshold and severity; drawn thin, by road class, scaled with zoom, on a yellow-to-red ramp. Palarivattom at 100 mm: 671 roads / 185.8 km -> 298 stretches / 19.4 km. The old km figure had overstated roads affected about tenfold
+- [x] Fixed: the *In the news now* panel had shipped with `hidden` and nothing ever un-hid it, so it had never been visible on the live site even though its API worked
 - [x] News panel (collapsible, lazy-loaded, display-only)
 
 ## P7 Prove it (F15, F16)

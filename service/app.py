@@ -105,6 +105,9 @@ def describe(r: Region) -> dict:
         "not_available": m.get("not_available", []),
         "official": m.get("official"), "max_area_km2": MAX_AREA_KM2,
         "replays": replays_for(r.name),
+        "preparations": bool(m.get("preparations")),
+        "live_rainfall": m.get("live_rainfall"),
+        "timezone": m.get("timezone"),
     }
 
 
@@ -202,6 +205,42 @@ def road_outlook(req: RoadOutlookRequest) -> dict:
     return out or {"outlook": None}
 
 
+class PreparationsRequest(BaseModel):
+    bbox: list[float] = Field(..., min_length=4, max_length=4)
+    region: str | None = None
+    rainfall_mm: float = Field(100.0, ge=0, le=1000)
+    return_period: int | None = 50
+
+
+@app.post("/api/preparations")
+def preparations_for_box(req: PreparationsRequest) -> dict:
+    """F9: preparations within the city's documented budget, ranked from the worst spot down.
+
+    Deterministic: the ranked, costed list comes from the engine and the region's own budget lines,
+    not from a model. If the agent layer is on, a short planner note on the trade-offs is added on
+    top - and even that may use no figure the list does not already contain. Preparation only,
+    never dispatch. Returns an honest 'not available' where no budget is documented for the city."""
+    from bih_engine import preparations as prep
+    from bih_agents import planner
+    w, s, e, n = req.bbox
+    if not (w < e and s < n):
+        raise HTTPException(422, "bbox must be west < east and south < north")
+    r = region_or_404(req.region)
+    if not r.covers((w, s, e, n)):
+        raise HTTPException(422, "that box is outside the staged region")
+    rp = req.return_period if req.return_period in r.official_return_periods else None
+    res = analyse_area((w, s, e, n), rainfall_mm=req.rainfall_mm, res_m=10.0, region=r,
+                       return_period=rp)
+    res.pop("debug", None)
+    res.pop("debug_excluded", None)
+    plan = prep.rank(res, r.preparations)
+    if llm.available() and plan.get("available") and plan.get("items"):
+        note = planner.write(r.manifest.get("title") or r.name, plan)
+        if note:
+            plan["planner_note"] = note["note"]
+    return plan
+
+
 @app.get("/api/news")
 def news_for_region(region: str | None = None) -> dict:
     """Live news about the city, for context only. A separate call from everything else: it is the
@@ -212,6 +251,32 @@ def news_for_region(region: str | None = None) -> dict:
         return news.for_region(r.manifest.get("title") or r.name,
                                query=r.manifest.get("news_query"))
     except news.NewsUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/api/rainfall-now")
+def rainfall_now(region: str | None = None, bbox: str | None = None) -> dict:
+    """Live observed rainfall from the region's gauge network, where one is wired (Singapore/NEA).
+
+    Display and context only - the screening and the agent run off the forecast. Returns an honest
+    'not available' for a city with no open gauge feed (every city but Singapore, so far), rather
+    than pretending. `bbox` is an optional 'w,s,e,n' to rank gauges by nearness to the drawn box."""
+    from bih_engine import rainfall_obs
+    r = region_or_404(region)
+    if not r.manifest.get("live_rainfall"):
+        return {"available": False,
+                "reason": "no open rain-gauge network is wired for this city"}
+    box = r.bounds
+    if bbox:
+        try:
+            parts = [float(x) for x in bbox.split(",")]
+            if len(parts) == 4:
+                box = tuple(parts)
+        except ValueError:
+            raise HTTPException(422, "bbox must be four comma-separated numbers: w,s,e,n")
+    try:
+        return rainfall_obs.near(box)
+    except rainfall_obs.RainfallObsUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
 
 

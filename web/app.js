@@ -13,13 +13,17 @@ const $ = (id) => document.getElementById(id);
 const POOLING_FILL = { 5: '#0b3d91', 4: '#1d6fd0', 3: '#4a9fe0', 2: '#8fc5ec', 1: '#c8e2f5' };
 const MIN_SIDE_DEG = 0.0015;
 const OFFICIAL_FILL = ['#cfe8ff', '#86c0f0', '#3d8fd1', '#1b5fa8', '#0b3566'];  // about 150 m: below this there is nothing to analyse
-const ROAD_SEV = { 5: '#7f1d1d', 4: '#c1121f', 3: '#e8590c', 2: '#f08c00', 1: '#f6c445' };
+// Yellow -> red like a traffic map, with no near-black at the top: a few hundred dark strokes
+// overlapping read as a smear, and the darkest colour was what made the layer look heavy.
+const ROAD_SEV = { 5: '#b3122b', 4: '#e03131', 3: '#f76707', 2: '#f59f00', 1: '#f2c94c' };
+// Line weight by road class. A lane and a trunk road should not be drawn the same.
+const ROAD_W = { motorway: 3.4, trunk: 3.4, primary: 3.0, secondary: 2.6, tertiary: 2.2 };
 
 const state = {
   map: null, rect: null, layer: null, region: null,
   busy: false, mapReady: false, tool: 'pan', drag: null, lastBbox: null, officialLayer: null,
   regions: [], region: null, regionRect: null, forecast: null, rainMode: 'whatif',
-  agents: false, asking: false, newsFor: null, roadLayer: null,
+  agents: false, newsFor: null, roadLayer: null, whatif: false, tab: 'agent',
   tl: { feats: [], dur: 6, step: 6, total: 100, cum: [], steps: 6, real: false },
 };
 
@@ -66,12 +70,14 @@ async function boot() {
     setStatus('The engine has no staged region.', true);
     return;
   }
+  wireAsk(cfg.agents);           // before a region is chosen: the welcome message depends on it
+  wireTabs();
+  setTab('agent');
   buildRegionPicker();
   selectRegion(state.regions[0].name);
   wireToolbar();
   wireTimeline();
   $('news').addEventListener('toggle', () => { if ($('news').open) loadNews(); });
-  wireAsk(cfg.agents);
 
   if (!cfg.maps_api_key) {
     mapFailed('No Maps API key is configured. Set MAPS_API_KEY in .env.local and restart.');
@@ -107,18 +113,19 @@ function selectRegion(name) {
 
   const counts = region.vectors.counts || {};
   $('regionline').textContent =
-    `staged ${region.staged} · ${(counts.roads || 0).toLocaleString()} roads` +
+    `${(counts.roads || 0).toLocaleString()} roads` +
     (counts.buildings ? ` · ${counts.buildings.toLocaleString()} buildings` : '');
   $('regionnote').textContent = region.note || '';
   $('credits').innerHTML =
     `Terrain: ${(region.terrain && region.terrain.source) || 'DeltaDTM v1.1'}. ` +
     `Roads and water: ${region.vectors.licence}. Basemap © Google — display only.`;
 
-  buildPresets(region);
   buildReturnPeriods(region);
+  $('rain-nogauge').hidden = Boolean(region.live_rainfall);
   loadReplay(region);
   resetNews(region);
   clearAll();
+  chatReset();
   if (state.mapReady) frameRegion(region);
 }
 
@@ -157,19 +164,9 @@ function buildReturnPeriods(region) {
     sel.dataset.wired = '1';
     sel.addEventListener('change', () => {
       $('rpout').textContent = sel.value ? `1-in-${sel.value}-year` : 'off';
-      if (state.lastBbox) analyse(state.lastBbox);
+      rerun();
     });
   }
-}
-
-function buildPresets(region) {
-  $('presets').replaceChildren(...(region.presets || []).map((p) => {
-    const b = document.createElement('button');
-    b.className = 'preset';
-    b.textContent = p.label;
-    b.onclick = () => { setTool('pan'); showRect(p.bbox); analyse(p.bbox); };
-    return b;
-  }));
 }
 
 /* ---- tools ---------------------------------------------------------------------------------- */
@@ -186,6 +183,7 @@ function setTool(tool) {
   }
   $('map').classList.toggle('drawing', tool === 'box');
   $('hint').textContent = TOOL_HINT[tool];
+  $('hint').hidden = tool !== 'box';       // the hint only matters while drawing
   // While the box tool is active the map must not pan, or a drag would do both at once.
   if (state.mapReady) state.map.setOptions({ draggable: tool !== 'box', draggableCursor: tool === 'box' ? 'crosshair' : null });
 }
@@ -196,6 +194,8 @@ function clearAll() {
   if (state.officialLayer) { state.officialLayer.setMap(null); state.officialLayer = null; }
   clearRoadLayer();
   $('timeline').hidden = true;
+  $('prep').hidden = true;
+  clearedArea(Boolean(state.lastBbox));
   state.lastBbox = null;
   $('results').hidden = true;
   setStatus('');
@@ -257,8 +257,10 @@ window.initMap = function initMap() {
     // event, which meant one unlucky async error left the toolbar hidden with nothing on screen
     // to say why. UI chrome should never depend on a map event firing.
     enableBoxDrawing();
-    // The storm scrubber is pinned to the box, so it has to move with every pan and zoom.
-    state.map.addListener('bounds_changed', positionTimelineFloat);
+    // Stroke widths are in pixels, so the road layer is restyled as the zoom changes.
+    state.map.addListener('zoom_changed', () => {
+      if (state.roadLayer) styleRoads(cumAt(state.tl.step));
+    });
     state.mapReady = true;
     frameRegion(state.region);   // outlines where the engine can answer
     $('toolbar').hidden = false;
@@ -344,7 +346,7 @@ function enableBoxDrawing() {
       return;
     }
     setTool('pan');
-    analyse(bbox);
+    predictBox(bbox);
   };
 
   el.addEventListener('pointerup', end);
@@ -379,11 +381,40 @@ function showRect(bbox, fit = true) {
 
 /* ---- analysis ------------------------------------------------------------------------------- */
 
+/* Forecast-first: a drawn box or a preset predicts from the live forecast by default. The agent
+   pulls the forecast, runs the engine on it, and drives the map + playback from the real hourly
+   shape - no slider involved. The what-if slider below is an explicit override, for testing a
+   heavier or different storm than the forecast. */
+const DEFAULT_PREDICT_Q =
+  'Using the live rainfall forecast, what could happen to this area and its roads over the coming day?';
+
+function predictBox(bbox, label) {
+  state.lastBbox = bbox;
+  state.whatif = false;
+  setTab('agent');
+  chatNote(`${label || 'Drawn box'} \u00b7 ${boxKm2(bbox).toFixed(1)} km\u00b2`);
+  if (state.agents) {
+    loadForecast(bbox);    // the Rain tab, and it seeds the what-if slider
+    loadRainNow(bbox);     // live gauges, where a city has an open feed
+    sendQuestion(DEFAULT_PREDICT_Q, { auto: true });
+  } else {
+    analyse(bbox);         // no agent layer configured: fall back to a direct screening
+  }
+}
+
+function rerun() {
+  if (!state.lastBbox) return;
+  if (state.whatif || !state.agents) { analyse(state.lastBbox); return; }
+  chatNote('Official layer changed \u00b7 re-running the prediction');
+  sendQuestion(DEFAULT_PREDICT_Q, { auto: true });
+}
+
 async function analyse(bbox) {
   if (state.busy) return;
   state.busy = true;
   state.lastBbox = bbox;
   loadForecast(bbox);   // fire-and-forget: a weather outage must not stop the screening
+  loadRainNow(bbox);    // live gauge rainfall, where a city has an open feed (Singapore / NEA)
   setStatus('Reading the terrain and working out where water goes…');
   try {
     const res = await fetch('/api/analyse', {
@@ -399,7 +430,8 @@ async function analyse(bbox) {
     if (!res.ok) throw new Error(body.detail || 'the engine could not analyse that box');
     render(body);
     setStatus('');
-    if (state.agents) $('ask').hidden = false;
+    notifyDetails();
+    if (!state.agents) setTab('details');   // no chat to read the answer in
   } catch (err) {
     setStatus(err.message, true);
     $('results').hidden = true;
@@ -408,11 +440,45 @@ async function analyse(bbox) {
   }
 }
 
+/* Live observed rainfall from the region's gauge network, where one is wired (Singapore / NEA).
+   Fire-and-forget and region-gated: a gauge outage, or a city with no open feed, costs nothing. */
+async function loadRainNow(bbox) {
+  const el = $('rainnow');
+  el.hidden = true;
+  const live = state.region && state.region.live_rainfall;
+  if (!live) return;
+  try {
+    const q = `region=${encodeURIComponent(state.region.name)}&bbox=${bbox.join(',')}`;
+    const d = await fetch(`/api/rainfall-now?${q}`).then((r) => r.json());
+    if (!d.available) return;
+    renderRainNow(d, live);
+  } catch { /* observed rain is context only; the screening is unaffected */ }
+}
+
+function renderRainNow(d, live) {
+  const el = $('rainnow');
+  el.hidden = false;
+  const w = d.wettest_nearby;
+  const t = d.at ? new Date(d.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const wet = w && w.mm_5min > 0;
+  const head = wet
+    ? `<b>${w.mm_5min} mm</b>/5 min at ${esc(w.name)}`
+    : `all quiet \u2014 0 mm across ${d.gauges_reporting} nearby gauges`;
+  const near = (d.nearest || []).slice(0, 3)
+    .map((g) => `${esc(g.name)} ${g.mm_5min} mm (${g.km} km)`).join(' \u00b7 ');
+  el.innerHTML =
+    `<div class="rn-head">Live rain now <span class="tag-live">${esc(live.label)}${t ? ' \u00b7 ' + t : ''}</span></div>`
+    + `<div class="rn-now">${head}</div>`
+    + `<div class="muted tiny">nearest: ${near}</div>`
+    + `<div class="muted tiny">Observed at the gauges \u2014 not a forecast and not our model.</div>`;
+}
+
 /* The forecast is live and can fail. It is fetched separately from the analysis so that a
    weather outage costs you the rainfall panel and nothing else. */
 async function loadForecast(bbox) {
   const el = $('forecast');
-  el.innerHTML = '<span class="muted">checking the forecast…</span>';
+  el.innerHTML = '<span class="muted">checking the forecast\u2026</span>';
+  $('rainchart').hidden = true;
   try {
     const r = await fetch('/api/forecast', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -424,8 +490,8 @@ async function loadForecast(bbox) {
     renderForecast();
   } catch (err) {
     state.forecast = null;
-    el.innerHTML = `<span class="muted">No live forecast (${err.message}). `
-      + 'The rainfall above is a what-if.</span>';
+    el.innerHTML = `<span class="muted">No live forecast (${esc(err.message)}). `
+      + 'Use \u201cTest a what-if\u201d below to set the rainfall by hand.</span>';
   }
 }
 
@@ -433,26 +499,25 @@ function renderForecast() {
   const f = state.forecast;
   if (!f) return;
   const windows = Object.entries(f.peaks)
-    .map(([h, p]) => `<button data-mm="${p.mm}" data-h="${h}"
-        class="${state.rainMode === `peak${h}` ? 'on' : ''}">${h} h: ${p.mm} mm</button>`)
-    .join('');
+    .map(([h, p]) => `<span class="fwin">${h} h: <b>${p.mm}</b> mm</span>`).join('');
   $('forecast').innerHTML = `
-    <div class="line"><span class="muted">Forecast next ${f.hours_ahead} h:</span>
+    <div class="line"><span class="muted">Live forecast, next ${f.hours_ahead} h:</span>
       <span class="num">${f.total_mm} mm</span></div>
     <div class="windows">${windows}</div>
-    <div class="why">Worst rolling window, not the daily total. A point forecast at the box
-      centre; no return period inferred.</div>`;
+    <div class="why">Worst rolling window, not the daily total. A point forecast at the box centre;
+      no return period inferred. The agent predicts from this \u2014 the what-if slider only overrides it.</div>`;
+  renderRainChart(f);
+  seedWhatIf();
+}
 
-  $('forecast').querySelectorAll('button').forEach((b) => {
-    b.onclick = () => {
-      state.rainMode = `peak${b.dataset.h}`;
-      const mm = Math.round(Number(b.dataset.mm));
-      $('rain').value = String(mm);
-      $('rainout').textContent = `${mm} mm · forecast worst ${b.dataset.h} h`;
-      renderForecast();
-      if (state.lastBbox) analyse(state.lastBbox);
-    };
-  });
+/* An override starts from the real prediction, so moving it is "what if it were different". */
+function seedWhatIf() {
+  const f = state.forecast;
+  const seed = f && (f.peaks['3'] || f.peaks[Object.keys(f.peaks)[0]] || {}).mm;
+  if (seed == null || state.whatif) return;
+  $('rain').value = String(Math.max(0, Math.round(seed)));
+  // The slider moves in 5 mm steps, so say the forecast's own figure rather than the snapped one.
+  $('rainout').textContent = `${+Number(seed).toFixed(1)} mm · forecast`;
 }
 
 /* ---- roads over time: a rain-driven playback (F8) -------------------------------------------
@@ -463,46 +528,6 @@ function renderForecast() {
 function clearRoadLayer() {
   if (state.roadLayer) { state.roadLayer.setMap(null); state.roadLayer = null; }
   $('tl-float').hidden = true;
-}
-
-/* Pixel position of a lat/lng inside the map div — the inverse of pointToLatLng — so an overlay
-   can be pinned to a place on the map (here, the storm scrubber under the drawn box). */
-function latLngToPoint(lat, lng) {
-  const bounds = state.map && state.map.getBounds();
-  if (!bounds) return null;
-  const r = $('map').getBoundingClientRect();
-  if (!r.width || !r.height) return null;
-  const ne = bounds.getNorthEast();
-  const sw = bounds.getSouthWest();
-  let west = sw.lng();
-  let east = ne.lng();
-  if (east < west) east += 360;
-  let x = lng; if (x < west) x += 360;
-  const fx = (x - west) / (east - west);
-  const yTop = mercY(ne.lat());
-  const yBottom = mercY(sw.lat());
-  const fy = (mercY(lat) - yTop) / (yBottom - yTop);
-  return { x: fx * r.width, y: fy * r.height, w: r.width, h: r.height };
-}
-
-/* Keep the floating scrubber just below the drawn box, centred on it. If the box sits low in the
-   view, flip the control above it so it stays on screen. Called on every pan, zoom and resize. */
-function positionTimelineFloat() {
-  const el = $('tl-float');
-  if (el.hidden || !state.lastBbox || !state.mapReady) return;
-  const [w, s, e, n] = state.lastBbox;
-  const below = latLngToPoint(s, (w + e) / 2);
-  if (!below) return;
-  const fw = el.offsetWidth || 260;
-  const fh = el.offsetHeight || 56;
-  const left = Math.max(8, Math.min(below.w - fw - 8, below.x - fw / 2));
-  let top = below.y + 12;
-  if (top + fh > below.h - 8) {                 // box near the bottom: place it above the box
-    const above = latLngToPoint(n, (w + e) / 2);
-    top = Math.max(8, (above ? above.y : below.y) - fh - 12);
-  }
-  el.style.left = `${left}px`;
-  el.style.top = `${Math.max(8, top)}px`;
 }
 
 /* The cumulative-rainfall curve the playback steps through. With the live forecast the agent
@@ -551,12 +576,13 @@ function renderTimeline(res, driver) {
   $('tl-duration').parentElement.style.display = state.tl.real ? 'none' : '';
 
   $('timeline-sub').textContent =
-    `${feats.length} road segments cross a pooling spot. Drag the bar under the box to watch them `
-    + 'go, in the order each needs the least rain.';
+    `${feats.length} road stretches pass through a pooling spot. Drag to watch them pool as rain `
+    + 'accumulates, ordered by how little rain each needs.';
   $('tl-note').innerHTML =
-    'Modelled road difficulty from rain pooling &mdash; <b>not</b> a traffic measurement. A '
-    + 'rainfall-accumulation clock that assumes water keeps building and does not drain away (the '
-    + 'worst case), because storm-drain data is not public anywhere.'
+    'Modelled road difficulty from rain <b>pooling</b> &mdash; not a traffic measurement, and not '
+    + 'a forecast of standing water hours later. It shows cumulative rainfall assuming <b>none of '
+    + 'it drains</b> (the worst case, since storm-drain data is not public), so a long storm '
+    + 'saturates; streets with working drains clear sooner.'
     + (state.tl.real ? ' Timed to the live forecast.' : '');
 
   if (state.mapReady) {
@@ -566,8 +592,16 @@ function renderTimeline(res, driver) {
     $('tl-float').hidden = false;
   }
   stepTo(state.tl.steps);               // open on the full storm; drag back to watch it build
-  positionTimelineFloat();
   loadRoadOutlook(res);                 // the agent's qualitative, region-specific read (if any)
+}
+
+/* Thin by default and thinner when zoomed out, where a stroke width in pixels covers far more
+   street. Severity is carried by colour and, only slightly, by weight. */
+function roadWeight(highway, sev) {
+  const base = ROAD_W[highway] || 1.5;
+  const z = state.map ? state.map.getZoom() : 13;
+  const zoomK = Math.min(1.7, Math.max(0.55, 0.55 + (z - 12) * 0.2));    // zoom 12 -> .55, 17 -> 1.55
+  return Math.round(base * zoomK * (0.9 + sev * 0.04) * 10) / 10;
 }
 
 function styleRoads(cum) {
@@ -576,8 +610,9 @@ function styleRoads(cum) {
     const on = f.getProperty('rain_to_flood_mm') <= cum;
     const sev = f.getProperty('severity');
     return {
-      strokeColor: ROAD_SEV[sev], strokeOpacity: on ? 0.95 : 0.0,
-      strokeWeight: on ? 1.6 + sev * 0.7 : 0, zIndex: 50 + sev, clickable: false,
+      strokeColor: ROAD_SEV[sev], strokeOpacity: on ? 0.9 : 0.0,
+      strokeWeight: on ? roadWeight(f.getProperty('highway'), sev) : 0,
+      zIndex: 50 + sev, clickable: false,
     };
   });
 }
@@ -595,13 +630,15 @@ function stepTo(step) {
   styleRoads(cum);                       // instant: one setStyle, no animation
   const on = state.tl.feats.filter((f) => f.properties.rain_to_flood_mm <= cum);
   const km = on.reduce((a, f) => a + f.properties.length_m, 0) / 1000;
-  const when = state.tl.real ? `hour ${step}` : `after ${step} h`;
+  const when = state.tl.real ? `hour ${step} of the forecast` : `${step} h in`;
   $('tl-read').innerHTML =
-    `<b>${when}</b> &middot; ~${Math.round(cum)} mm &middot; ${on.length} roads &middot; ${km.toFixed(1)} km`;
+    `<b>~${Math.round(cum)} mm</b> fallen &middot; ${when} &middot; ${on.length} stretches &middot; ${km.toFixed(1)} km`;
   const ARTERIAL = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'];
+  const seen = new Set();               // a long road can have several stretches; list it once
   const worst = on.filter((f) => f.properties.name && ARTERIAL.includes(f.properties.highway))
     .sort((a, b) => b.properties.severity - a.properties.severity
       || a.properties.rain_to_flood_mm - b.properties.rain_to_flood_mm)
+    .filter((f) => !seen.has(f.properties.name) && seen.add(f.properties.name))
     .slice(0, 6);
   $('tl-roads').replaceChildren(...worst.map((f) => {
     const p = f.properties;
@@ -613,7 +650,6 @@ function stepTo(step) {
 }
 
 function wireTimeline() {
-  window.addEventListener('resize', positionTimelineFloat);
   $('tl-step').oninput = (e) => stepTo(Number(e.target.value));
   $('tl-duration').onchange = () => {
     state.tl.dur = Number($('tl-duration').value);
@@ -626,6 +662,83 @@ function wireTimeline() {
 
 /* The agent's read is optional and must never block the playback: the deterministic timeline above
    stands on its own. This adds region-specific, qualitative context, grounded in recent news. */
+/* ---- preparations within budget (F9) -------------------------------------------------------
+   The costed list is deterministic (the engine plus the city's own documented budget lines); the
+   planner note on top is the agent's, and even that may use no number the list does not already
+   contain. Preparation and planning only -- never dispatch or evacuation. */
+function inr(n) {
+  if (n == null) return '';
+  return '\u20b9' + Math.round(n).toLocaleString('en-IN');
+}
+
+async function loadPreparations(rainfallMm) {
+  const sec = $('prep');
+  sec.hidden = true;
+  if (!state.lastBbox || !state.region || state.region.preparations === false) return;
+  try {
+    const d = await fetch('/api/preparations', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bbox: state.lastBbox, region: state.region.name, rainfall_mm: rainfallMm }),
+    }).then((r) => { if (!r.ok) throw new Error('no prep'); return r.json(); });
+    if (!d.available || !d.items || !d.items.length) return;
+    renderPreparations(d);
+  } catch { /* the screening and the list stand without this */ }
+}
+
+function renderPreparations(d) {
+  $('prep').hidden = false;
+  const people = d.covers && d.covers.people_in_worst_spots;
+  $('prep-sub').innerHTML =
+    'A prioritised, costed list drawn from the city\u2019s own preparedness budget line'
+    + (people ? `, prioritising the worst spots \u2014 where a modelled <b>~${people.toLocaleString('en-IN')}</b> people are exposed.` : '.');
+
+  const used = d.budget_used_inr, total = d.budget_total_inr;
+  const pct = total ? Math.min(100, Math.max(2, Math.round((used / total) * 100))) : 0;
+  $('prep-budget').innerHTML =
+    `<div class="pb-row"><span><b>${inr(used)}</b> of ${inr(total)}</span>`
+    + `<span class="muted">${d.items.length} measure${d.items.length > 1 ? 's' : ''}`
+    + (d.spots_not_listed ? ` \u00b7 ${d.spots_not_listed} more below the cut` : '')
+    + `</span></div>`
+    + `<div class="pb-bar"><span style="width:${pct}%"></span></div>`
+    + (d.budget_line ? `<p class="muted tiny">${esc(d.budget_line)}</p>` : '');
+
+  $('prep-items').replaceChildren(...d.items.map((it) => {
+    const li = document.createElement('li');
+    li.innerHTML =
+      `<span class="rsev s${it.pooling_rank}"></span>`
+      + `<div class="pi-body"><b>${esc(it.measure)}</b>`
+      + `<div class="meta">${esc(it.where)} \u00b7 ${esc(it.when)}</div></div>`
+      + `<span class="pi-cost">${inr(it.cost_inr)}</span>`;
+    return li;
+  }));
+
+  const note = $('prep-note');
+  if (d.planner_note) {
+    note.hidden = false;
+    note.innerHTML = `<div class="ro-head">The planner\u2019s read <span class="tag-modelled">agent</span></div>`
+      + `<p>${esc(d.planner_note)}</p>`
+      + `<p class="muted tiny">Phrasing only. Every figure is from the list above; this adds no measurement.</p>`;
+  } else {
+    note.hidden = true;
+  }
+
+  const inf = $('prep-infeasible');
+  if (d.infeasible && d.infeasible.length) {
+    inf.hidden = false;
+    $('prep-infeasible-list').replaceChildren(...d.infeasible.map((x) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<b>${esc(x.measure)}</b><div class="meta">${esc(x.reason)}</div>`;
+      return li;
+    }));
+  } else {
+    inf.hidden = true;
+  }
+
+  $('prep-source').innerHTML =
+    (d.source ? `Budget basis: ${esc(d.source)}. ` : '')
+    + 'Preparation and planning only \u2014 never dispatch, evacuation or a live response plan.';
+}
+
 async function loadRoadOutlook(res) {
   const el = $('road-outlook');
   el.hidden = true;
@@ -761,35 +874,450 @@ function renderReplay(data) {
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-const CHIPS = [
-  'Which spots fill first here?',
-  'What if 90 mm falls in an hour?',
-  'How does this compare with the official map?',
-];
+/* ---- panel: tabs ---------------------------------------------------------------------------- */
 
-function wireAsk(enabled) {
-  state.agents = Boolean(enabled);
-  if (!state.agents) return;
-  $('askchips').innerHTML = CHIPS.map((c) => `<button type="button">${esc(c)}</button>`).join('');
-  $('askchips').querySelectorAll('button').forEach((b) => {
-    b.onclick = () => { $('question').value = b.textContent; askQuestion(); };
-  });
-  $('asksend').onclick = () => askQuestion();
-  $('question').addEventListener('keydown', (e) => { if (e.key === 'Enter') askQuestion(); });
+function setTab(name) {
+  state.tab = name;
+  for (const t of document.querySelectorAll('.tabs [role="tab"]')) {
+    const on = t.dataset.tab === name;
+    t.setAttribute('aria-selected', String(on));
+    t.tabIndex = on ? 0 : -1;
+    $(`pane-${t.dataset.tab}`).hidden = !on;
+  }
+  if (name === 'details') $('tab-details').querySelector('.dot').hidden = true;
+  if (name === 'agent') toBottom();
 }
 
-async function askQuestion() {
-  const q = $('question').value.trim();
-  if (!q || state.asking || state.busy || !state.lastBbox) return;
-  state.asking = true;
-  $('asksend').disabled = true;
-  $('trace').hidden = false;
-  $('trace').innerHTML = '';
-  $('briefing').hidden = true;
+function wireTabs() {
+  const tabs = [...document.querySelectorAll('.tabs [role="tab"]')];
+  tabs.forEach((t, i) => {
+    t.addEventListener('click', () => setTab(t.dataset.tab));
+    t.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+      next.focus();
+      setTab(next.dataset.tab);
+      e.preventDefault();
+    });
+  });
+}
+
+/* New results land in Details while you are reading the chat. A dot says so without stealing focus. */
+function notifyDetails() {
+  if (state.tab !== 'details') $('tab-details').querySelector('.dot').hidden = false;
+}
+
+/* ---- Rain tab: the forecast's hourly shape ---------------------------------------------------
+   The same hourly series the agent reads, drawn. Scaled to at least 2 mm/h so a drizzle does not
+   look like a storm, and labelled as a model forecast rather than a measurement. */
+
+function renderRainChart(f) {
+  const el = $('rainchart');
+  const hrs = f.hours || [];
+  if (!hrs.length) { el.hidden = true; return; }
+  const tz = state.region && state.region.timezone;
+  const fmt = (t, o) => {
+    try { return new Intl.DateTimeFormat([], { timeZone: tz || undefined, ...o }).format(new Date(t)); }
+    catch { return new Intl.DateTimeFormat([], o).format(new Date(t)); }
+  };
+  const max = Math.max(2, ...hrs.map((h) => h.mm));
+  const peak = hrs.reduce((a, b) => (b.mm > a.mm ? b : a));
+  const bars = hrs.map((h) => {
+    const pct = h.mm > 0 ? Math.max(4, (h.mm / max) * 100) : 1;
+    return `<span class="bar" style="height:${pct}%" title="${fmt(h.t, { weekday: 'short', hour: 'numeric', minute: '2-digit' })} · ${h.mm} mm"></span>`;
+  }).join('');
+  const day = { weekday: 'short', hour: 'numeric' };
+  el.innerHTML =
+    `<div class="rc-head"><b>Hourly rainfall, next ${hrs.length} h</b>`
+    + `<span class="muted tiny">scale 0–${+max.toFixed(1)} mm per hour</span></div>`
+    + `<div class="bars">${bars}</div>`
+    + `<div class="rc-axis"><span>${fmt(hrs[0].t, { hour: 'numeric' })}</span>`
+    + `<span>${fmt(hrs[Math.floor(hrs.length / 2)].t, day)}</span>`
+    + `<span>${fmt(hrs[hrs.length - 1].t, day)}</span></div>`
+    + `<div class="rc-foot muted tiny">${peak.mm > 0
+      ? `Wettest hour: ${peak.mm} mm, ${fmt(peak.t, day)}.` : 'No measurable rain forecast in this window.'} `
+    + `A model forecast, not a measurement${tz ? ` · times in ${esc(tz.split('/').pop().replace('_', ' '))}` : ''}.</div>`;
+  el.hidden = false;
+}
+
+function resetRain() {
+  state.forecast = null;
+  $('forecast').innerHTML =
+    '<p class="muted small">Draw a box or pick an area, and its live forecast appears here.</p>';
+  $('rainchart').hidden = true;
+  $('rainnow').hidden = true;
+}
+
+/* An erased or replaced area makes any in-flight answer stale, so stop it. */
+function clearedArea(hadArea) {
+  if (chat.abort) chat.abort.abort();
+  resetRain();
+  if (hadArea) chatNote('Area cleared — draw a new box to continue.');
+}
+
+/* ---- the agent: a chat -----------------------------------------------------------------------
+   A conversation, not a form. A question becomes a user bubble and an agent bubble. The agent
+   bubble shows the agents working (the trace), folds that to one line when they finish, and shows
+   the answer. Nothing about how answers are made changed: the engine computes, the models only
+   phrase, and a Verifier checks every figure. The trace stays one click away because it is the
+   proof of that. */
+
+const SUGGESTIONS = [
+  { q: 'Which spots fill first here?' },
+  { q: 'Which roads are hit first?' },
+  { q: 'Roughly how many people are exposed?', needs: 'people' },
+  { q: 'How does this compare with the official map?', needs: 'official' },
+];
+
+const ICON = {
+  drop: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c-5.33 4.55-8 8.48-8 11.8 0 4.98 3.8 8.2 8 8.2s8-3.22 8-8.2C20 10.48 17.33 6.55 12 2z"/></svg>',
+  send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>',
+  redo: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>',
+};
+
+// What each step hands over to, so the working line says what is happening now.
+const NEXT_STEP = {
+  'A2 Scenario': 'Pulling the live forecast…',
+  'A3 Forecast': 'Running the terrain engine…',
+  'A4 Engine (no model)': 'Writing the briefing…',
+  'A6 Narrator': 'Checking every figure…',
+  'A7 Verifier': 'Finishing…',
+};
+
+const chat = { busy: false, abort: null, run: 0 };
+
+const mk = (tag, cls, html) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (html != null) n.innerHTML = html;
+  return n;
+};
+const fmtMm = (n) => String(+Number(n).toFixed(1));
+const boxKm2 = ([w, s, e, n]) =>
+  Math.abs(e - w) * Math.abs(n - s) * 111.32 ** 2 * Math.cos((((s + n) / 2) * Math.PI) / 180);
+
+const nearBottom = () => {
+  const c = $('chat');
+  return c.scrollHeight - c.scrollTop - c.clientHeight < 140;
+};
+const toBottom = () => { const c = $('chat'); c.scrollTop = c.scrollHeight; };
+
+/* Append, and keep the newest message in view -- unless the reader has scrolled up to re-read. */
+function push(node) {
+  const stick = nearBottom();
+  $('chat').appendChild(node);
+  if (stick) toBottom();
+  return node;
+}
+
+function agentBubble() {
+  const m = mk('div', 'msg msg-agent',
+    `<div class="avatar" aria-hidden="true">${ICON.drop}</div><div class="bubble"></div>`);
+  return { m, b: m.querySelector('.bubble') };
+}
+
+function addUser(text) {
+  const m = mk('div', 'msg msg-user', '<div class="bubble"></div>');
+  m.querySelector('.bubble').textContent = text;       // never innerHTML: it is the user's text
+  push(m);
+}
+
+function chatNote(text) { push(mk('div', 'chat-note', `<span>${esc(text)}</span>`)); }
+
+function chooseArea(p) {
+  setTool('pan');
+  showRect(p.bbox);
+  predictBox(p.bbox, p.label);
+}
+
+function areaChips(region) {
+  const wrap = mk('div', 'chips');
+  for (const p of (region && region.presets) || []) {
+    const b = mk('button', 'chip');
+    b.type = 'button';
+    b.textContent = p.label;
+    b.onclick = () => chooseArea(p);
+    wrap.appendChild(b);
+  }
+  return wrap;
+}
+
+function chatReset() {
+  if (chat.abort) chat.abort.abort();
+  $('chat').replaceChildren();
+  const region = state.region;
+  const { m, b } = agentBubble();
+  if (state.agents) {
+    b.innerHTML =
+      `<p><b>Hi — I'm the flood-screening agent${region ? ' for ' + esc(region.title) : ''}.</b></p>`
+      + '<p>Draw a box on the map, or pick an area below. I predict from the <b>live rainfall '
+      + 'forecast</b> — where water collects, which roads are hit, who is exposed — and then '
+      + 'you can ask me anything about it.</p>';
+    b.appendChild(mk('div', 'chat-label', 'Start with an area'));
+    b.appendChild(areaChips(region));
+    b.appendChild(mk('p', 'muted tiny chat-fine',
+      'I never write a number myself: every figure comes from the engine and is checked before you see it.'));
+  } else {
+    b.innerHTML =
+      '<p><b>The agent is not switched on for this deployment.</b></p>'
+      + '<p class="muted small">The screening itself still works: pick an area and read the result in '
+      + 'the Details tab.</p>';
+    b.appendChild(areaChips(region));
+  }
+  push(m);
+}
+
+/* ---- one agent turn -------------------------------------------------------------------------- */
+
+function startTurn(question, opts) {
+  // Only the newest answer offers follow-ups, or the chat fills with stale buttons.
+  document.querySelectorAll('#chat .followups, #chat .whatif-inline').forEach((n) => n.remove());
+  const { m, b } = agentBubble();
+  b.innerHTML =
+    '<details class="work" open><summary><span class="spin"></span>'
+    + '<span class="work-label">Reading your question…</span></summary><ol class="trace"></ol></details>'
+    + '<div class="answer" hidden></div>';
+  if (opts.replace && opts.replace.isConnected) opts.replace.replaceWith(m);
+  else push(m);
+  return {
+    m, question, auto: Boolean(opts.auto), finished: false, steps: 0, ms: 0, text: '',
+    work: b.querySelector('.work'), label: b.querySelector('.work-label'),
+    trace: b.querySelector('.trace'), answer: b.querySelector('.answer'),
+  };
+}
+
+function addTraceRow(turn, step) {
+  turn.steps += 1;
+  turn.ms += step.ms || 0;
+  const li = document.createElement('li');
+  li.className = `step ${String(step.status).replace(/\s+/g, '-')}`;
+  const ms = step.ms ? `${(step.ms / 1000).toFixed(1)} s` : '';
+  li.innerHTML = `<div class="head"><strong>${esc(step.agent)}</strong>
+      <span class="pill">${esc(step.status)}</span><span class="ms">${ms}</span></div>
+    ${step.note ? `<div class="note">${esc(step.note)}</div>` : ''}`;
+  turn.trace.appendChild(li);
+  if (step.status === 'sent back') turn.label.textContent = 'The checker sent a claim back — rewriting…';
+  else if (NEXT_STEP[step.agent] && !['failed', 'withheld', 'rejected'].includes(step.status)) {
+    turn.label.textContent = NEXT_STEP[step.agent];
+  }
+  if (nearBottom()) toBottom();
+}
+
+function settle(turn, label, cls) {
+  turn.finished = true;
+  turn.work.classList.add('done');
+  if (cls) turn.work.classList.add(cls);
+  turn.label.textContent = label;
+}
+
+function retryButton(turn) {
+  const b = mk('button', 'linkbtn', 'Try again');
+  b.type = 'button';
+  b.onclick = () => sendQuestion(turn.question, { auto: turn.auto, replace: turn.m });
+  return b;
+}
+
+function errorTurn(turn, message) {
+  if (turn.finished) return;
+  settle(turn, 'Something went wrong', 'failed');
+  turn.work.open = true;
+  turn.answer.hidden = false;
+  turn.answer.replaceChildren(mk('p', 'a-error', esc(message || 'The agent could not answer that.')), retryButton(turn));
+}
+
+function stopTurn(turn) {
+  if (turn.finished) return;
+  settle(turn, 'Stopped', 'stopped');
+  turn.answer.hidden = false;
+  turn.answer.replaceChildren(mk('p', 'muted small', 'Stopped before an answer was written.'), retryButton(turn));
+}
+
+/* Facts shown as chips come straight from the engine's output, not from anything a model wrote. */
+function factChips(ev) {
+  const sc = ev.scenario || {};
+  const r = ev.result || {};
+  const out = [];
+  if (sc.rainfall_mm != null) {
+    out.push(`<b>${sc.mode === 'forecast' ? 'Live forecast' : 'What-if'}</b> · ${fmtMm(sc.rainfall_mm)} mm`
+      + (sc.duration_h ? ` over ${Math.round(sc.duration_h)} h` : ''));
+  }
+  const n = r.screening && r.screening.depressions ? r.screening.depressions.length : null;
+  if (n != null) out.push(`<b>${n.toLocaleString()}</b> ${n === 1 ? 'place collects' : 'places collect'} water`);
+  const ex = r.exposure;
+  if (ex && ex.available && ex.people_in_worst_spots) {
+    out.push(`~<b>${ex.people_in_worst_spots.toLocaleString()}</b> people in the worst spots`);
+  }
+  return out;
+}
+
+function renderAnswer(turn, ev) {
+  const a = turn.answer;
+  a.hidden = false;
+  a.replaceChildren();
+  const b = ev.briefing;
+  if (b) {
+    a.insertAdjacentHTML('beforeend',
+      `<p class="a-head">${esc(b.headline)}</p>`
+      + (b.bullets && b.bullets.length
+        ? `<ul class="a-bullets">${b.bullets.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '')
+      + (b.caveat ? `<p class="a-caveat">${esc(b.caveat)}</p>` : ''));
+    turn.text = [b.headline, ...(b.bullets || []).map((x) => `• ${x}`), b.caveat].filter(Boolean).join('\n');
+  } else {
+    a.insertAdjacentHTML('beforeend',
+      `<p class="a-withheld">${esc(ev.withheld || 'No briefing was produced.')}</p>`
+      + '<p class="muted small">The screening itself is unaffected — it is computed, not written. '
+      + 'See the map and the Details tab.</p>');
+  }
+  if ((ev.removed || []).length) {
+    a.insertAdjacentHTML('beforeend',
+      `<details class="a-removed"><summary>${ev.removed.length} claim(s) removed by the checking agent</summary><ul>`
+      + ev.removed.map((r) => `<li><span class="rule">${esc(r.rule || 'unsupported')}</span> ${esc(r.problem)}
+          <div class="cut">&ldquo;${esc(r.text)}&rdquo;</div></li>`).join('')
+      + '</ul></details>');
+  }
+  const facts = factChips(ev);
+  if (facts.length) a.appendChild(mk('div', 'facts', facts.map((f) => `<span class="fact">${f}</span>`).join('')));
+
+  const acts = mk('div', 'a-actions');
+  if (turn.text) {
+    const c = mk('button', 'icon-btn', ICON.copy);
+    c.type = 'button'; c.title = 'Copy'; c.setAttribute('aria-label', 'Copy the answer');
+    c.onclick = () => {
+      navigator.clipboard.writeText(turn.text).then(() => {
+        c.title = 'Copied';
+        setTimeout(() => { c.title = 'Copy'; }, 1500);
+      }).catch(() => {});
+    };
+    acts.appendChild(c);
+  }
+  const r = mk('button', 'icon-btn', ICON.redo);
+  r.type = 'button'; r.title = 'Ask again'; r.setAttribute('aria-label', 'Ask again');
+  r.onclick = () => sendQuestion(turn.question, { auto: turn.auto, replace: turn.m });
+  acts.appendChild(r);
+  const d = mk('button', 'linkbtn', 'Open details →');
+  d.type = 'button';
+  d.onclick = () => setTab('details');
+  acts.appendChild(d);
+  a.appendChild(acts);
+}
+
+function addFollowups(turn, ev) {
+  const sc = ev.scenario || {};
+  const hasOfficial = Boolean(state.region && state.region.official
+    && (state.region.official.return_periods || []).length);
+  const hasPeople = Boolean(ev.result && ev.result.exposure && ev.result.exposure.available);
+  const box = mk('div', 'followups');
+  SUGGESTIONS
+    .filter((s) => s.q !== turn.question && (s.needs !== 'official' || hasOfficial)
+      && (s.needs !== 'people' || hasPeople))
+    .slice(0, 3)
+    .forEach((s) => {
+      const c = mk('button', 'chip');
+      c.type = 'button';
+      c.textContent = s.q;
+      c.onclick = () => sendQuestion(s.q);
+      box.appendChild(c);
+    });
+  const w = mk('button', 'chip chip-alt', 'What if it rains more?');
+  w.type = 'button';
+  w.onclick = () => toggleWhatIf(turn, sc);
+  box.appendChild(w);
+  turn.answer.appendChild(box);
+}
+
+/* The agent offers the slider: a hypothesis, run through the same agents, so the answer to "what if
+   it is worse than forecast" is a written, checked briefing and not just a recoloured map. */
+function toggleWhatIf(turn, sc) {
+  const existing = turn.answer.querySelector('.whatif-inline');
+  if (existing) { existing.remove(); return; }
+  const hours = Math.max(1, Math.round(sc.duration_h || 3));
+  const w = mk('div', 'whatif-inline',
+    '<label>A heavier storm <output>100 mm</output></label>'
+    + '<input type="range" min="10" max="300" step="10" value="100" aria-label="Rainfall in millimetres">'
+    + `<div class="wi-row"><span class="muted tiny">over ${hours} h · asks the agent for a checked briefing</span>`
+    + '<button type="button" class="btn-sm">Run</button></div>');
+  const range = w.querySelector('input');
+  range.oninput = () => { w.querySelector('output').textContent = `${range.value} mm`; };
+  w.querySelector('button').onclick = () =>
+    sendQuestion(`What if ${range.value} mm of rain falls in ${hours} hours here?`);
+  turn.answer.appendChild(w);
+  if (nearBottom()) toBottom();
+}
+
+function finishTurn(turn, ev) {
+  const removed = (ev.removed || []).length;
+  settle(turn, ev.briefing
+    ? `Checked by the verifier · ${turn.steps} steps · ${(turn.ms / 1000).toFixed(1)} s`
+      + (removed ? ` · ${removed} claim${removed > 1 ? 's' : ''} removed` : '')
+    : 'Briefing withheld');
+  turn.work.open = false;
+  const stick = nearBottom();
+  renderAnswer(turn, ev);
+  addFollowups(turn, ev);
+  const c = $('chat');
+  if (turn.m.offsetHeight > c.clientHeight) turn.m.scrollIntoView({ block: 'start' });
+  else if (stick) toBottom();
+}
+
+function onAskEvent(turn, ev) {
+  if (ev.event === 'step') addTraceRow(turn, ev);
+  else if (ev.event === 'error') errorTurn(turn, ev.detail);
+  else if (ev.event === 'done') {
+    // The agent settled a rainfall and a window (from the live forecast, or the figure in the
+    // question). The map, the result list and the road playback follow that, not the slider.
+    if (ev.result) {
+      const sc = ev.scenario || {};
+      const driver = { total: sc.rainfall_mm ?? Number($('rain').value),
+                       dur: sc.duration_h || 6,
+                       profile: ev.rain_profile || null };   // the live forecast's hourly shape
+      try { render(ev.result, driver); notifyDetails(); } catch (err) { setStatus(`Could not draw the result: ${err.message}`, true); }
+    }
+    finishTurn(turn, ev);
+  }
+}
+
+/* ---- sending --------------------------------------------------------------------------------- */
+
+function setComposerBusy(busy) {
+  const btn = $('asksend');
+  btn.classList.toggle('stop', busy);
+  btn.innerHTML = busy ? ICON.stop : ICON.send;
+  btn.title = busy ? 'Stop' : 'Send (Enter)';
+  btn.setAttribute('aria-label', busy ? 'Stop' : 'Send');
+}
+
+async function sendQuestion(q, opts = {}) {
+  q = (q || '').trim();
+  if (!q) return;
+  if (!state.agents) { chatNote('The agent is not switched on for this deployment.'); return; }
+  // A new area replaces whatever was running for the old one; anything else waits its turn.
+  if (chat.busy) {
+    if (!opts.auto) return;
+    chat.abort.abort();
+  }
+  if (!state.lastBbox) {
+    if (!opts.auto) addUser(q);
+    const { m, b } = agentBubble();
+    b.innerHTML = '<p>I answer about a specific place, so I need an area first.</p>'
+      + '<p class="muted small">Draw a box on the map (the Box tool, or press B), or pick one:</p>';
+    b.appendChild(areaChips(state.region));
+    push(m);
+    return;
+  }
+  if (!opts.auto && !opts.replace) addUser(q);
+  const turn = startTurn(q, opts);
+  const ctl = new AbortController();
+  const run = ++chat.run;
+  chat.abort = ctl;
+  chat.busy = true;
+  setComposerBusy(true);
   try {
     const res = await fetch('/api/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: ctl.signal,
       body: JSON.stringify({
         question: q, bbox: state.lastBbox, region: state.region.name,
         rainfall_mm: Number($('rain').value),
@@ -811,65 +1339,53 @@ async function askQuestion() {
       while ((cut = buf.indexOf('\n')) >= 0) {
         const line = buf.slice(0, cut).trim();
         buf = buf.slice(cut + 1);
-        if (line) onAskEvent(JSON.parse(line));
+        if (line) onAskEvent(turn, JSON.parse(line));
       }
     }
+    if (!turn.finished) errorTurn(turn, 'The answer ended before it was finished.');
   } catch (err) {
-    addTraceRow({ agent: 'Coordinator', status: 'failed', ms: 0, note: err.message });
+    if (err.name === 'AbortError') stopTurn(turn);
+    else errorTurn(turn, err.message);
   } finally {
-    state.asking = false;
-    $('asksend').disabled = false;
-  }
-}
-
-function onAskEvent(ev) {
-  if (ev.event === 'step') addTraceRow(ev);
-  else if (ev.event === 'error') addTraceRow({ agent: 'Coordinator', status: 'failed', ms: 0, note: ev.detail });
-  else if (ev.event === 'done') {
-    // The agent settled a rainfall and a window (from the live forecast, or the figure in the
-    // question). The map, the result list and the road playback all follow that, not the slider.
-    if (ev.result) {
-      const sc = ev.scenario || {};
-      const driver = { total: sc.rainfall_mm ?? Number($('rain').value),
-                       dur: sc.duration_h || 6,
-                       profile: ev.rain_profile || null };   // the live forecast's hourly shape
-      render(ev.result, driver);
+    if (chat.run === run) {          // a newer run owns the composer now
+      chat.busy = false;
+      chat.abort = null;
+      setComposerBusy(false);
     }
-    renderBriefing(ev);
   }
 }
 
-function addTraceRow(step) {
-  const li = document.createElement('li');
-  li.className = `step ${String(step.status).replace(/\s+/g, '-')}`;
-  const ms = step.ms ? `${(step.ms / 1000).toFixed(1)} s` : '';
-  li.innerHTML = `<div class="head"><strong>${esc(step.agent)}</strong>
-      <span class="pill">${esc(step.status)}</span><span class="ms">${ms}</span></div>
-    ${step.note ? `<div class="note">${esc(step.note)}</div>` : ''}`;
-  $('trace').appendChild(li);
+function growComposer() {
+  const t = $('question');
+  t.style.height = 'auto';
+  t.style.height = `${Math.min(140, t.scrollHeight)}px`;
 }
 
-function renderBriefing(ev) {
-  const el = $('briefing');
-  el.hidden = false;
-  if (!ev.briefing) {
-    el.innerHTML = `<p class="withheld">${esc(ev.withheld || 'No briefing was produced.')}</p>
-      <p class="muted small">The screening below is unaffected: it is computed, not written.</p>`;
-    return;
+function wireAsk(enabled) {
+  state.agents = Boolean(enabled);
+  const form = $('composer');
+  const box = $('question');
+  setComposerBusy(false);
+  if (!state.agents) {
+    box.disabled = true;
+    $('asksend').disabled = true;
+    box.placeholder = 'The agent is not switched on for this deployment';
   }
-  const b = ev.briefing;
-  const removed = (ev.removed || []).map((r) =>
-    `<li><span class="rule">${esc(r.rule || 'unsupported')}</span> ${esc(r.problem)}
-       <div class="cut">&ldquo;${esc(r.text)}&rdquo;</div></li>`).join('');
-  el.innerHTML = `
-    <p class="headline">${esc(b.headline)}</p>
-    <ul class="bullets">${b.bullets.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
-    <p class="caveat">${esc(b.caveat)}</p>
-    ${removed ? `<details class="removed" open><summary>${ev.removed.length} claim(s) removed by
-      the checking agent</summary><ul>${removed}</ul></details>` : ''}
-    <p class="muted small">Every figure above was matched against the engine's own output before
-      this was shown. Nothing here was written by the engine, and no figure here was written by a
-      model.</p>`;
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (chat.busy) { chat.abort.abort(); return; }          // the send button is Stop while running
+    const q = box.value;
+    box.value = '';
+    growComposer();
+    sendQuestion(q);
+  });
+  box.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+    e.preventDefault();
+    if (!chat.busy) form.requestSubmit();                   // Enter never stops a running answer
+  });
+  box.addEventListener('input', growComposer);
+  $('chat-new').onclick = () => chatReset();
 }
 
 function render(res, driver) {
@@ -939,6 +1455,7 @@ function render(res, driver) {
 
   renderPeople(res.exposure);
   renderTimeline(res, driver);
+  loadPreparations(driver ? Math.round(driver.total) : Number($('rain').value));
   renderOfficial(res);
 
   const roads = $('roads');
@@ -1031,11 +1548,23 @@ function zoomTo(id) {
 }
 
 $('rain').addEventListener('input', (e) => {
-  state.rainMode = 'whatif';                       // dragging the slider is a what-if again
+  state.whatif = true;                             // dragging the slider is a what-if
   $('rainout').textContent = `${e.target.value} mm`;
-  renderForecast();
 });
-$('rain').addEventListener('change', () => { if (state.lastBbox) analyse(state.lastBbox); });
+$('rain').addEventListener('change', (e) => {
+  state.whatif = true;
+  if (!state.lastBbox) return;
+  chatNote(`What-if override \u00b7 ${e.target.value} mm \u00b7 map updated`);
+  analyse(state.lastBbox);
+});
+$('rain-reset').addEventListener('click', () => {
+  state.whatif = false;
+  seedWhatIf();
+  if (!state.lastBbox) return;
+  chatNote('Back to the live forecast');
+  if (state.agents) sendQuestion(DEFAULT_PREDICT_Q, { auto: true });
+  else analyse(state.lastBbox);
+});
 
 window.addEventListener('error', (ev) => {
   setStatus(`Something broke: ${ev.message}`, true);

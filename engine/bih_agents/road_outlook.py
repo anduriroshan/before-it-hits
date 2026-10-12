@@ -38,9 +38,13 @@ def summarise(result: dict, *, rainfall_mm: float, duration_h: float, region_tit
     """The deterministic findings the outlook is allowed to lean on - counts and names, no depths."""
     feats = [f["properties"] for f in result.get("roads_timeline", {}).get("features", [])]
     arterial = {"motorway", "trunk", "primary", "secondary", "tertiary"}
-    worst = sorted(
-        (p for p in feats if p.get("name") and p["highway"] in arterial),
-        key=lambda p: (-p["severity"], p["rain_to_flood_mm"]))[:6]
+    worst, seen = [], set()           # a long road has several stretches; name it once, at its worst
+    for p in sorted((p for p in feats if p.get("name") and p["highway"] in arterial),
+                    key=lambda p: (-p["severity"], p["rain_to_flood_mm"])):
+        if p["name"] not in seen:
+            seen.add(p["name"])
+            worst.append(p)
+    worst = worst[:6]
     half = rainfall_mm / 2.0
     return {
         "city": region_title,

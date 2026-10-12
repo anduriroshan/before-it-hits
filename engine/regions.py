@@ -21,6 +21,7 @@ REGIONS: dict[str, dict] = {
             "hazard rasters by return period, which is what the validated tier is checked against."
         ),
         "official": "ksdma",
+        "timezone": "Asia/Kolkata",
         # Disambiguates from Kochi/Kochi, Japan in the global news index — "Kerala" as an AND term.
         "news_query": '(Kochi OR Ernakulam) Kerala (flood OR flooding OR waterlogging OR rain)',
         # For F7 exposure: a published population and the total mapped building footprint it is
@@ -56,6 +57,26 @@ REGIONS: dict[str, dict] = {
             "every run, now visible rather than theoretical."
         ),
         "official": None,  # no public depth-valued hazard raster found; the UI must say so
+        "timezone": "Asia/Singapore",
+        # Singapore is unambiguous in the global news index, so no disambiguating AND term is needed.
+        "news_query": 'Singapore (flood OR flooding OR "flash flood" OR "heavy rain" OR ponding OR waterlogging)',
+        # A live, keyless rain-gauge network — ~90 NEA gauges at 5-minute cadence (data.gov.sg).
+        # No other staged city has an open feed like this; surfaced as observed rain, not forecast.
+        "live_rainfall": {"source": "nea_sg", "label": "NEA rain gauges (data.gov.sg)",
+                          "cadence": "5-minute totals"},
+        # For F7 exposure. OSM building coverage in Singapore is near-complete (unlike an Indian
+        # city), so the self-consistency ratio is unusually strong here: footprint stands in well
+        # for where people are. `built_footprint_m2` is measured from the staged buildings.fgb
+        # (158,230 footprints, summed in EPSG:32648 / UTM 48N).
+        "population": {
+            "people": 5917648,
+            "extent": "Singapore, total population mid-2023 (SingStat)",
+            "source": "https://www.singstat.gov.sg/ (Singapore total population, mid-2023)",
+            "built_footprint_m2": 95911957,
+            "note": "Total population spread across near-complete OSM footprints. The staged box "
+                    "includes a thin strip of Johor across the strait, which slightly dilutes the "
+                    "ratio - a conservative bias. An order of magnitude for who is exposed, by area.",
+        },
         # Places with a documented flash-flood history.
         "presets": [
             {"label": "Orchard Road", "bbox": [103.825, 1.295, 103.845, 1.312]},

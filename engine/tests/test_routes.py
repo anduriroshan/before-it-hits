@@ -65,18 +65,33 @@ def test_a_road_floods_at_the_least_rain_of_the_spots_it_crosses():
     assert rows[0]["rain_to_flood_mm"] == 12.0 and rows[0]["severity"] == 5
 
 
-def test_two_spots_on_one_road_give_the_earliest_threshold_and_worst_severity():
-    import numpy as np
-    from pyproj import Transformer
+def _spot(tr, lon, lat, half):
     from shapely.geometry import box
+    x, y = tr.transform(lon, lat)
+    return box(x - half, y - half, x + half, y + half)
+
+
+def test_two_spots_on_one_road_are_two_stretches_each_with_its_own_threshold():
+    from pyproj import Transformer
     from bih_engine.routes import road_flood_thresholds
     tr = Transformer.from_crs(4326, 32643, always_xy=True)
     g = build_graph(roads_at(("Long Rd", 76.300, 10.000, 76.320, 10.000)), CRS_M)
-    a = box(*(lambda x, y: (x - 50, y - 50, x + 50, y + 50))(*tr.transform(76.305, 10.000)))
-    b = box(*(lambda x, y: (x - 50, y - 50, x + 50, y + 50))(*tr.transform(76.315, 10.000)))
+    a = _spot(tr, 76.305, 10.000, 50)
+    b = _spot(tr, 76.315, 10.000, 50)
     rows = road_flood_thresholds(g, [(a, 40.0, 2), (b, 9.0, 5)])
-    assert rows[0]["rain_to_flood_mm"] == 9.0    # the earlier of the two to fill
-    assert rows[0]["severity"] == 5              # the worse of the two spots
+    assert [(r["rain_to_flood_mm"], r["severity"]) for r in rows] == [(9.0, 5), (40.0, 2)]
+
+
+def test_a_long_road_is_marked_only_where_it_runs_through_the_spot():
+    from pyproj import Transformer
+    from bih_engine.routes import CLIP_MARGIN_M, road_flood_thresholds
+    tr = Transformer.from_crs(4326, 32643, always_xy=True)
+    # About 2.2 km of road, with a spot 100 m wide in the middle of it.
+    g = build_graph(roads_at(("Long Rd", 76.300, 10.000, 76.320, 10.000)), CRS_M)
+    whole = next(iter(g.edges(data=True)))[2]["length_m"]
+    [row] = road_flood_thresholds(g, [(_spot(tr, 76.310, 10.000, 50), 12.0, 5)])
+    assert row["length_m"] < 100 + 2 * CLIP_MARGIN_M + 1      # the spot plus its margin
+    assert row["length_m"] < whole / 10                        # nowhere near the whole road
 
 
 def test_a_bridge_over_a_spot_is_not_counted_as_flooded():
