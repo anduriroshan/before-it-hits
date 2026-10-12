@@ -270,6 +270,12 @@ def analyse_area(
     res["grid"]["source"] = grid.meta["source"]
     res["grid"]["despiked_px"] = grid.meta["despiked_px"]
     res["grid"]["capped_px"] = grid.meta["capped_px"]
+    if region is not None and data is not None and region.manifest.get("population"):
+        from . import exposure
+        t0 = time.perf_counter()
+        res["exposure"] = exposure.estimate(res["geojson"]["features"], data.buildings,
+                                             grid.crs, region.manifest["population"])
+        res["timings_s"]["exposure_s"] = time.perf_counter() - t0
     if region is not None and return_period is not None:
         t0 = time.perf_counter()
         official = read_official(region, bbox, return_period)

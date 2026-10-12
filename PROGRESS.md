@@ -3,10 +3,10 @@
 Submission **18 Oct 2026**. Started tracking 11 Oct (day 1 of 8). Spec lives in `plan/` (content in `plan/assets/data.js`).
 Tick a box when the work lands and has been run, not when it is started. Plan IDs: **F** feature, **L** layer, **A** agent.
 
-**Now:** two cities live at https://before-it-hits-z5r5gsxkza-el.a.run.app, and the agent layer answers questions about a drawn box with every figure checked against the engine. **Next: F15 replay scoring (P7)** — the strongest remaining evidence claim, and the one thing that needs historical rainfall.
+**Now:** two cities live at https://before-it-hits-z5r5gsxkza-el.a.run.app, and the agent layer answers questions about a drawn box with every figure checked against the engine. **Next: F8 what-gets-cut-off (routes isolated by pooling), or the preparation/budget layer (P4).** F7 exposure and A13 News are done; the left panel is decluttered.
 
 **Submission:** live demo + repo link (confirmed 11 Oct). So the deployed URL must stay working — it runs with `--min-instances 1` because a cold start is ~8 s against ~0.8 s warm.
-**Last updated:** 12 Oct 2026 (day 2)
+**Last updated:** 12 Oct 2026 (day 2, night)
 
 ## P0 Foundations
 - [x] Plan written and revised (`plan/`)
@@ -66,8 +66,8 @@ Tick a box when the work lands and has been run, not when it is started. Plan ID
 - [ ] Singapore is the sharpest test of our largest known bias: it has world-class drainage and we have no drainage data, so pooling should be overstated there more than anywhere. Worth measuring rather than asserting
 
 ## P3 People, routes, heat (F7, F8, F6)
-- [ ] Modelled population from WorldPop and census totals, with the 74 to 76 ward crosswalk (F7)
-- [ ] Critical places from OSM and Places (L13)
+- [x] F7 exposure: roughly how many people are in the worst spots, modelled by spreading the published city population across mapped building footprints by area - `people in the worst spots = city population x (footprint in those spots / all city footprint)`. The ratio is self-consistent, so uniform OSM under-mapping cancels. By area, never per building; no floors (footprint stands in for floor area); rounded to 2 sig figs with the caveats attached every run. Palarivattom ~270 in the worst spots of ~39,000 in the box. `engine/bih_engine/exposure.py`, 6 tests. Kochi only (Singapore has no staged buildings -> honest 'not available')
+- [ ] Critical places from OSM and Places (L13) - hospitals, schools near the worst spots
 - [ ] Routes through pooling spots, and areas left with no clear route (F8)
 - [ ] Heat by area from Landsat (F6): timebox it, first thing to cut
 
@@ -89,7 +89,7 @@ Tick a box when the work lands and has been run, not when it is started. Plan ID
 - [x] `nearest_road` filled in at last (it was `None` since P1): spots are named by the road they sit on, within 120 m and named roads only. 87% of spots named in Palarivattom, 48% in Vyttila. "The low point beside Pipeline Road" instead of `d_28`
 - [x] 95 tests. The agent tests stub both models out: what is worth testing is the part that holds when the model is wrong
 - [ ] Planner (A5): needs P4 capabilities first
-- [ ] News (A13): GDELT stored path; grounded panel display-only and never stored
+- [x] News (A13): live GDELT headlines for the city, de-duplicated, with an optional model-written grounded digest. **Display-only by contract** - never stored, never scored, changes no number; loaded lazily only when the panel is opened (GDELT rate-limits hard). Prompt-injection resistant (ignored a planted 'SYSTEM COMPROMISED' headline). `engine/bih_agents/news.py`, 7 tests. The stored/scored GDELT path stays future work
 - [ ] Firestore for runs and traces (never grounded output). Runs are currently not persisted at all
 - [ ] Follow-ups that change the existing scenario ("what about twice the rain?") — each question is independent today
 - [ ] Malayalam briefing. The honest order is verify the English, translate, then re-check the figures in the translation
@@ -105,10 +105,13 @@ Tick a box when the work lands and has been run, not when it is started. Plan ID
 - [x] Ask box, streamed agent trace and the briefing in the panel. Removed claims are shown with the rule that removed them, not hidden
 - [ ] Malayalam area messages (drafts, never sent)
 - [x] Resolution caveat and per-layer confidence rendered on every selection (F12)
-- [ ] News panel
+- [x] Left panel decluttered: primary answer (spots, people, official) stays open; roads, left-out, caveats, replay and news fold into consistent collapsible blocks
+- [x] News panel (collapsible, lazy-loaded, display-only)
 
 ## P7 Prove it (F15, F16)
-- [ ] Replay 28 May 2024: score top-ranked spots against named flooded localities and against the KSDMA raster
+- [x] Replay 28 May 2024 (F15): the IMD-confirmed Kalamassery cloudburst, ~100 mm in 1 h, scored against the neighbourhoods newspapers reported underwater — a second ground truth independent of KSDMA. Scored the same way as the KSDMA test (top-ranked spot that fills = a flag; baseline = share of area flagged). **Honest result: 6/8 localities flagged but a flag covers 90% of the area → enrichment 0.83×, NOT discriminating.** 100 mm in 1 h floods most of low-lying central Kochi, so point-detection separates nothing — the same saturation the KSDMA 500-yr layer hits. Surfaced an expected miss: Vyttila (tidal/drainage flood, outside a rain-ponding model's claims). Precomputed by `engine/tools/replay_kochi.py`, shipped as JSON, shown in the app. Localities are sourced and individually cited in `replay/kochi_2024_05_28.json`
+- [ ] The replay's negative is a bound, not a dead end: at a moderate what-if rainfall the screening is selective again (that is the KSDMA 1.25-3.26x result). A fairer future replay would use a lower-return-period past event where the city did not flood wall-to-wall
+- [x] Replay scoring built and reported honestly (above); its baseline/discriminating gate matches the KSDMA test so the two evidence claims are directly comparable
 - [ ] Seeded synthetic city and world agents (A14); 20 scenarios; detection rate, false alarms, success index
 - [ ] Report simulated and real scores separately, never averaged
 

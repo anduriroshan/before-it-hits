@@ -210,6 +210,16 @@ def build(result: dict, *, question: str, rainfall: dict, region_title: str | No
                     "case nearly everywhere.",
         }
 
+    exposure = result.get("exposure")
+    if exposure and exposure.get("available"):
+        bundle["people"] = {
+            "roughly_in_the_worst_spots": exposure["people_in_worst_spots"],
+            "roughly_in_the_whole_box": exposure["people_in_box"],
+            "note": "A modelled distribution - the city's published population spread across "
+                    "building footprints by area, then summed inside the worst spots. Rough and "
+                    "by area only; never a claim about any one building or home.",
+        }
+
     agreement = result.get("agreement")
     if agreement:
         bundle["agreement"] = {

@@ -14,29 +14,31 @@
   </header>
 
   <section class="controls">
-    <label for="region">City</label>
-    <select id="region"></select>
+    <div class="field">
+      <label for="region">City</label>
+      <select id="region"></select>
+    </div>
     <p class="note" id="regionnote"></p>
 
-    <label for="rain">Rainfall
-      <output id="rainout">100 mm</output>
-    </label>
-    <input type="range" id="rain" min="0" max="300" step="5" value="100">
+    <div class="field">
+      <label for="rain">Rainfall <output id="rainout">100 mm</output></label>
+      <input type="range" id="rain" min="0" max="300" step="5" value="100">
+    </div>
     <div id="forecast" class="forecast"></div>
 
-    <label for="rp">Official layer
-      <output id="rpout">1-in-50-year</output>
-    </label>
-    <select id="rp">
-      <option value="">none — screening only</option>
-    </select>
+    <div class="field">
+      <label for="rp">Official layer <output id="rpout">1-in-50-year</output></label>
+      <select id="rp">
+        <option value="">none — screening only</option>
+      </select>
+    </div>
 
     <p class="hint" id="hint">Pick the box tool, or jump to a known area.</p>
     <div class="presets" id="presets"></div>
   </section>
 
   <section id="ask" hidden>
-    <label for="question">Ask about this box</label>
+    <label class="seclabel" for="question">Ask about this box</label>
     <div class="askrow">
       <input id="question" type="text" maxlength="500" autocomplete="off"
              placeholder="What if 90 mm falls in an hour here?">
@@ -52,31 +54,47 @@
   <section id="results" hidden>
     <div class="headline">
       <strong id="pitcount"></strong> <span id="pitword">places collect water</span>
-      <div class="muted" id="gridline"></div>
+      <div class="muted small" id="gridline"></div>
     </div>
 
     <h2>Where it gathers first</h2>
     <p class="muted small">Ranked by how much water ends up stuck there, not by depth.</p>
     <ol id="spots"></ol>
 
+    <div id="people" class="people" hidden></div>
+
     <section id="official-wrap" hidden>
       <h2>The authority&rsquo;s own depth map</h2>
       <div id="official"></div>
     </section>
 
-    <h2>Roads running through the worst spots</h2>
-    <ul id="roads"></ul>
+    <details class="block">
+      <summary>Roads through the worst spots</summary>
+      <ul id="roads"></ul>
+    </details>
 
-    <section id="excluded-wrap" hidden>
-      <h2>Left out</h2>
+    <details id="excluded-wrap" class="block" hidden>
+      <summary>Left out of the ranking</summary>
       <ul id="excluded"></ul>
-    </section>
+    </details>
 
-    <h2>What we do not know</h2>
-    <ul id="caveats" class="caveats"></ul>
+    <details class="block" open>
+      <summary>What we do not know</summary>
+      <ul id="caveats" class="caveats"></ul>
+    </details>
 
-    <p class="muted small" id="timings"></p>
+    <p class="muted tiny" id="timings"></p>
   </section>
+
+  <details id="replay" class="section-collapse" hidden>
+    <summary>Checked against a real storm</summary>
+    <div id="replay-body"></div>
+  </details>
+
+  <details id="news" class="section-collapse" hidden>
+    <summary>In the news now</summary>
+    <div id="news-body"><p class="muted small">Open to load live reports for this city.</p></div>
+  </details>
 
   <footer>
     <p class="small muted" id="credits"></p>

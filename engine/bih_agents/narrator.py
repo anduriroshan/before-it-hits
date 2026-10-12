@@ -46,6 +46,8 @@ Hard rules, each of which is checked afterwards by a separate agent:
    "most of the area".
 6. Everything you have describes one box drawn on the map, not the city it sits in. Write "in this
    box" or "in this area". Never write "across Kochi" or "in Singapore" about these findings.
+6b. Any population figure is a rough modelled estimate - say "roughly" or "about", keep it by
+   area, and never attach a number of people to a single building or home.
 7. Give the unit with every figure you take from the "official" block. If "units_are_inferred"
    is true there, say once - in one short clause, not after every figure - that the authority
    never stated the unit and it is inferred.

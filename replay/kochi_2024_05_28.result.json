@@ -1,0 +1,216 @@
+{
+ "event": {
+  "id": "kochi_2024_05_28",
+  "region": "kochi",
+  "title": "Kochi cloudburst, 28 May 2024",
+  "what_happened": "A short, intense downpour the IMD later confirmed as a cloudburst over Kalamassery flooded parts of Kochi during the morning of 28 May 2024. Rain water entered over 200 houses near Kalamassery and a city IT park, markets and several low-lying neighbourhoods were waterlogged."
+ },
+ "rainfall": {
+  "mm": 100.0,
+  "duration_h": 1.0,
+  "basis": "IMD automatic weather station at CUSAT's Thrikkakara campus recorded ~103 mm in one hour (09:30-10:30); a station ~1 km away logged 100 mm in the same hour; CUSAT researchers cited 98.4 mm in 90 minutes. 100 mm in 1 h is the round figure used here.",
+  "sources": [
+   "https://thesouthfirst.com/keralam/heavy-rainfall-event-in-kalamassery-in-kochi-on-28-may-was-cloudburst-says-imd/",
+   "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"
+  ]
+ },
+ "scoring": {
+  "tolerance_m": 400,
+  "top_rank": 4,
+  "note": "The ground truth is news reports naming neighbourhoods, so its spatial precision is about a neighbourhood, not a street. Each locality is an approximate centroid; the tolerance absorbs that. The test asks whether the places reporting flooding fall among the worst spots the screening flags, more often than a point placed at random in the same area would."
+ },
+ "boxes": [
+  {
+   "bbox": [
+    76.29,
+    10.0,
+    76.355,
+    10.065
+   ],
+   "grid": {
+    "shape": [
+     763,
+     756
+    ],
+    "res_m": 10.0,
+    "area_km2": 57.68,
+    "osm": {
+     "water_cells": 6508,
+     "waterway_cells": 4599,
+     "road_cells": 69421,
+     "building_cells": 28974,
+     "roads_in_graph": 5728
+    },
+    "source": "DeltaDTM v1.1 (Pronk et al. 2024), via Earth Engine community catalog",
+    "despiked_px": 47,
+    "capped_px": 0
+   },
+   "spots_total": 1551,
+   "spots_filling": 1460,
+   "spots_top_ranked": 571,
+   "baseline": 0.944,
+   "discriminating": false,
+   "detected": 5,
+   "positives": 5,
+   "detection_rate": 1.0,
+   "enrichment": 1.06,
+   "per_locality": [
+    {
+     "name": "Kalamassery",
+     "flooded": true,
+     "detected": true,
+     "nearest_filling_spot": {
+      "pooling_rank": 4,
+      "distance_m": 83
+     },
+     "report": "Cloudburst epicentre; rain water entered over 200 houses.",
+     "source": "https://thesouthfirst.com/keralam/heavy-rainfall-event-in-kalamassery-in-kochi-on-28-may-was-cloudburst-says-imd/"
+    },
+    {
+     "name": "Edappally",
+     "flooded": true,
+     "detected": true,
+     "nearest_filling_spot": {
+      "pooling_rank": 1,
+      "distance_m": 145
+     },
+     "report": "Houses inundated in low-lying areas under Kochi Corporation.",
+     "source": "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"
+    },
+    {
+     "name": "Kakkanad (Infopark)",
+     "flooded": true,
+     "detected": true,
+     "nearest_filling_spot": {
+      "pooling_rank": 1,
+      "distance_m": 63
+     },
+     "report": "Severe waterlogging at Infopark and the surrounding tech hub.",
+     "source": "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"
+    },
+    {
+     "name": "Vazhakkala",
+     "flooded": true,
+     "detected": true,
+     "nearest_filling_spot": {
+      "pooling_rank": 1,
+      "distance_m": 43
+     },
+     "report": "Vazhakkala market completely flooded; vendors shut shops.",
+     "source": "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"
+    },
+    {
+     "name": "Thrikkakara (Haritha Nagar)",
+     "flooded": true,
+     "detected": true,
+     "nearest_filling_spot": {
+      "pooling_rank": 5,
+      "distance_m": 10
+     },
+     "report": "Waterlogging reported at Haritha Nagar near Thrikkakara.",
+     "source": "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"
+    },
+    {
+     "name": "Palarivattom",
+     "flooded": false,
+     "detected": true,
+     "nearest_filling_spot": {
+      "pooling_rank": 1,
+      "distance_m": 114
+     },
+     "report": "Named only for traffic snarl-ups, not for standing water. Held out of the scoring as a weak case rather than counted as a positive.",
+     "source": "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"
+    }
+   ],
+   "box": "north"
+  },
+  {
+   "bbox": [
+    76.29,
+    9.925,
+    76.35,
+    10.0
+   ],
+   "grid": {
+    "shape": [
+     873,
+     703
+    ],
+    "res_m": 10.0,
+    "area_km2": 61.37,
+    "osm": {
+     "water_cells": 65131,
+     "waterway_cells": 6211,
+     "road_cells": 65729,
+     "building_cells": 30765,
+     "roads_in_graph": 6441
+    },
+    "source": "DeltaDTM v1.1 (Pronk et al. 2024), via Earth Engine community catalog",
+    "despiked_px": 28,
+    "capped_px": 0
+   },
+   "spots_total": 813,
+   "spots_filling": 874,
+   "spots_top_ranked": 355,
+   "baseline": 0.844,
+   "discriminating": false,
+   "detected": 1,
+   "positives": 3,
+   "detection_rate": 0.333,
+   "enrichment": 0.39,
+   "per_locality": [
+    {
+     "name": "Thammanam",
+     "flooded": true,
+     "detected": false,
+     "nearest_filling_spot": {
+      "pooling_rank": 3,
+      "distance_m": 78
+     },
+     "report": "Houses inundated in low-lying areas under Kochi Corporation.",
+     "source": "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"
+    },
+    {
+     "name": "Kundannoor",
+     "flooded": true,
+     "detected": true,
+     "nearest_filling_spot": {
+      "pooling_rank": 1,
+      "distance_m": 250
+     },
+     "report": "Houses inundated in low-lying areas under Kochi Corporation.",
+     "source": "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"
+    },
+    {
+     "name": "Vyttila",
+     "flooded": true,
+     "detected": false,
+     "nearest_filling_spot": {
+      "pooling_rank": 2,
+      "distance_m": 212
+     },
+     "report": "Vyttila junction on the national highway inundated.",
+     "source": "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"
+    }
+   ],
+   "box": "south"
+  }
+ ],
+ "pooled": {
+  "baseline": 0.906,
+  "discriminating": false,
+  "detected": 6,
+  "positives": 8,
+  "detection_rate": 0.75,
+  "enrichment": 0.83,
+  "verdict": "saturated: at this rainfall a flagged spot is within the tolerance of most of the box, so being near one no longer separates the reported places from anywhere else"
+ },
+ "localities_not_placed": [],
+ "method": "Scored the same way as the KSDMA agreement test: a flag is a top-ranked (index >= 4) pooling spot that fills at the rainfall; a locality is detected if it lies within the tolerance of a flag; the baseline is the share of the box a flag covers; enrichment is detection over baseline, and is only meaningful while the baseline is small.",
+ "honest": [
+  "100 mm in one hour is an extreme that floods most of low-lying central Kochi in the model, so the baseline is large and the test cannot separate the reported places from anywhere else. That is the honest result at the event rainfall.",
+  "Where the ranking does carry signal is a neighbourhood-sized box at a discriminating return period: the KSDMA agreement, 1.25-3.26x.",
+  "Vyttila is a backwater junction whose flooding is tidal and drainage-driven - exactly what this rain-ponding model does not claim to capture (no tides, no drains).",
+  "The ground truth is neighbourhood-level news, so each locality is an approximate centroid; the tolerance is set to a neighbourhood, not a street. Absence of a report is not evidence a place stayed dry."
+ ]
+}

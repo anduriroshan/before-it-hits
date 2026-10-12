@@ -195,5 +195,12 @@
       "Units are inferred from magnitude, not stated at source.",
       "RCP8.5 climate-scenario rasters also exist and are not staged."
     ]
+  },
+  "population": {
+    "people": 2117990,
+    "extent": "Kochi urban agglomeration, 2011 Census of India",
+    "source": "https://censusindia.gov.in/ (Kochi UA, 2011)",
+    "built_footprint_m2": 24499608,
+    "note": "The staged box is greater Kochi and is not an exact match for the UA boundary, so the count is an order of magnitude, not a precise total."
   }
 }

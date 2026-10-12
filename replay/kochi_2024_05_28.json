@@ -1,0 +1,55 @@
+{
+  "id": "kochi_2024_05_28",
+  "region": "kochi",
+  "title": "Kochi cloudburst, 28 May 2024",
+  "what_happened": "A short, intense downpour the IMD later confirmed as a cloudburst over Kalamassery flooded parts of Kochi during the morning of 28 May 2024. Rain water entered over 200 houses near Kalamassery and a city IT park, markets and several low-lying neighbourhoods were waterlogged.",
+  "rainfall": {
+    "mm": 100.0,
+    "duration_h": 1.0,
+    "basis": "IMD automatic weather station at CUSAT's Thrikkakara campus recorded ~103 mm in one hour (09:30-10:30); a station ~1 km away logged 100 mm in the same hour; CUSAT researchers cited 98.4 mm in 90 minutes. 100 mm in 1 h is the round figure used here.",
+    "sources": [
+      "https://thesouthfirst.com/keralam/heavy-rainfall-event-in-kalamassery-in-kochi-on-28-may-was-cloudburst-says-imd/",
+      "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"
+    ]
+  },
+  "scoring": {
+    "tolerance_m": 400,
+    "coverages": [0.05, 0.10, 0.20],
+    "operating_coverage": 0.10,
+    "note": "The ground truth is news reports naming neighbourhoods, so its spatial precision is about a neighbourhood, not a street. Each locality is an approximate centroid; the tolerance absorbs that. The test asks whether the places reporting flooding fall among the worst spots the screening flags, more often than a point placed at random in the same area would."
+  },
+  "boxes": {
+    "north": [76.290, 10.000, 76.355, 10.065],
+    "south": [76.290, 9.925, 76.350, 10.000]
+  },
+  "localities": [
+    {"name": "Kalamassery", "lat": 10.0535, "lon": 76.3210, "flooded": true,
+     "report": "Cloudburst epicentre; rain water entered over 200 houses.",
+     "note": "This is where the rain fell hardest, so a flag here is the least independent of the three.",
+     "source": "https://thesouthfirst.com/keralam/heavy-rainfall-event-in-kalamassery-in-kochi-on-28-may-was-cloudburst-says-imd/"},
+    {"name": "Edappally", "lat": 10.0250, "lon": 76.3080, "flooded": true,
+     "report": "Houses inundated in low-lying areas under Kochi Corporation.",
+     "source": "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"},
+    {"name": "Kakkanad (Infopark)", "lat": 10.0120, "lon": 76.3450, "flooded": true,
+     "report": "Severe waterlogging at Infopark and the surrounding tech hub.",
+     "source": "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"},
+    {"name": "Thammanam", "lat": 9.9860, "lon": 76.3080, "flooded": true,
+     "report": "Houses inundated in low-lying areas under Kochi Corporation.",
+     "source": "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"},
+    {"name": "Kundannoor", "lat": 9.9380, "lon": 76.3190, "flooded": true,
+     "report": "Houses inundated in low-lying areas under Kochi Corporation.",
+     "source": "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"},
+    {"name": "Vazhakkala", "lat": 10.0180, "lon": 76.3390, "flooded": true,
+     "report": "Vazhakkala market completely flooded; vendors shut shops.",
+     "source": "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"},
+    {"name": "Thrikkakara (Haritha Nagar)", "lat": 10.0300, "lon": 76.3420, "flooded": true,
+     "report": "Waterlogging reported at Haritha Nagar near Thrikkakara.",
+     "source": "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"},
+    {"name": "Vyttila", "lat": 9.9670, "lon": 76.3180, "flooded": true,
+     "report": "Vyttila junction on the national highway inundated.",
+     "source": "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"},
+    {"name": "Palarivattom", "lat": 10.0060, "lon": 76.3070, "flooded": false,
+     "report": "Named only for traffic snarl-ups, not for standing water. Held out of the scoring as a weak case rather than counted as a positive.",
+     "source": "https://www.onmanorama.com/news/kerala/2024/05/28/kochi-rain-flooded-roads-hits-normal-life-cloudburst-suspected.html"}
+  ]
+}

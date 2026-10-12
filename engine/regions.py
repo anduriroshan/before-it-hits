@@ -21,6 +21,18 @@ REGIONS: dict[str, dict] = {
             "hazard rasters by return period, which is what the validated tier is checked against."
         ),
         "official": "ksdma",
+        # For F7 exposure: a published population and the total mapped building footprint it is
+        # spread across. `built_footprint_m2` is measured from the staged buildings.fgb (sum of
+        # footprint areas in metres), so the ratio is self-consistent - the same partial OSM
+        # footprints sit in both the city total and any one spot, so even under-mapping cancels.
+        "population": {
+            "people": 2117990,
+            "extent": "Kochi urban agglomeration, 2011 Census of India",
+            "source": "https://censusindia.gov.in/ (Kochi UA, 2011)",
+            "built_footprint_m2": 24499608,
+            "note": "The staged box is greater Kochi and is not an exact match for the UA boundary, "
+                    "so the count is an order of magnitude, not a precise total.",
+        },
         # Localities named in the 28 May 2024 cloudburst reporting.
         "presets": [
             {"label": "Edappally", "bbox": [76.295, 10.010, 76.325, 10.040]},

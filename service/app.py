@@ -33,6 +33,7 @@ from bih_engine.terrain import TerrainUnavailable
 
 ROOT = Path(__file__).resolve().parents[1]
 REGION_ROOT = Path(os.environ.get("BIH_REGION_ROOT", ROOT / "data" / "regions"))
+REPLAY_ROOT = Path(os.environ.get("BIH_REPLAY_ROOT", ROOT / "replay"))
 WEB_DIR = ROOT / "web"
 
 # A box this big is a different product: it stops being "what happens on this street" and the
@@ -71,6 +72,30 @@ def region_or_404(name: str | None) -> Region:
     return rs[name]
 
 
+_replays: dict[str, dict] | None = None
+
+
+def replays() -> dict[str, dict]:
+    """Precomputed replay results, keyed by event id. Scored at staging time (two city-sized boxes
+    is a few seconds), so the service only reads the result - the staged-vs-live split again."""
+    global _replays
+    if _replays is None:
+        found = {}
+        if REPLAY_ROOT.exists():
+            import json as _json
+            for p in sorted(REPLAY_ROOT.glob("*.result.json")):
+                try:
+                    found[p.stem.removesuffix(".result")] = _json.loads(p.read_text("utf-8"))
+                except Exception as exc:
+                    print(f"skipping replay {p.name}: {exc}", file=sys.stderr)
+        _replays = found
+    return _replays
+
+
+def replays_for(region_name: str) -> list[str]:
+    return [eid for eid, r in replays().items() if r.get("event", {}).get("region") == region_name]
+
+
 def describe(r: Region) -> dict:
     m = r.manifest
     return {
@@ -79,6 +104,7 @@ def describe(r: Region) -> dict:
         "staged": m.get("staged"), "terrain": m.get("terrain"), "vectors": m.get("vectors"),
         "not_available": m.get("not_available", []),
         "official": m.get("official"), "max_area_km2": MAX_AREA_KM2,
+        "replays": replays_for(r.name),
     }
 
 
@@ -131,6 +157,29 @@ def forecast_for_box(req: ForecastRequest) -> dict:
     try:
         return forecast.for_bbox((w, s, e, n), hours=req.hours).as_dict()
     except ForecastUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/api/replay")
+def replay_result(id: str) -> dict:
+    """A precomputed replay of a real past storm. Read-only: it is scored at staging time and
+    shipped, because scoring it is a few city-sized screenings, not a per-request job."""
+    rs = replays()
+    if id not in rs:
+        raise HTTPException(404, f"unknown replay {id!r}; available: {', '.join(sorted(rs))}")
+    return rs[id]
+
+
+@app.get("/api/news")
+def news_for_region(region: str | None = None) -> dict:
+    """Live news about the city, for context only. A separate call from everything else: it is the
+    grounded, display-only path and must never be able to slow or break the screening."""
+    from bih_agents import news
+    r = region_or_404(region)
+    try:
+        return news.for_region(r.manifest.get("title") or r.name,
+                               query=r.manifest.get("news_query"))
+    except news.NewsUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
 
 

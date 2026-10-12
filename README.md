@@ -46,6 +46,26 @@ inundated the result is flagged as non-discriminating and the UI says so.
 This is *agreement*, not accuracy. The official layer is ~92 m and models river and backwater
 flooding; the screening is 10 m and finds local rainfall ponding. They answer different questions.
 
+## Replaying a real storm — and reporting where it fails
+
+We also replayed the **28 May 2024 Kochi cloudburst** (IMD-confirmed; ~100 mm in one hour) against
+a second, independent ground truth: the neighbourhoods newspapers reported underwater. Scored the
+same way as the KSDMA test — a flag is a top-ranked spot that fills; detection is the share of
+reported places near a flag; baseline is the share of the area a flag covers.
+
+The honest result is the headline, not a footnote: **6 of 8 reported localities were flagged — but
+a flag covers 90% of the area at that rainfall, so enrichment is 0.83× and the test is *not
+discriminating*.** 100 mm in an hour floods most of low-lying central Kochi in the model, so being
+near a flag separates nothing. This is the same saturation the KSDMA 500-year layer hits, now for a
+real event, and it is exactly the regime the relative ranking is *not* built for.
+
+It also surfaces a specific, expected miss: **Vyttila**, a notorious flood junction, is not
+flagged — its flooding is tidal and drainage-driven, which a rain-ponding model with no tides and
+no storm drains cannot claim to capture. That the replay shows this rather than hiding it is the
+point of running it. Where the ranking *does* carry signal is the neighbourhood-sized box at a
+discriminating return period: the KSDMA agreement above, 1.25–3.26×. The replay is precomputed
+(`engine/tools/replay_kochi.py`), shipped as JSON, and shown in full in the app.
+
 ## Ask it in plain language — and watch something check the answer
 
 Draw a box, type a question, and five agents run in about ten seconds with every step streamed to
@@ -91,6 +111,22 @@ The screening underneath is unaffected, because it is computed rather than writt
 Live, on the first run of the question above, it caught the Narrator writing that a spot fills
 *"starting early"* — fill order is an order, not a clock — sent it back, and the revision dropped
 it. The removal is shown on screen, not hidden.
+
+## Who is nearby, and what the city is saying
+
+**People (F7).** For each box we model roughly how many people are in the worst spots by spreading
+the city's published population across mapped building footprints by area, then summing the
+footprint inside the top-ranked spots. The ratio is written so it is self-consistent — the same
+partial OSM footprints sit in both the numerator and the denominator — so even OSM's under-mapping
+of buildings cancels to first order. It is reported *by area, never per building*, with no floor
+counts (footprint stands in for floor area), rounded hard, and shown with its caveats every time.
+A modelled distribution, not a roll call.
+
+**News (A13).** A collapsible panel pulls live headlines about the city from GDELT's open index,
+de-duplicates them, and — when a model is available — writes a two-line grounded digest. It is
+**display-only by contract**: never stored, never scored, and it changes no number on the page. It
+loads only when opened (GDELT rate-limits hard) and is prompt-injection resistant — a planted
+"ignore previous instructions" headline is ignored.
 
 ## What this will not claim
 
@@ -191,7 +227,7 @@ KEYS
 Without `GEMINI_API_KEY` the agent layer reports itself unavailable and the ask box does not
 appear. Everything else works unchanged.
 
-Tests: `./.venv/Scripts/python.exe -m pytest engine` — 95 tests, all offline, no network, no
+Tests: `./.venv/Scripts/python.exe -m pytest engine` — 116 tests, all offline, no network, no
 staged data and no model. The agent tests stub both models out on purpose: what is worth testing
 there is the part that holds when the model is wrong, and that part is deterministic by design.
 
@@ -202,9 +238,10 @@ Cloud Build builds the image). Add the service URL to the API key's allowed refe
 
 ```
 engine/bih_engine/   terrain, hydrology, osm, routes, official, store  — no I/O beyond reads
-engine/bih_agents/   scenario, narrator, verifier, coordinator, and the facts bundle between them
+engine/bih_agents/   scenario, narrator, verifier, coordinator, news, and the facts bundle
+engine/bih_engine/   ...terrain, hydrology, osm, routes, official, exposure, replay, store
 engine/tools/        staging jobs: the only code that talks to Overpass or a data portal
-engine/tests/        95 tests on synthetic terrain where the answer is known
+engine/tests/        116 tests on synthetic terrain where the answer is known
 service/             FastAPI: bbox + rainfall in, screening + official layer out
 web/                 map, modal tool palette, results panel
 plan/                the design written before building
@@ -213,6 +250,6 @@ PROGRESS.md          what is done and what is not
 
 ## Status
 
-The engine, both tiers, the map and the agent layer work end to end. Not yet built: the
-28 May 2024 replay scoring, population and exposure, preparations within the city's budget, the
-News agent, and the synthetic test harness. `PROGRESS.md` tracks all of it honestly.
+The engine, both tiers, the map, the agent layer and the 28 May 2024 replay work end to end. Not
+yet built: population and exposure, preparations within the city's budget, the News agent, and the
+seeded synthetic harness. `PROGRESS.md` tracks all of it honestly.

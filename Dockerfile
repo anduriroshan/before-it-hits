@@ -27,6 +27,7 @@ COPY engine/bih_agents ./engine/bih_agents
 COPY service ./service
 COPY web ./web
 COPY data/regions ./data/regions
+COPY replay ./replay
 
 # Warm the numba cache at build time so the first drawn box is not the one that pays for it.
 RUN python -c "import sys; sys.path.insert(0, 'engine'); \

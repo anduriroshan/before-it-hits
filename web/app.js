@@ -18,7 +18,7 @@ const state = {
   map: null, rect: null, layer: null, region: null,
   busy: false, mapReady: false, tool: 'pan', drag: null, lastBbox: null, officialLayer: null,
   regions: [], region: null, regionRect: null, forecast: null, rainMode: 'whatif',
-  agents: false, asking: false,
+  agents: false, asking: false, newsFor: null,
 };
 
 function setStatus(text, isError = false) {
@@ -67,6 +67,7 @@ async function boot() {
   buildRegionPicker();
   selectRegion(state.regions[0].name);
   wireToolbar();
+  $('news').addEventListener('toggle', () => { if ($('news').open) loadNews(); });
   wireAsk(cfg.agents);
 
   if (!cfg.maps_api_key) {
@@ -112,6 +113,8 @@ function selectRegion(name) {
 
   buildPresets(region);
   buildReturnPeriods(region);
+  loadReplay(region);
+  resetNews(region);
   clearAll();
   if (state.mapReady) frameRegion(region);
 }
@@ -430,9 +433,8 @@ function renderForecast() {
     <div class="line"><span class="muted">Forecast next ${f.hours_ahead} h:</span>
       <span class="num">${f.total_mm} mm</span></div>
     <div class="windows">${windows}</div>
-    <div class="why">Worst rolling window, not the total — 100 mm in an hour and 100 mm over
-      three days are different events. Point forecast at the centre of the box, not a rainfall
-      field. No return period is inferred from it.</div>`;
+    <div class="why">Worst rolling window, not the daily total. A point forecast at the box
+      centre; no return period inferred.</div>`;
 
   $('forecast').querySelectorAll('button').forEach((b) => {
     b.onclick = () => {
@@ -444,6 +446,110 @@ function renderForecast() {
       if (state.lastBbox) analyse(state.lastBbox);
     };
   });
+}
+
+/* ---- who is nearby (F7) --------------------------------------------------------------------
+   One modelled line, with the method folded away. By area, never per home. */
+function renderPeople(ex) {
+  const el = $('people');
+  if (!ex || !ex.available || !ex.people_in_worst_spots) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = `
+    <h2>Who is nearby</h2>
+    <p class="peoplenum"><b>~${ex.people_in_worst_spots.toLocaleString()}</b> people in the worst
+      spots<span class="muted">, of ~${ex.people_in_box.toLocaleString()} modelled in this box</span></p>
+    <details class="fine"><summary>How this is modelled</summary>
+      <ul>${ex.caveats.map((c) => `<li>${esc(c)}</li>`).join('')}</ul></details>`;
+}
+
+/* ---- in the news now (A13) -----------------------------------------------------------------
+   Live, display-only, and loaded only when the panel is opened — GDELT rate-limits hard and the
+   screening must never wait on it. Never stored, never scored, changes no number on the page. */
+function resetNews(region) {
+  state.newsFor = null;
+  $('news').open = false;
+  $('news-body').innerHTML = '<p class="muted small">Open to load live reports for this city.</p>';
+}
+
+async function loadNews() {
+  const region = state.region;
+  if (!region || state.newsFor === region.name) return;
+  state.newsFor = region.name;
+  const body = $('news-body');
+  body.innerHTML = '<p class="muted small">checking the news…</p>';
+  try {
+    const d = await fetch(`/api/news?region=${encodeURIComponent(region.name)}`)
+      .then((r) => { if (!r.ok) throw new Error('news unavailable'); return r.json(); });
+    renderNews(d);
+  } catch {
+    state.newsFor = null;        // let a later open retry
+    body.innerHTML = '<p class="muted small">No live news right now (the index may be busy).</p>';
+  }
+}
+
+function renderNews(d) {
+  const arts = (d.articles || []).slice(0, 6).map((a) =>
+    `<li><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a>
+      <span class="src">${esc(a.domain)}${a.seen ? ' · ' + esc(a.seen.slice(0, 10)) : ''}</span></li>`).join('');
+  $('news-body').innerHTML = `
+    ${d.digest ? `<p class="digest">${esc(d.digest)}</p>` : ''}
+    <ul class="newslist">${arts || '<li class="muted small">No recent reports found.</li>'}</ul>
+    <p class="muted tiny">${esc(d.note)}</p>`;
+}
+
+/* ---- checked against a real storm ----------------------------------------------------------
+   A negative result shown as plainly as a positive one. The point of the replay is not a headline
+   number; it is that a flag covers most of the box at an extreme rainfall, so a high hit-rate
+   means nothing. Leading with that is the honest thing, and it is the whole product in miniature. */
+async function loadReplay(region) {
+  const el = $('replay');
+  const ids = region.replays || [];
+  if (!ids.length) { el.hidden = true; return; }
+  try {
+    const data = await fetch(`/api/replay?id=${encodeURIComponent(ids[0])}`).then((r) => r.json());
+    renderReplay(data);
+    el.hidden = false;
+  } catch {
+    el.hidden = true;
+  }
+}
+
+function renderReplay(data) {
+  const p = data.pooled;
+  const ev = data.event;
+  const rain = data.rainfall;
+  const verdictClass = p.discriminating ? 'ok' : 'warn';
+  const boxes = data.boxes.map((b) => {
+    const rows = b.per_locality.map((l) => {
+      const nf = l.nearest_filling_spot;
+      const near = nf ? `${nf.distance_m} m away, rank ${nf.pooling_rank}` : 'no filling spot near';
+      const cls = !l.flooded ? 'held' : (l.detected ? 'hit' : 'miss');
+      const tag = !l.flooded ? 'held out' : (l.detected ? 'flagged' : 'not flagged');
+      return `<li class="${cls}"><b>${esc(l.name)}</b> <span class="tag">${tag}</span>
+        <div class="meta">${esc(l.report || '')} <i>(nearest pooling spot ${near})</i></div></li>`;
+    }).join('');
+    return `<div class="rbox"><div class="rhd">${esc(b.box)} box · a flag covers
+      <b>${Math.round(b.baseline * 100)}%</b> of it</div><ul class="rlist">${rows}</ul></div>`;
+  }).join('');
+
+  $('replay-body').innerHTML = `
+    <p class="muted small">${esc(ev.title)} — ${esc(ev.what_happened)}</p>
+    <div class="rverdict ${verdictClass}">
+      <div class="big">${p.detected}/${p.positives} reported localities flagged,
+        but a flag covers <b>${Math.round(p.baseline * 100)}%</b> of the area</div>
+      <div class="small">Enrichment ${p.enrichment}× over chance —
+        ${p.discriminating ? 'the places that flooded are flagged more than chance.'
+          : 'at ' + rain.mm + ' mm in ' + rain.duration_h + ' h the model floods almost everything, '
+            + 'so being near a flag separates nothing. This is the regime the relative ranking is '
+            + 'not built for.'}</div>
+    </div>
+    ${boxes}
+    <details class="rmore">
+      <summary>How this was scored, and what it does and doesn't show</summary>
+      <p class="small">${esc(data.method)}</p>
+      <ul class="small">${data.honest.map((h) => `<li>${esc(h)}</li>`).join('')}</ul>
+      <p class="small muted">Rainfall basis: ${esc(rain.basis)}</p>
+    </details>`;
 }
 
 /* ---- asking ---------------------------------------------------------------------------------
@@ -623,6 +729,7 @@ function render(res) {
     return li;
   }));
 
+  renderPeople(res.exposure);
   renderOfficial(res);
 
   const roads = $('roads');
