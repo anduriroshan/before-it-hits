@@ -202,5 +202,6 @@
     "source": "https://censusindia.gov.in/ (Kochi UA, 2011)",
     "built_footprint_m2": 24499608,
     "note": "The staged box is greater Kochi and is not an exact match for the UA boundary, so the count is an order of magnitude, not a precise total."
-  }
+  },
+  "news_query": "(Kochi OR Ernakulam) Kerala (flood OR flooding OR waterlogging OR rain)"
 }

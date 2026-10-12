@@ -170,6 +170,38 @@ def replay_result(id: str) -> dict:
     return rs[id]
 
 
+class RoadOutlookRequest(BaseModel):
+    bbox: list[float] = Field(..., min_length=4, max_length=4)
+    region: str | None = None
+    rainfall_mm: float = Field(100.0, ge=0, le=1000)
+    duration_h: float = Field(6.0, ge=0.5, le=48)
+
+
+@app.post("/api/road-outlook")
+def road_outlook(req: RoadOutlookRequest) -> dict:
+    """The agent's qualitative read on the road timeline, grounded in recent local news.
+
+    Separate from the screening and the playback, both of which stand on their own. Returns an
+    empty outlook rather than erroring if the agent layer is off or cannot produce a clean one -
+    the map and counts are the real product; this only interprets them."""
+    from bih_agents import road_outlook as ro
+    if not llm.available():
+        return {"outlook": None}
+    w, s, e, n = req.bbox
+    if not (w < e and s < n):
+        raise HTTPException(422, "bbox must be west < east and south < north")
+    r = region_or_404(req.region)
+    if not r.covers((w, s, e, n)):
+        raise HTTPException(422, "that box is outside the staged region")
+    res = analyse_area((w, s, e, n), rainfall_mm=req.rainfall_mm, res_m=10.0, region=r)
+    res.pop("debug", None)
+    res.pop("debug_excluded", None)
+    out = ro.for_box(res, region_title=r.manifest.get("title") or r.name,
+                     rainfall_mm=req.rainfall_mm, duration_h=req.duration_h,
+                     news_query=r.manifest.get("news_query"))
+    return out or {"outlook": None}
+
+
 @app.get("/api/news")
 def news_for_region(region: str | None = None) -> dict:
     """Live news about the city, for context only. A separate call from everything else: it is the
@@ -238,7 +270,8 @@ def ask(req: AskRequest) -> StreamingResponse:
             out["result"]["timings_s"]["total"] = time.perf_counter() - t0
             events.put({"event": "done", "briefing": out["briefing"],
                         "withheld": out["withheld"], "removed": out["removed"],
-                        "scenario": out["scenario"], "result": out["result"]})
+                        "scenario": out["scenario"], "result": out["result"],
+                        "rain_profile": out.get("rain_profile")})
         except Exception as exc:                 # a thread dying silently would hang the stream
             events.put({"event": "error", "detail": f"{type(exc).__name__}: {exc}"})
         finally:

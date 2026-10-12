@@ -44,6 +44,37 @@ def build_graph(roads: list[Road], crs) -> nx.MultiGraph:
     return g
 
 
+def road_flood_thresholds(graph: nx.MultiGraph, spots: list) -> list[dict]:
+    """For each ground-level road that crosses a pooling spot, the least cumulative rainfall at
+    which it floods, and how bad the worst spot on it is.
+
+    `spots` is a list of (geometry_in_metres, rain_to_fill_mm, severity). A road's threshold is the
+    *minimum* rain_to_fill of the spots it passes through - it floods as soon as the first of them
+    fills - and its severity is the worst of them. This is a rainfall-accumulation threshold, not a
+    clock: it says how much rain it takes, and the forecast says when that much has fallen. It
+    assumes water keeps building and never drains, which with no storm-drain data is the worst case.
+
+    Bridges and tunnels are excluded: a bridge over a pooling spot is not cut off by it.
+    """
+    if not spots:
+        return []
+    tree = shapely.STRtree([g for g, _, _ in spots])
+    out = []
+    for u, v, k, d in graph.edges(keys=True, data=True):
+        if d["elevated"] or d["tunnel"]:
+            continue
+        crossing = [int(i) for i in tree.query(d["geom"], predicate="intersects")]
+        if not crossing:
+            continue
+        rain = min(spots[i][1] for i in crossing)
+        sev = max(spots[i][2] for i in crossing)
+        out.append({"geom": d["geom"], "name": d["name"], "highway": d["highway"],
+                    "length_m": d["length_m"], "rain_to_flood_mm": round(rain, 1),
+                    "severity": int(sev)})
+    out.sort(key=lambda r: (r["rain_to_flood_mm"], -r["severity"]))
+    return out
+
+
 def flooded_edges(graph: nx.MultiGraph, pooling_m: list) -> set:
     """Edge keys whose road runs through a pooling spot (geometries in the graph's metric CRS)."""
     if not pooling_m:

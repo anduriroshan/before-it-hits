@@ -21,6 +21,8 @@ REGIONS: dict[str, dict] = {
             "hazard rasters by return period, which is what the validated tier is checked against."
         ),
         "official": "ksdma",
+        # Disambiguates from Kochi/Kochi, Japan in the global news index — "Kerala" as an AND term.
+        "news_query": '(Kochi OR Ernakulam) Kerala (flood OR flooding OR waterlogging OR rain)',
         # For F7 exposure: a published population and the total mapped building footprint it is
         # spread across. `built_footprint_m2` is measured from the staged buildings.fgb (sum of
         # footprint areas in metres), so the ratio is self-consistent - the same partial OSM

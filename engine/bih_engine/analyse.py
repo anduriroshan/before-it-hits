@@ -20,7 +20,8 @@ from shapely.geometry import Point, mapping, shape
 from .hydrology import exit_accumulation, fill_and_route
 from .official import compare_to_screening, read_official
 from .osm import Layers, OsmData, load_overpass, rasterize_layers
-from .routes import affected_summary, build_graph, flooded_edges, nearest_named_roads
+from .routes import (affected_summary, build_graph, flooded_edges, nearest_named_roads,
+                     road_flood_thresholds)
 from .store import Region
 from .terrain import Grid, read_dem
 
@@ -179,11 +180,15 @@ def analyse_grid(
             props = {k: d[k] for k in ("id", "pooling_index", "fill_order",
                                        "fills_at_rainfall", "low_confidence")}
             props["contributing_ha"] = round(d["contrib_m2"] / 1e4, 2)
+            # How much rain it takes to fill this spot. A rainfall amount in mm, not a water depth
+            # in metres, so it is safe to surface - it is what drives the timeline playback.
+            props["rain_to_fill_mm"] = round(d["rain_to_fill_mm"], 1)
             feats.append({"type": "Feature", "geometry": mapping(g), "properties": props})
     t["vectorise_s"] = time.perf_counter() - t0
 
     t0 = time.perf_counter()
     routes_affected = []
+    roads_timeline = {"type": "FeatureCollection", "features": []}
     if roads:
         # Only top-ranked spots that actually hold water at this rainfall can cut a road.
         wet = [m for m, f in zip(pooling_m, feats)
@@ -195,6 +200,18 @@ def analyse_grid(
         # Name where each spot actually is. An id is useless to anyone standing in the street.
         for d, road in zip(deps, nearest_named_roads(graph, [d["point_m"] for d in deps])):
             d["nearest_road"] = road
+        # Every ground-level road that crosses a spot, with the rainfall threshold at which it
+        # floods and how bad the worst spot on it is. The UI plays this back against a rainfall
+        # profile - a rainfall-accumulation clock, not a drainage one (see road_flood_thresholds).
+        spots = [(m, f["properties"]["rain_to_fill_mm"], f["properties"]["pooling_index"])
+                 for m, f in zip(pooling_m, feats)]
+        for e in road_flood_thresholds(graph, spots):
+            g = shapely.transform(e["geom"],
+                                  lambda c: np.column_stack(to_ll.transform(c[:, 0], c[:, 1])))
+            roads_timeline["features"].append({
+                "type": "Feature", "geometry": mapping(g),
+                "properties": {k: e[k] for k in ("name", "highway", "length_m",
+                                                  "rain_to_flood_mm", "severity")}})
     for d in deps:
         d.pop("point_m", None)          # a geometry has no business in a JSON response
     t["routes_s"] = time.perf_counter() - t0
@@ -203,7 +220,8 @@ def analyse_grid(
         "depressions": [
             {"id": d["id"], "pooling_index": d["pooling_index"],
              "contributing_ha": round(d["contrib_m2"] / 1e4, 2),
-             "fill_order": d["fill_order"], "nearest_road": d["nearest_road"]}
+             "fill_order": d["fill_order"], "nearest_road": d["nearest_road"],
+             "rain_to_fill_mm": round(d["rain_to_fill_mm"], 1)}
             for d in deps
         ],
         "excluded": [{"id": d["id"], "reason": EXCLUDED_REASON} for d in excluded],
@@ -216,6 +234,7 @@ def analyse_grid(
     return {
         "screening": screening,
         "geojson": {"type": "FeatureCollection", "features": feats},
+        "roads_timeline": roads_timeline,
         "grid": {"shape": [h, w], "res_m": grid.res_m, "area_km2": round(h * w * cell_m2 / 1e6, 2),
                  "osm": None if layers is None else {"water_cells": int(layers.water.sum()),
                                                       "waterway_cells": int(layers.waterway.sum()),

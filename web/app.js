@@ -13,12 +13,14 @@ const $ = (id) => document.getElementById(id);
 const POOLING_FILL = { 5: '#0b3d91', 4: '#1d6fd0', 3: '#4a9fe0', 2: '#8fc5ec', 1: '#c8e2f5' };
 const MIN_SIDE_DEG = 0.0015;
 const OFFICIAL_FILL = ['#cfe8ff', '#86c0f0', '#3d8fd1', '#1b5fa8', '#0b3566'];  // about 150 m: below this there is nothing to analyse
+const ROAD_SEV = { 5: '#7f1d1d', 4: '#c1121f', 3: '#e8590c', 2: '#f08c00', 1: '#f6c445' };
 
 const state = {
   map: null, rect: null, layer: null, region: null,
   busy: false, mapReady: false, tool: 'pan', drag: null, lastBbox: null, officialLayer: null,
   regions: [], region: null, regionRect: null, forecast: null, rainMode: 'whatif',
-  agents: false, asking: false, newsFor: null,
+  agents: false, asking: false, newsFor: null, roadLayer: null,
+  tl: { feats: [], dur: 6, step: 6, total: 100, cum: [], steps: 6, real: false },
 };
 
 function setStatus(text, isError = false) {
@@ -67,6 +69,7 @@ async function boot() {
   buildRegionPicker();
   selectRegion(state.regions[0].name);
   wireToolbar();
+  wireTimeline();
   $('news').addEventListener('toggle', () => { if ($('news').open) loadNews(); });
   wireAsk(cfg.agents);
 
@@ -191,6 +194,8 @@ function clearAll() {
   if (state.rect) { state.rect.setMap(null); state.rect = null; }
   if (state.layer) { state.layer.setMap(null); state.layer = null; }
   if (state.officialLayer) { state.officialLayer.setMap(null); state.officialLayer = null; }
+  clearRoadLayer();
+  $('timeline').hidden = true;
   state.lastBbox = null;
   $('results').hidden = true;
   setStatus('');
@@ -252,6 +257,8 @@ window.initMap = function initMap() {
     // event, which meant one unlucky async error left the toolbar hidden with nothing on screen
     // to say why. UI chrome should never depend on a map event firing.
     enableBoxDrawing();
+    // The storm scrubber is pinned to the box, so it has to move with every pan and zoom.
+    state.map.addListener('bounds_changed', positionTimelineFloat);
     state.mapReady = true;
     frameRegion(state.region);   // outlines where the engine can answer
     $('toolbar').hidden = false;
@@ -448,6 +455,199 @@ function renderForecast() {
   });
 }
 
+/* ---- roads over time: a rain-driven playback (F8) -------------------------------------------
+   Honest framing lives in the panel: this is modelled road difficulty from rain pooling, not a
+   traffic measurement. Each road carries the rainfall at which a spot it crosses fills; the slider
+   is a rainfall-accumulation clock (assumes no drainage -> worst case), so as rain builds the
+   roads light up in the order they flood. Severity colours the worst spot each road sits in. */
+function clearRoadLayer() {
+  if (state.roadLayer) { state.roadLayer.setMap(null); state.roadLayer = null; }
+  $('tl-float').hidden = true;
+}
+
+/* Pixel position of a lat/lng inside the map div — the inverse of pointToLatLng — so an overlay
+   can be pinned to a place on the map (here, the storm scrubber under the drawn box). */
+function latLngToPoint(lat, lng) {
+  const bounds = state.map && state.map.getBounds();
+  if (!bounds) return null;
+  const r = $('map').getBoundingClientRect();
+  if (!r.width || !r.height) return null;
+  const ne = bounds.getNorthEast();
+  const sw = bounds.getSouthWest();
+  let west = sw.lng();
+  let east = ne.lng();
+  if (east < west) east += 360;
+  let x = lng; if (x < west) x += 360;
+  const fx = (x - west) / (east - west);
+  const yTop = mercY(ne.lat());
+  const yBottom = mercY(sw.lat());
+  const fy = (mercY(lat) - yTop) / (yBottom - yTop);
+  return { x: fx * r.width, y: fy * r.height, w: r.width, h: r.height };
+}
+
+/* Keep the floating scrubber just below the drawn box, centred on it. If the box sits low in the
+   view, flip the control above it so it stays on screen. Called on every pan, zoom and resize. */
+function positionTimelineFloat() {
+  const el = $('tl-float');
+  if (el.hidden || !state.lastBbox || !state.mapReady) return;
+  const [w, s, e, n] = state.lastBbox;
+  const below = latLngToPoint(s, (w + e) / 2);
+  if (!below) return;
+  const fw = el.offsetWidth || 260;
+  const fh = el.offsetHeight || 56;
+  const left = Math.max(8, Math.min(below.w - fw - 8, below.x - fw / 2));
+  let top = below.y + 12;
+  if (top + fh > below.h - 8) {                 // box near the bottom: place it above the box
+    const above = latLngToPoint(n, (w + e) / 2);
+    top = Math.max(8, (above ? above.y : below.y) - fh - 12);
+  }
+  el.style.left = `${left}px`;
+  el.style.top = `${Math.max(8, top)}px`;
+}
+
+/* The cumulative-rainfall curve the playback steps through. With the live forecast the agent
+   hands us the real per-hour amounts (the true shape); a what-if has no real shape, so the total
+   is spread evenly across the chosen storm length. */
+function buildCumulative(total, dur, profile) {
+  if (profile && profile.length) {
+    const cum = [0];
+    for (let i = 0; i < profile.length; i += 1) cum.push(cum[i] + profile[i]);
+    return cum;
+  }
+  const cum = [];
+  for (let k = 0; k <= dur; k += 1) cum.push(dur ? total * (k / dur) : total);
+  return cum;
+}
+
+function setDurationSelect(dur) {
+  const opts = [...$('tl-duration').options].map((o) => Number(o.value));
+  const near = opts.reduce((a, b) => (Math.abs(b - dur) < Math.abs(a - dur) ? b : a));
+  $('tl-duration').value = String(near);
+}
+
+/* `driver` is set when the answer came from the agent: the rainfall, the window and, in forecast
+   mode, the real hourly shape it settled on. The playback follows the agent, not the slider. */
+function renderTimeline(res, driver) {
+  const feats = ((res.roads_timeline || {}).features) || [];
+  const sec = $('timeline');
+  clearRoadLayer();
+  if (!feats.length) { sec.hidden = true; return; }
+  sec.hidden = false;
+  state.tl.feats = feats;
+
+  const profile = driver && driver.profile;
+  state.tl.real = Boolean(profile && profile.length);
+  if (driver) {
+    state.tl.total = Math.round(driver.total);
+    state.tl.dur = Math.max(1, Math.round(driver.dur || 6));
+  } else {
+    state.tl.total = Number($('rain').value);
+    state.tl.dur = Number($('tl-duration').value);
+  }
+  state.tl.cum = buildCumulative(state.tl.total, state.tl.dur, profile);
+  state.tl.steps = state.tl.cum.length - 1;
+  $('tl-step').max = state.tl.steps;
+  if (!state.tl.real) setDurationSelect(state.tl.dur);
+  $('tl-duration').parentElement.style.display = state.tl.real ? 'none' : '';
+
+  $('timeline-sub').textContent =
+    `${feats.length} road segments cross a pooling spot. Drag the bar under the box to watch them `
+    + 'go, in the order each needs the least rain.';
+  $('tl-note').innerHTML =
+    'Modelled road difficulty from rain pooling &mdash; <b>not</b> a traffic measurement. A '
+    + 'rainfall-accumulation clock that assumes water keeps building and does not drain away (the '
+    + 'worst case), because storm-drain data is not public anywhere.'
+    + (state.tl.real ? ' Timed to the live forecast.' : '');
+
+  if (state.mapReady) {
+    const layer = new google.maps.Data({ map: state.map });
+    layer.addGeoJson(res.roads_timeline);
+    state.roadLayer = layer;
+    $('tl-float').hidden = false;
+  }
+  stepTo(state.tl.steps);               // open on the full storm; drag back to watch it build
+  positionTimelineFloat();
+  loadRoadOutlook(res);                 // the agent's qualitative, region-specific read (if any)
+}
+
+function styleRoads(cum) {
+  if (!state.roadLayer) return;
+  state.roadLayer.setStyle((f) => {
+    const on = f.getProperty('rain_to_flood_mm') <= cum;
+    const sev = f.getProperty('severity');
+    return {
+      strokeColor: ROAD_SEV[sev], strokeOpacity: on ? 0.95 : 0.0,
+      strokeWeight: on ? 1.6 + sev * 0.7 : 0, zIndex: 50 + sev, clickable: false,
+    };
+  });
+}
+
+function cumAt(step) {
+  const c = state.tl.cum || [];
+  if (!c.length) return state.tl.total;
+  return c[Math.max(0, Math.min(step, c.length - 1))];
+}
+
+function stepTo(step) {
+  state.tl.step = step;
+  $('tl-step').value = step;
+  const cum = cumAt(step);
+  styleRoads(cum);                       // instant: one setStyle, no animation
+  const on = state.tl.feats.filter((f) => f.properties.rain_to_flood_mm <= cum);
+  const km = on.reduce((a, f) => a + f.properties.length_m, 0) / 1000;
+  const when = state.tl.real ? `hour ${step}` : `after ${step} h`;
+  $('tl-read').innerHTML =
+    `<b>${when}</b> &middot; ~${Math.round(cum)} mm &middot; ${on.length} roads &middot; ${km.toFixed(1)} km`;
+  const ARTERIAL = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'];
+  const worst = on.filter((f) => f.properties.name && ARTERIAL.includes(f.properties.highway))
+    .sort((a, b) => b.properties.severity - a.properties.severity
+      || a.properties.rain_to_flood_mm - b.properties.rain_to_flood_mm)
+    .slice(0, 6);
+  $('tl-roads').replaceChildren(...worst.map((f) => {
+    const p = f.properties;
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="rsev s${p.severity}"></span><b>${esc(p.name)}</b>`
+      + `<span class="meta">${esc(p.highway)} &middot; difficult from ~${p.rain_to_flood_mm} mm</span>`;
+    return li;
+  }));
+}
+
+function wireTimeline() {
+  window.addEventListener('resize', positionTimelineFloat);
+  $('tl-step').oninput = (e) => stepTo(Number(e.target.value));
+  $('tl-duration').onchange = () => {
+    state.tl.dur = Number($('tl-duration').value);
+    state.tl.cum = buildCumulative(state.tl.total, state.tl.dur, null);
+    state.tl.steps = state.tl.cum.length - 1;
+    $('tl-step').max = state.tl.steps;
+    stepTo(state.tl.steps);
+  };
+}
+
+/* The agent's read is optional and must never block the playback: the deterministic timeline above
+   stands on its own. This adds region-specific, qualitative context, grounded in recent news. */
+async function loadRoadOutlook(res) {
+  const el = $('road-outlook');
+  el.hidden = true;
+  if (!state.agents || !state.lastBbox) return;
+  try {
+    const d = await fetch('/api/road-outlook', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bbox: state.lastBbox, region: state.region.name,
+        rainfall_mm: state.tl.total, duration_h: state.tl.dur,
+      }),
+    }).then((r) => { if (!r.ok) throw new Error('no outlook'); return r.json(); });
+    if (!d.outlook) return;
+    el.hidden = false;
+    el.innerHTML = `<div class="ro-head">What this might mean here <span class="tag-modelled">agent &middot; grounded</span></div>`
+      + `<p>${esc(d.outlook)}</p>`
+      + (d.sources && d.sources.length
+        ? `<p class="muted tiny">Read from: ${d.sources.map((s) => esc(s)).join(', ')}</p>` : '')
+      + `<p class="muted tiny">Qualitative context from recent reporting. No number here is a measurement; the figures and roads are the engine's, above.</p>`;
+  } catch { /* the playback is unaffected */ }
+}
+
 /* ---- who is nearby (F7) --------------------------------------------------------------------
    One modelled line, with the method folded away. By area, never per home. */
 function renderPeople(ex) {
@@ -626,7 +826,15 @@ function onAskEvent(ev) {
   if (ev.event === 'step') addTraceRow(ev);
   else if (ev.event === 'error') addTraceRow({ agent: 'Coordinator', status: 'failed', ms: 0, note: ev.detail });
   else if (ev.event === 'done') {
-    if (ev.result) render(ev.result);          // the map and the result list follow the question
+    // The agent settled a rainfall and a window (from the live forecast, or the figure in the
+    // question). The map, the result list and the road playback all follow that, not the slider.
+    if (ev.result) {
+      const sc = ev.scenario || {};
+      const driver = { total: sc.rainfall_mm ?? Number($('rain').value),
+                       dur: sc.duration_h || 6,
+                       profile: ev.rain_profile || null };   // the live forecast's hourly shape
+      render(ev.result, driver);
+    }
     renderBriefing(ev);
   }
 }
@@ -664,7 +872,7 @@ function renderBriefing(ev) {
       model.</p>`;
 }
 
-function render(res) {
+function render(res, driver) {
   const sc = res.screening;
   if (state.layer) state.layer.setMap(null);
   if (state.officialLayer) { state.officialLayer.setMap(null); state.officialLayer = null; }
@@ -730,6 +938,7 @@ function render(res) {
   }));
 
   renderPeople(res.exposure);
+  renderTimeline(res, driver);
   renderOfficial(res);
 
   const roads = $('roads');

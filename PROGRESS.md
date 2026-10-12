@@ -3,10 +3,10 @@
 Submission **18 Oct 2026**. Started tracking 11 Oct (day 1 of 8). Spec lives in `plan/` (content in `plan/assets/data.js`).
 Tick a box when the work lands and has been run, not when it is started. Plan IDs: **F** feature, **L** layer, **A** agent.
 
-**Now:** two cities live at https://before-it-hits-z5r5gsxkza-el.a.run.app, and the agent layer answers questions about a drawn box with every figure checked against the engine. **Next: F8 what-gets-cut-off (routes isolated by pooling), or the preparation/budget layer (P4).** F7 exposure and A13 News are done; the left panel is decluttered.
+**Now:** two cities live at https://before-it-hits-z5r5gsxkza-el.a.run.app, and the agent layer answers questions about a drawn box with every figure checked against the engine. **Next: the preparation/budget layer (P4), or population/exposure polish.** F8 road playback (now a slider-only instant scrubber floating under the box, timed to the live forecast's hourly shape), agent-first interaction, and news-grounded road outlook are done.
 
 **Submission:** live demo + repo link (confirmed 11 Oct). So the deployed URL must stay working — it runs with `--min-instances 1` because a cold start is ~8 s against ~0.8 s warm.
-**Last updated:** 12 Oct 2026 (day 2, night)
+**Last updated:** 12 Oct 2026 (day 2, late night)
 
 ## P0 Foundations
 - [x] Plan written and revised (`plan/`)
@@ -37,7 +37,7 @@ Tick a box when the work lands and has been run, not when it is started. Plan ID
 - [x] OSM water (L2): 2,867 water polygons and 1,300 waterways staged for Kochi (`engine/tools/fetch_osm_kochi.py`); water as outlets, waterways burned 2 m and made outlets; disclosed in the result
 - [x] OSM roads (L7) and buildings (L4) staged: 30,852 roads, 154,506 footprints. Buildings burn as walls; **road trenches are off by default** - measured, a 0.2 m trench took pits 291 -> 480 on a 35 km2 box and pushed pits-inside-error 76% -> 83%, i.e. it manufactures artifacts. Re-test now buildings exist
 - [x] Road graph per box (networkx, built per request not stored): roads running through top-ranked (index >= 4) pooling spots, by name and length
-- [ ] F8 "what gets cut off" needs facilities (L13). Connected-components alone returned ~400 "isolated areas" on a 35 km2 box - graph noise, so it is computed but deliberately not in the response
+- [x] F8 roads over time: each ground-level road that crosses a pooling spot carries a `rain_to_flood_mm` threshold (least rain at which a spot on it fills) and a severity (worst spot). The web app plays this back against a rainfall-accumulation clock - scrub or hit play and roads light up red->yellow in the order they flood, like a traffic heatmap but honest (modelled road difficulty, not measured traffic; assumes no drainage = worst case). `road_flood_thresholds` in routes.py; 236 segments on a Palarivattom box. Playback is **slider-only, instant (no autoplay)**, the scrubber floats on the map just below the drawn box and is removed on erase, and it is **timed to the live forecast's real hourly shape** when the agent used the forecast (else a what-if total spread over a chosen storm length). Isolated-areas/connected-components stays out (still ~400 noise)
 - [ ] Runoff coefficient from WorldCover (L8) instead of a flat 0.8
 - [x] Region store: `data/regions/kochi/` = dtm.tif + FlatGeobuf layers + `region.json` manifest (sources, licences, dates, known gaps). Bbox reads use the packed R-tree: 54 ms for a 7 km2 box vs 713 ms for the whole region
 - [ ] Stage the same layout to GCS and re-measure from Cloud Run (local paths and gs:// URLs read identically)
@@ -89,6 +89,7 @@ Tick a box when the work lands and has been run, not when it is started. Plan ID
 - [x] `nearest_road` filled in at last (it was `None` since P1): spots are named by the road they sit on, within 120 m and named roads only. 87% of spots named in Palarivattom, 48% in Vyttila. "The low point beside Pipeline Road" instead of `d_28`
 - [x] 95 tests. The agent tests stub both models out: what is worth testing is the part that holds when the model is wrong
 - [ ] Planner (A5): needs P4 capabilities first
+- [x] Road outlook agent (`road_outlook.py`): qualitative, region-specific read on the road timeline, grounded in recent local news. No fabricated measurement survives - every figure is checked against the deterministic findings; fails closed. `/api/road-outlook`, 6 tests
 - [x] News (A13): live GDELT headlines for the city, de-duplicated, with an optional model-written grounded digest. **Display-only by contract** - never stored, never scored, changes no number; loaded lazily only when the panel is opened (GDELT rate-limits hard). Prompt-injection resistant (ignored a planted 'SYSTEM COMPROMISED' headline). `engine/bih_agents/news.py`, 7 tests. The stored/scored GDELT path stays future work
 - [ ] Firestore for runs and traces (never grounded output). Runs are currently not persisted at all
 - [ ] Follow-ups that change the existing scenario ("what about twice the rain?") — each question is independent today
@@ -96,6 +97,7 @@ Tick a box when the work lands and has been run, not when it is started. Plan ID
 
 ## P6 Web app (F1, F11, F12, F13)
 - [x] Modal tool palette on the map (Move / Box / Erase, keys V / B / E / Esc), both map overlays collapsible, Google's own controls moved clear of them
+- [x] Agent-first interaction: the rainfall slider is a manual what-if for testing; the headline flow is "draw a box, ask the agent to predict" - it pulls the live forecast (A3), runs the engine, and renders the map, the pooling and the road-timeline playback, driven by the rainfall and window the agent settled on, not the slider
 - [x] City switcher. Adding a region is a config entry in `engine/regions.py` plus the staging tools — no engine change, because the screening is terrain physics and not city-specific
 - [x] Map with rectangle tool, 2D. Drag-to-draw is built on plain map mouse events, **not** the Maps drawing library: the one interaction the product depends on should not have an extra dependency to fail. Drawing is armed by the button so an ordinary drag still pans
 - [x] Preset areas (Edappally, Palarivattom, Vyttila, Kakkanad - all named in the 28 May 2024 reporting) and a map-failure fallback, so the analysis is reachable even if Maps does not load. `gm_authFailure` and a load timeout now report why instead of leaving a grey box

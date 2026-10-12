@@ -21,8 +21,10 @@
     <p class="note" id="regionnote"></p>
 
     <div class="field">
-      <label for="rain">Rainfall <output id="rainout">100 mm</output></label>
+      <label for="rain">Rainfall &mdash; what-if <output id="rainout">100 mm</output></label>
       <input type="range" id="rain" min="0" max="300" step="5" value="100">
+      <p class="muted tiny">A manual what-if for testing. To predict from the live forecast, draw a
+        box and ask the agent below.</p>
     </div>
     <div id="forecast" class="forecast"></div>
 
@@ -38,7 +40,7 @@
   </section>
 
   <section id="ask" hidden>
-    <label class="seclabel" for="question">Ask about this box</label>
+    <label class="seclabel" for="question">Ask the agent to predict</label>
     <div class="askrow">
       <input id="question" type="text" maxlength="500" autocomplete="off"
              placeholder="What if 90 mm falls in an hour here?">
@@ -84,6 +86,14 @@
     </details>
 
     <p class="muted tiny" id="timings"></p>
+  </section>
+
+  <section id="timeline" hidden>
+    <h2>Roads over time <span class="tag-modelled">modelled</span></h2>
+    <p class="muted small" id="timeline-sub"></p>
+    <ol id="tl-roads" class="tl-roads"></ol>
+    <div id="road-outlook" class="road-outlook" hidden></div>
+    <p class="muted tiny" id="tl-note"></p>
   </section>
 
   <details id="replay" class="section-collapse" hidden>
@@ -139,6 +149,23 @@
     </div>
     <div class="muted small">most water collects → least</div>
     <div class="muted small" id="legend-note"></div>
+  </div>
+
+  <!-- The storm scrubber floats just below the drawn box. Slider-only: each step renders
+       instantly, no autoplay. It appears with a box and is removed when the box is erased. -->
+  <div id="tl-float" hidden>
+    <input type="range" id="tl-step" min="0" max="6" step="1" value="6" aria-label="Hour into the storm">
+    <div class="tl-floatrow">
+      <span class="tl-floatread" id="tl-read"></span>
+      <label class="tl-dur" title="Storm length"><span>over</span>
+        <select id="tl-duration">
+          <option value="3">3 h</option>
+          <option value="6" selected>6 h</option>
+          <option value="12">12 h</option>
+          <option value="24">24 h</option>
+        </select>
+      </label>
+    </div>
   </div>
 </main>
 

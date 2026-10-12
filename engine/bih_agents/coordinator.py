@@ -84,6 +84,7 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
         spec["return_period_years"] = return_period
 
     # --- A3 Forecast: a tool, not a model, until we have bulletins worth reading -----------
+    rain_profile = None     # the forecast's real hourly shape, when forecast mode succeeds
     if spec["mode"] == "replay":
         trace.add("A3 Forecast", "unavailable", 0,
                   "Replaying a past storm needs historical rainfall, which the forecast service "
@@ -98,6 +99,9 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
                 spec["rainfall_mm"] = f["peaks"][window]["mm"]
                 spec["duration_h"] = float(window)
                 spec["rainfall_source"] = f"the worst {window} h in the next {f['hours_ahead']} h"
+            # The real hourly shape, so the road playback can follow the forecast's own build-up
+            # rather than spreading a total evenly. Capped so the scrubber stays usable.
+            rain_profile = [h["mm"] for h in f.get("hours", [])][:24] or None
             trace.add("A3 Forecast", "ok", int((time.perf_counter() - t0) * 1000),
                       f"Worst {window} h window: {spec['rainfall_mm']} mm.", detail=f["peaks"])
         except ForecastUnavailable as exc:
@@ -125,7 +129,8 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
                          region_title=(region.manifest.get("title") if region else None))
 
     out = {"question": question, "scenario": spec, "facts": bundle, "result": result,
-           "briefing": None, "withheld": None, "removed": [], "trace": trace.steps}
+           "rain_profile": rain_profile, "briefing": None, "withheld": None,
+           "removed": [], "trace": trace.steps}
 
     # --- A6 Narrator and A7 Verifier, up to two trips back --------------------------------
     briefing, problems = None, []

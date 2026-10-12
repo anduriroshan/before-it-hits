@@ -49,6 +49,9 @@ class Forecast:
                 str(w): {"mm": round(p["mm"], 1), "starts": p["starts"]}
                 for w, p in sorted(self.peaks.items())
             },
+            # The per-hour amounts, so a caller can play back the real shape of the storm rather
+            # than spreading a total evenly. Just the rainfall, nothing derived.
+            "hours": [{"t": h["start"], "mm": round(h["qpf_mm"], 2)} for h in self.hours],
             "source": "Google Maps Platform Weather API (hourly QPF)",
             "caveats": [
                 "A point forecast at the centre of the box, not a rainfall field — a convective "

@@ -112,6 +112,25 @@ Live, on the first run of the question above, it caught the Narrator writing tha
 *"starting early"* — fill order is an order, not a clock — sent it back, and the revision dropped
 it. The removal is shown on screen, not hidden.
 
+## Roads over time, and asking the agent to predict
+
+Draw a box, then **ask the agent** — "what happens here tonight?", "what if 100 mm falls in an
+hour?". It reads the question, pulls the **live forecast** (or takes the figure you stated), runs
+the engine, and renders the map, the pooling and a **road-timeline playback**. The rainfall slider
+is just a manual what-if for testing; the agent is the real driver, and it decides the rainfall and
+window, never a model inventing one.
+
+The playback: every ground-level road that crosses a pooling spot gets a `rain_to_flood` threshold
+— the least cumulative rainfall at which a spot on it fills — and a severity. Scrub the timeline or
+hit play and roads light up red→yellow in the order they flood, like a traffic heatmap. It is
+**modelled road difficulty from rain pooling, not measured traffic**, on a rainfall-accumulation
+clock that assumes water does not drain away (the worst case) — stated on the panel every time.
+
+Because terrain differs, the physics already differs city to city. The softer, region-specific part
+— how fast a city actually jams — lives in local knowledge, so a **road-outlook agent** reads the
+deterministic findings *and* recent local news and writes a short qualitative note. It invents no
+measurement: every figure is checked against the findings and it fails closed.
+
 ## Who is nearby, and what the city is saying
 
 **People (F7).** For each box we model roughly how many people are in the worst spots by spreading
@@ -227,7 +246,7 @@ KEYS
 Without `GEMINI_API_KEY` the agent layer reports itself unavailable and the ask box does not
 appear. Everything else works unchanged.
 
-Tests: `./.venv/Scripts/python.exe -m pytest engine` — 116 tests, all offline, no network, no
+Tests: `./.venv/Scripts/python.exe -m pytest engine` — 124 tests, all offline, no network, no
 staged data and no model. The agent tests stub both models out on purpose: what is worth testing
 there is the part that holds when the model is wrong, and that part is deterministic by design.
 
@@ -241,7 +260,7 @@ engine/bih_engine/   terrain, hydrology, osm, routes, official, store  — no I/
 engine/bih_agents/   scenario, narrator, verifier, coordinator, news, and the facts bundle
 engine/bih_engine/   ...terrain, hydrology, osm, routes, official, exposure, replay, store
 engine/tools/        staging jobs: the only code that talks to Overpass or a data portal
-engine/tests/        116 tests on synthetic terrain where the answer is known
+engine/tests/        124 tests on synthetic terrain where the answer is known
 service/             FastAPI: bbox + rainfall in, screening + official layer out
 web/                 map, modal tool palette, results panel
 plan/                the design written before building

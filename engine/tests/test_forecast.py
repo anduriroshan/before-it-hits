@@ -68,3 +68,9 @@ def test_peaks_are_monotonic_in_window_length():
 def test_empty_forecast_is_an_error_not_an_empty_object():
     f = Forecast()
     assert f.as_dict()["hours_ahead"] == 0
+
+
+def test_the_hourly_shape_is_exposed_for_the_playback():
+    d = summarise(hours(1, 2, 3), 1.3, 103.8).as_dict()
+    assert [h["mm"] for h in d["hours"]] == [1.0, 2.0, 3.0]   # per-hour amounts, in order
+    assert d["hours"][0]["t"].startswith("2026")             # each carries its start time
