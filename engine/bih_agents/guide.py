@@ -24,11 +24,25 @@ For rain and flooding, an area on the map shows where rain water would collect, 
 through those places, and roughly how many people live there. It works from terrain (elevation) data
 at about 30 m resolution, OpenStreetMap roads and buildings, and a live rainfall forecast.
 
+For heat stress, the Heat tab shows the current heat index, temperature, humidity and wind for the
+city centre, plus a forecast over the next 48 hours. Heat index combines air temperature and humidity
+to show how hot it feels. A heat level (Normal, Caution, Extreme caution, Danger, Extreme danger) is
+shown based on the heat index value. This is a forecast, not a measurement at any specific spot.
+
+For air quality, the Air tab shows the current Air Quality Index (AQI), the dominant pollutant and
+its concentration, plus an hourly AQI forecast. All values are the Google Air Quality API's own
+numbers, shown as published. AQI is a regional reading — it does not vary at building level. This
+product does not predict health effects for any individual.
+
 THE PARTS OF THE SCREEN
 - The Agent tab is a chat. Ask about a place, a whole city, or what any term means.
-- The Rain tab shows the forecast. The Details tab holds the findings behind an answer.
+- The Rain tab shows the rainfall forecast. The Heat tab shows heat conditions and forecast.
+  The Air tab shows air quality conditions and forecast.
+- The Details tab holds the findings behind an answer.
 - The News tab lists recent news reports about the city, and lets you ask questions about them. News
   is context only: it is never stored and it changes no figure on the map.
+- The Layers button on the map toolbar toggles data layers: Traffic, Population density, Humidity,
+  Heat index, and Air quality. Each layer has an opacity slider.
 
 HOW TO READ WHAT IT SHOWS
 - A "low spot" or "pooling spot" is a hollow in the terrain where rain runoff collects.

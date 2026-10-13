@@ -79,6 +79,7 @@ async function boot() {
   }
   state.hazards = cfg.hazards || [];
   state.newsTopics = cfg.news_topics || [];
+  state.mapsApiKey = cfg.maps_api_key || '';
   wireAsk(cfg.agents);           // before a region is chosen: the welcome message depends on it
   wireTabs();
   wireNews();
@@ -87,6 +88,7 @@ async function boot() {
   selectRegion(state.regions[0].name);
   wireToolbar();
   wireTimeline();
+  buildLayerPanel();
 
   if (!cfg.maps_api_key) {
     mapFailed('No Maps API key is configured. Set MAPS_API_KEY in .env.local and restart.');
@@ -133,6 +135,10 @@ function selectRegion(name, opts = {}) {
   $('rain-nogauge').hidden = Boolean(region.live_rainfall);
   loadReplay(region);
   resetNews(region);
+  heatFor = null;
+  airFor = null;
+  if (state.tab === 'heat') loadHeat();
+  if (state.tab === 'air') loadAir();
   clearAll({ quiet: true });
   if (!opts.keepChat) chatReset();
   if (state.mapReady) frameRegion(region);
@@ -219,12 +225,12 @@ function toggleCollapse(which) {
   const open = el.classList.toggle('collapsed') === false;
   const btn = el.querySelector('.collapse');
   btn.setAttribute('aria-expanded', String(open));
-  btn.title = open ? `Hide the ${which === 'toolbar' ? 'tools' : 'legend'}`
-                   : `Show the ${which === 'toolbar' ? 'tools' : 'legend'}`;
+  const names = { toolbar: 'tools', legend: 'legend', layers: 'layers' };
+  btn.title = open ? `Hide the ${names[which] || which}` : `Show the ${names[which] || which}`;
 }
 
 function wireToolbar() {
-  for (const el of [$('toolbar'), $('legend')]) {
+  for (const el of [$('toolbar'), $('legend'), $('layers')]) {
     el.addEventListener('click', (ev) => {
       const c = ev.target.closest('.collapse');
       if (c) { toggleCollapse(c.dataset.collapse); ev.stopPropagation(); }
@@ -235,6 +241,7 @@ function wireToolbar() {
     if (!btn || btn.classList.contains('collapse')) return;
     if (btn.dataset.action === 'erase') clearAll();
     else if (btn.dataset.action === 'labels') cycleLabels();
+    else if (btn.dataset.action === 'layers') toggleLayers();
     else if (btn.dataset.tool) setTool(btn.dataset.tool);
   });
   document.addEventListener('keydown', (ev) => {
@@ -243,8 +250,265 @@ function wireToolbar() {
     if (k === 'v') setTool('pan');
     else if (k === 'b') setTool('box');
     else if (k === 'e') clearAll();
+    else if (k === 'l') toggleLayers();
     else if (ev.key === 'Escape') { cancelDrag(); setTool('pan'); }
   });
+}
+
+/* ---- data layers: Photoshop-like toggles with opacity ----------------------------------------
+   Each layer can be turned on/off and its opacity adjusted. Layers stack on the map like
+   Photoshop layers. Available layers depend on what data we have for the region. */
+
+const LAYER_DEFS = [
+  { id: 'traffic',    label: 'Traffic',            icon: '🚗', defaultOn: false, defaultOpacity: 0.7 },
+  { id: 'population', label: 'Population density', icon: '👥', defaultOn: false, defaultOpacity: 0.5 },
+  { id: 'humidity',   label: 'Humidity',           icon: '💧', defaultOn: false, defaultOpacity: 0.6 },
+  { id: 'heat',       label: 'Heat index',         icon: '🌡', defaultOn: false, defaultOpacity: 0.6 },
+  { id: 'airquality', label: 'Air quality',        icon: '🌫', defaultOn: false, defaultOpacity: 0.5 },
+];
+
+const dataLayers = {};
+
+function toggleLayers() {
+  const el = $('layers');
+  el.hidden = !el.hidden;
+}
+
+function buildLayerPanel() {
+  const list = $('layer-list');
+  list.replaceChildren();
+  for (const def of LAYER_DEFS) {
+    const row = document.createElement('div');
+    row.className = 'layer-row';
+    row.dataset.layer = def.id;
+
+    const lbl = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = def.defaultOn;
+    cb.dataset.layer = def.id;
+    lbl.appendChild(cb);
+    lbl.appendChild(document.createTextNode(` ${def.label}`));
+    row.appendChild(lbl);
+
+    const opWrap = document.createElement('div');
+    opWrap.className = 'layer-opacity';
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = '0'; slider.max = '100'; slider.step = '5';
+    slider.value = String(Math.round(def.defaultOpacity * 100));
+    slider.dataset.layer = def.id;
+    const pct = document.createElement('span');
+    pct.textContent = slider.value + '%';
+    opWrap.appendChild(slider);
+    opWrap.appendChild(pct);
+    row.appendChild(opWrap);
+
+    cb.addEventListener('change', () => setLayerVisible(def.id, cb.checked));
+    slider.addEventListener('input', () => {
+      pct.textContent = slider.value + '%';
+      setLayerOpacity(def.id, parseInt(slider.value) / 100);
+    });
+
+    list.appendChild(row);
+    dataLayers[def.id] = { def, visible: def.defaultOn, opacity: def.defaultOpacity, instance: null };
+  }
+}
+
+function setLayerVisible(id, on) {
+  const l = dataLayers[id];
+  if (!l) return;
+  l.visible = on;
+  if (on) createLayer(id);
+  else destroyLayer(id);
+}
+
+function setLayerOpacity(id, opacity) {
+  const l = dataLayers[id];
+  if (!l) return;
+  l.opacity = opacity;
+  if (!l.instance) return;
+  if (id === 'traffic') {
+    // TrafficLayer has no setOpacity - use CSS on the map tiles
+    const tiles = document.querySelectorAll('#map img[src*="vt?pb"]');
+    tiles.forEach(t => { t.style.opacity = String(opacity); });
+  } else if (l.instance.setOpacity) {
+    l.instance.setOpacity(opacity);
+  } else if (l.instance.setStyle) {
+    refreshLayerStyle(id);
+  }
+}
+
+function createLayer(id) {
+  if (!state.map) return;
+  const l = dataLayers[id];
+  if (l.instance) return;
+
+  switch (id) {
+    case 'traffic':
+      l.instance = new google.maps.TrafficLayer();
+      l.instance.setMap(state.map);
+      break;
+
+    case 'population':
+      loadPopulationLayer();
+      break;
+
+    case 'humidity':
+      loadWeatherOverlay('humidity');
+      break;
+
+    case 'heat':
+      loadWeatherOverlay('heat');
+      break;
+
+    case 'airquality':
+      loadAirQualityLayer();
+      break;
+  }
+}
+
+function destroyLayer(id) {
+  const l = dataLayers[id];
+  if (!l || !l.instance) return;
+  if (l.instance.setMap) l.instance.setMap(null);
+  if (id === 'population' && l.markers) { l.markers.forEach(m => m.setMap(null)); l.markers = null; }
+  if (id === 'humidity' && l.markers) { l.markers.forEach(m => m.setMap(null)); l.markers = null; }
+  if (id === 'heat' && l.markers) { l.markers.forEach(m => m.setMap(null)); l.markers = null; }
+  l.instance = null;
+}
+
+function clearDataLayers() {
+  for (const id of Object.keys(dataLayers)) destroyLayer(id);
+}
+
+async function loadPopulationLayer() {
+  const l = dataLayers.population;
+  if (!state.region || !state.region.population) {
+    l.instance = { setMap: () => {} };
+    return;
+  }
+  try {
+    const res = await fetch(`/api/population-density?region=${encodeURIComponent(state.region.name)}`);
+    if (!res.ok) { l.instance = { setMap: () => {} }; return; }
+    const data = await res.json();
+    if (!l.visible) return;
+    const layer = new google.maps.Data({ map: state.map });
+    layer.addGeoJson(data.geojson);
+    layer.setStyle((f) => {
+      const d = f.getProperty('density');
+      const maxD = data.max_density || 1;
+      const ratio = Math.min(d / maxD, 1);
+      return {
+        fillColor: densityColor(ratio), fillOpacity: l.opacity * 0.7,
+        strokeWeight: 0, clickable: false, zIndex: -1,
+      };
+    });
+    l.instance = layer;
+  } catch { l.instance = { setMap: () => {} }; }
+}
+
+function densityColor(ratio) {
+  if (ratio > 0.8) return '#7c0a02';
+  if (ratio > 0.6) return '#c0392b';
+  if (ratio > 0.4) return '#e67e22';
+  if (ratio > 0.2) return '#f1c40f';
+  return '#2ecc71';
+}
+
+async function loadWeatherOverlay(type) {
+  const l = dataLayers[type];
+  try {
+    const res = await fetch(`/api/weather-grid?region=${encodeURIComponent(state.region.name)}&type=${type}`);
+    if (!res.ok) { l.instance = { setMap: () => {} }; return; }
+    const data = await res.json();
+    if (!l.visible) return;
+    const markers = [];
+    for (const pt of data.points) {
+      const color = type === 'humidity' ? humidityColor(pt.value) : heatColor(pt.value);
+      const m = new google.maps.Marker({
+        position: { lat: pt.lat, lng: pt.lng },
+        map: state.map,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          fillColor: color,
+          fillOpacity: l.opacity,
+          strokeWeight: 0,
+          scale: 18,
+        },
+        label: {
+          text: `${Math.round(pt.value)}${type === 'humidity' ? '%' : '°'}`,
+          fontSize: '10px', fontWeight: '600', color: '#fff',
+        },
+        clickable: false,
+        zIndex: -2,
+      });
+      markers.push(m);
+    }
+    l.markers = markers;
+    l.instance = { setMap: (m) => markers.forEach(mk => mk.setMap(m)) };
+  } catch { l.instance = { setMap: () => {} }; }
+}
+
+function humidityColor(v) {
+  if (v > 90) return '#1a5276';
+  if (v > 75) return '#2980b9';
+  if (v > 60) return '#5dade2';
+  if (v > 40) return '#85c1e9';
+  return '#aed6f1';
+}
+
+function heatColor(v) {
+  if (v > 40) return '#7c0a02';
+  if (v > 35) return '#c0392b';
+  if (v > 30) return '#e67e22';
+  if (v > 25) return '#f1c40f';
+  return '#27ae60';
+}
+
+function loadAirQualityLayer() {
+  const l = dataLayers.airquality;
+  if (!state.mapsApiKey) { l.instance = { setMap: () => {} }; return; }
+  const overlay = new google.maps.ImageMapType({
+    getTileUrl: (coord, zoom) =>
+      `https://airquality.googleapis.com/v1/mapTypes/UAQI_RED_GREEN/heatmapTiles/${zoom}/${coord.x}/${coord.y}?key=${state.mapsApiKey}`,
+    tileSize: new google.maps.Size(256, 256),
+    opacity: l.opacity,
+    name: 'airquality',
+  });
+  state.map.overlayMapTypes.push(overlay);
+  l.instance = overlay;
+  l.instance.setMap = (m) => {
+    if (!m) {
+      const types = state.map.overlayMapTypes;
+      for (let i = 0; i < types.getLength(); i++) {
+        if (types.getAt(i) === overlay) { types.removeAt(i); break; }
+      }
+    }
+  };
+}
+
+function refreshLayerStyle(id) {
+  const l = dataLayers[id];
+  if (!l || !l.instance) return;
+  if (id === 'population' && l.instance.setStyle) {
+    l.instance.setStyle((f) => {
+      const d = f.getProperty('density');
+      const maxD = 1;
+      const ratio = Math.min(d / maxD, 1);
+      return { fillColor: densityColor(ratio), fillOpacity: l.opacity * 0.7, strokeWeight: 0, clickable: false, zIndex: -1 };
+    });
+  }
+  if ((id === 'humidity' || id === 'heat') && l.markers) {
+    l.markers.forEach(m => {
+      const icon = m.getIcon();
+      icon.fillOpacity = l.opacity;
+      m.setIcon(icon);
+    });
+  }
+  if (id === 'airquality' && l.instance && l.instance.setOpacity) {
+    l.instance.setOpacity(l.opacity);
+  }
 }
 
 /* ---- map ------------------------------------------------------------------------------------ */
@@ -926,6 +1190,218 @@ function renderPeople(ex) {
       <ul>${ex.caveats.map((c) => `<li>${esc(c)}</li>`).join('')}</ul></details>`;
 }
 
+/* ---- heat tab: current and forecast heat conditions ----------------------------------------- */
+let heatFor = null;
+
+function loadHeat() {
+  if (!state.region) return;
+  const key = state.region.name;
+  if (heatFor === key) return;
+  heatFor = key;
+  $('heat-current').innerHTML = '<p class="muted small">Loading heat conditions…</p>';
+  $('heat-chart').hidden = true;
+  $('heat-forecast').innerHTML = '';
+  fetch(`/api/heat?region=${encodeURIComponent(key)}`)
+    .then(r => { if (!r.ok) throw new Error('heat data unavailable'); return r.json(); })
+    .then(data => { if (heatFor === key) renderHeat(data); })
+    .catch(() => {
+      if (heatFor === key)
+        $('heat-current').innerHTML = '<p class="muted small">Heat conditions are not available right now.</p>';
+    });
+}
+
+function renderHeat(data) {
+  const cur = data.current || {};
+  const level = data.current_level || {};
+  const peak = data.peak || {};
+  const peakLevel = data.peak_level || {};
+
+  const temp = cur.temperature_c != null ? `${Math.round(cur.temperature_c)}` : '—';
+  const hi = cur.heat_index_c != null ? `${Math.round(cur.heat_index_c)}` : null;
+  const hum = cur.humidity_pct != null ? `${Math.round(cur.humidity_pct)}%` : '—';
+  const wind = cur.wind_speed_kmh != null ? `${Math.round(cur.wind_speed_kmh)} km/h` : '—';
+  const dew = cur.dew_point_c != null ? `${Math.round(cur.dew_point_c)}°C` : '—';
+
+  const showTemp = hi || temp;
+  const label = hi ? 'Heat index' : 'Temperature';
+
+  $('heat-current').innerHTML = `
+    <span class="heat-level" style="background:${esc(level.color || '#27ae60')}">${esc(level.label || 'Normal')}</span>
+    <div><span class="heat-big">${esc(showTemp)}</span><span class="heat-unit">°C ${esc(label)}</span></div>
+    <div class="heat-details">
+      <div class="heat-stat"><span class="heat-stat-label">Temperature</span><span class="heat-stat-value">${esc(temp)}°C</span></div>
+      <div class="heat-stat"><span class="heat-stat-label">Humidity</span><span class="heat-stat-value">${esc(hum)}</span></div>
+      <div class="heat-stat"><span class="heat-stat-label">Wind</span><span class="heat-stat-value">${esc(wind)}</span></div>
+      <div class="heat-stat"><span class="heat-stat-label">Dew point</span><span class="heat-stat-value">${esc(dew)}</span></div>
+    </div>`;
+
+  if (peak.heat_index_c != null || peak.temperature_c != null) {
+    const pv = peak.heat_index_c != null ? Math.round(peak.heat_index_c) : Math.round(peak.temperature_c);
+    const pt = peak.time ? new Date(peak.time).toLocaleString([], { hour: '2-digit', minute: '2-digit', weekday: 'short' }) : '';
+    $('heat-current').innerHTML += `
+      <div class="heat-peak">
+        <b>Peak forecast:</b> ${pv}°C ${esc(peakLevel.label || '')} ${pt ? '— ' + esc(pt) : ''}
+      </div>`;
+  }
+
+  renderHeatChart(data);
+  renderHeatForecast(data);
+}
+
+function renderHeatChart(data) {
+  const el = $('heat-chart');
+  const hrs = data.hours || [];
+  if (hrs.length < 2) { el.hidden = true; return; }
+  el.hidden = false;
+
+  const vals = hrs.map(h => h.heat_index_c != null ? h.heat_index_c : h.temperature_c || 0);
+  const maxV = Math.max(...vals, 35);
+  const minV = Math.min(...vals, 20);
+  const range = maxV - minV || 1;
+
+  const tz = state.region && state.region.timezone;
+  const fmt = (iso) => {
+    try { return new Date(iso).toLocaleString([], { hour: '2-digit', hour12: false, timeZone: tz }); }
+    catch { return ''; }
+  };
+
+  const first = hrs[0].time ? fmt(hrs[0].time) : '';
+  const last = hrs[hrs.length - 1].time ? fmt(hrs[hrs.length - 1].time) : '';
+
+  el.innerHTML = `
+    <div class="heat-bars">${vals.map((v, i) => {
+      const pct = ((v - minV) / range * 100).toFixed(1);
+      const c = heatColor(v);
+      return `<div class="hbar" style="height:${pct}%;background:${c}" title="${Math.round(v)}°C"></div>`;
+    }).join('')}</div>
+    <div class="heat-axis"><span>${esc(first)}</span><span>${esc(last)}</span></div>`;
+}
+
+function renderHeatForecast(data) {
+  const el = $('heat-forecast');
+  const hrs = data.hours || [];
+  if (!hrs.length) { el.innerHTML = '<p class="muted small">No forecast data.</p>'; return; }
+
+  const tz = state.region && state.region.timezone;
+  const fmt = (iso) => {
+    try { return new Date(iso).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: tz }); }
+    catch { return iso; }
+  };
+
+  const step = Math.max(1, Math.floor(hrs.length / 8));
+  const rows = hrs.filter((_, i) => i % step === 0).map(h => {
+    const t = h.temperature_c != null ? `${Math.round(h.temperature_c)}°C` : '—';
+    const hi = h.heat_index_c != null ? `${Math.round(h.heat_index_c)}°C` : '—';
+    const hum = h.humidity_pct != null ? `${Math.round(h.humidity_pct)}%` : '—';
+    return `<div class="line"><span class="muted">${esc(fmt(h.time))}</span> <span class="num">${esc(t)}</span> HI ${esc(hi)} Hum ${esc(hum)}</div>`;
+  });
+  el.innerHTML = rows.join('');
+}
+
+/* ---- air quality (Google Air Quality API) ---------------------------------------------------- */
+let airFor = null;
+
+function loadAir() {
+  if (!state.region) return;
+  const key = state.region.name;
+  if (airFor === key) return;
+  airFor = key;
+  $('air-current').innerHTML = '<p class="muted small">Loading air quality…</p>';
+  $('air-chart').hidden = true;
+  $('air-pollutants').hidden = true;
+  $('air-health').hidden = true;
+  fetch(`/api/air-quality-current?region=${encodeURIComponent(key)}`)
+    .then(r => { if (!r.ok) throw new Error('air quality unavailable'); return r.json(); })
+    .then(data => { if (airFor === key) renderAir(data); })
+    .catch(() => {
+      if (airFor === key)
+        $('air-current').innerHTML = '<p class="muted small">Air quality data is not available right now. The Air Quality API may need to be enabled in the GCP project.</p>';
+    });
+}
+
+function aqiColor(aqi) {
+  if (aqi == null) return '#999';
+  if (aqi <= 50) return '#68bc00';
+  if (aqi <= 100) return '#f5c400';
+  if (aqi <= 150) return '#f47920';
+  if (aqi <= 200) return '#dc3545';
+  if (aqi <= 300) return '#8b3f9e';
+  return '#7e0023';
+}
+
+function renderAir(data) {
+  if (data.error || data.aqi == null) {
+    $('air-current').innerHTML = `<p class="muted small">${esc(data.error || 'Air quality data is not available.')}</p>`;
+    return;
+  }
+
+  const aqi = data.aqi;
+  const cat = data.category || 'Unknown';
+  const color = data.category_color || aqiColor(aqi);
+  const pollutant = data.dominant_pollutant || '—';
+
+  $('air-current').innerHTML = `
+    <span class="air-badge" style="background:${esc(color)}">${esc(cat)}</span>
+    <div><span class="air-big">${aqi}</span><span class="air-unit"> AQI</span></div>
+    <div class="air-details">
+      <div class="air-stat"><span class="air-stat-label">Dominant pollutant</span><span class="air-stat-value">${esc(pollutant.toUpperCase().replace('_', '.'))}</span></div>
+      <div class="air-stat"><span class="air-stat-label">Source</span><span class="air-stat-value">${esc(data.source || 'Google')}</span></div>
+    </div>`;
+
+  renderAirPollutants(data);
+  renderAirChart(data);
+  renderAirHealth(data);
+}
+
+function renderAirPollutants(data) {
+  const el = $('air-pollutants');
+  const polls = data.pollutants || [];
+  if (!polls.length) { el.hidden = true; return; }
+  el.hidden = false;
+  const rows = polls.map(p => {
+    const name = p.display_name || p.code || '';
+    const conc = p.concentration != null ? `${p.concentration} ${p.unit || ''}`.trim() : '—';
+    return `<div class="air-poll-row"><span>${esc(name)}</span><span>${esc(conc)}</span></div>`;
+  });
+  el.innerHTML = `<h3>Pollutants</h3>${rows.join('')}`;
+}
+
+function renderAirChart(data) {
+  const el = $('air-chart');
+  const fcast = data.forecast || [];
+  if (fcast.length < 2) { el.hidden = true; return; }
+  el.hidden = false;
+
+  const vals = fcast.map(f => f.aqi || 0);
+  const maxV = Math.max(...vals, 100);
+
+  const tz = state.region && state.region.timezone;
+  const fmt = (iso) => {
+    try { return new Date(iso).toLocaleString([], { hour: '2-digit', hour12: false, timeZone: tz }); }
+    catch { return ''; }
+  };
+
+  const first = fcast[0].time ? fmt(fcast[0].time) : '';
+  const last = fcast[fcast.length - 1].time ? fmt(fcast[fcast.length - 1].time) : '';
+
+  el.innerHTML = `
+    <div class="air-bars">${vals.map(v => {
+      const pct = (v / maxV * 100).toFixed(1);
+      return `<div class="abar" style="height:${pct}%;background:${aqiColor(v)}" title="AQI ${v}"></div>`;
+    }).join('')}</div>
+    <div class="air-axis"><span>${esc(first)}</span><span>${esc(last)}</span></div>`;
+}
+
+function renderAirHealth(data) {
+  const el = $('air-health');
+  const recs = data.health_recommendations || {};
+  const entries = Object.entries(recs).filter(([_, v]) => v);
+  if (!entries.length) { el.hidden = true; return; }
+  el.hidden = false;
+  const rows = entries.map(([k, v]) => `<p><b>${esc(k.replace(/([A-Z])/g, ' $1').trim())}:</b> ${esc(v)}</p>`);
+  el.innerHTML = `<h3>Health recommendations</h3>${rows.join('')}`;
+}
+
 /* ---- in the news now (A13) -----------------------------------------------------------------
    Its own tab. Context only: it changes no number anywhere. The news index is slow (tens of seconds
    on a cold hit), so the server answers from a cache and, when it has nothing yet, says "pending";
@@ -1032,7 +1508,7 @@ function renderNews(d) {
    claim names the headlines behind it (shown as links), and the server deletes any claim that cites
    nothing or carries a figure no headline has. Display-only, like the rest of News: it changes no
    number on the map, and it says so. Questions can span topics (flooding, heat, traffic, air). */
-const newsChat = { busy: false, abort: null, history: [] };
+const newsChat = { busy: false, abort: null, history: [], run: 0 };
 const MAX_NEWS_HISTORY = 4;
 const NEWS_SUGGESTIONS = [
   'What has been reported this week?',
@@ -1144,6 +1620,7 @@ async function askNews(q) {
   const ctl = new AbortController();
   newsChat.abort = ctl;
   newsChat.busy = true;
+  const run = ++newsChat.run;
   setNewsBusy(true);
   let finished = false;
   try {
@@ -1175,9 +1652,11 @@ async function askNews(q) {
       ? '<p class="muted small">Stopped.</p>'
       : `<p class="a-error">${esc(err.message)}</p>`;
   } finally {
-    newsChat.busy = false;
-    newsChat.abort = null;
-    setNewsBusy(false);
+    if (newsChat.run === run) {
+      newsChat.busy = false;
+      newsChat.abort = null;
+      setNewsBusy(false);
+    }
     newsToBottom();
   }
 }
@@ -1259,6 +1738,8 @@ function setTab(name) {
   if (name === 'details') $('tab-details').querySelector('.dot').hidden = true;
   if (name === 'agent') toBottom();
   if (name === 'news') loadNews();                 // lazy: the news index is only asked when wanted
+  if (name === 'heat') loadHeat();                 // lazy: heat data is only fetched when wanted
+  if (name === 'air') loadAir();                   // lazy: AQI data is only fetched when wanted
 }
 
 function wireTabs() {

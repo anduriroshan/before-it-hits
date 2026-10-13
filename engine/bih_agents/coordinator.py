@@ -225,6 +225,37 @@ def _build_city_answer(spec, preset_results, region_title):
     return "\n".join(lines)
 
 
+def _add_supplementary_hazards(bundle: dict, region, bbox, trace: Trace) -> None:
+    """Best-effort: fetch heat and air quality for the region centre, add to the facts bundle.
+    Failures here never block the flood analysis."""
+    if region is None:
+        return
+    w, s, e, n = region.bounds
+    lat, lon = (s + n) / 2, (w + e) / 2
+
+    try:
+        from bih_engine import heat as heat_mod
+        t0 = time.perf_counter()
+        hf = heat_mod.fetch(lat, lon, hours=48)
+        hdata = hf.as_dict()
+        facts.add_heat(bundle, hdata)
+        trace.add("Heat", "ok", int((time.perf_counter() - t0) * 1000),
+                  f"Heat index {hdata['current'].get('heat_index_c')}°C, "
+                  f"level: {hdata['current_level'].get('label')}.")
+    except Exception as exc:
+        trace.add("Heat", "unavailable", 0, str(exc)[:120])
+
+    try:
+        from bih_engine import air_quality as aq_mod
+        t0 = time.perf_counter()
+        aqdata = aq_mod.for_region(lat, lon)
+        facts.add_air_quality(bundle, aqdata)
+        trace.add("Air quality", "ok", int((time.perf_counter() - t0) * 1000),
+                  f"AQI {aqdata.get('aqi')}, {aqdata.get('category')}.")
+    except Exception as exc:
+        trace.add("Air quality", "unavailable", 0, str(exc)[:120])
+
+
 def run(*, question: str, bbox, region, slider_mm: float = 100.0,
         return_period: int | None = 50, res_m: float = 10.0, emit=None,
         history=None, area_label: str | None = None, place_resolved: str | None = None) -> dict:
@@ -342,6 +373,9 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
         rainfall_facts["falling_now_at_gauges"] = observed
     bundle = facts.build(result, question=question, rainfall=rainfall_facts,
                          region_title=region_title)
+
+    # --- supplementary hazards: heat + air quality, best-effort -------------------------
+    _add_supplementary_hazards(bundle, region, bbox, trace)
 
     out = _reply(question, spec, trace, kind="analysis", facts=bundle, result=result,
                  rain_profile=rain_profile, rain_profile_start=profile_start,

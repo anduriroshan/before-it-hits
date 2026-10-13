@@ -370,6 +370,87 @@ def rainfall_now(region: str | None = None, bbox: str | None = None) -> dict:
         raise HTTPException(503, str(exc)) from exc
 
 
+@app.get("/api/heat")
+def heat_forecast(region: str | None = None) -> dict:
+    """Heat conditions forecast for the region centre: current + 48h ahead.
+
+    For the Heat tab. Uses the same Weather API as the rainfall forecast but
+    extracts temperature, humidity, heat index and wind conditions."""
+    from bih_engine import heat
+    r = region_or_404(region)
+    try:
+        result = heat.for_bbox(r.bounds)
+        return result.as_dict()
+    except heat.HeatUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/api/weather-grid")
+def weather_grid(region: str | None = None, type: str = "heat") -> dict:
+    """Current temperature, humidity and heat index on a sparse grid across the region.
+
+    For the layer overlay. Uses the same Weather API as the forecast but extracts conditions
+    instead of precipitation. `type` is 'heat' or 'humidity'."""
+    from bih_engine import weather_grid as wg
+    r = region_or_404(region)
+    try:
+        data = wg.grid(r.bounds, grid_size=3)
+    except wg.WeatherUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+    key = "heat_index_c" if type == "heat" else "humidity_pct"
+    fallback_key = "temperature_c" if type == "heat" else "humidity_pct"
+    points = []
+    for pt in data.get("points", []):
+        val = pt.get(key) or pt.get(fallback_key)
+        if val is not None:
+            points.append({"lat": pt["lat"], "lng": pt["lng"], "value": val})
+    return {"points": points, "source": data.get("source", ""), "time": data.get("time")}
+
+
+@app.get("/api/population-density")
+def population_density(region: str | None = None) -> dict:
+    """Population density grid for the layer overlay."""
+    from bih_engine import density
+    from bih_engine.terrain import utm_crs_for
+    r = region_or_404(region)
+    pop = r.manifest.get("population")
+    if not pop:
+        return {"available": False, "reason": "no population data for this region"}
+    osm = r.read_osm(r.bounds)
+    if not osm.buildings:
+        return {"available": False, "reason": "no buildings staged for this region"}
+    w, s, e, n = r.bounds
+    crs = utm_crs_for((w + e) / 2, (s + n) / 2)
+    return density.grid(r.bounds, pop, osm.buildings, crs)
+
+
+@app.get("/api/air-quality")
+def air_quality(region: str | None = None) -> dict:
+    """Air quality tile URL for the layer overlay.
+
+    Returns a tile URL template that the browser fetches directly (browser key, referrer-restricted).
+    The Air Quality API must be enabled in the GCP project for tiles to load."""
+    r = region_or_404(region)
+    return {"available": True, "source": "Google Air Quality API",
+            "note": "Tiles are fetched by the browser using the Maps API key. "
+                    "The Air Quality API must be enabled in the GCP project."}
+
+
+@app.get("/api/air-quality-current")
+def air_quality_current(region: str | None = None) -> dict:
+    """Current AQI, dominant pollutant, forecast, and health recommendations."""
+    from bih_engine import air_quality as aq
+    r = region_or_404(region)
+    w, s, e, n = r.bounds
+    lat, lon = (s + n) / 2, (w + e) / 2
+    try:
+        return aq.for_region(lat, lon)
+    except aq.AirQualityUnavailable as exc:
+        return {"aqi": None, "category": "Unavailable", "error": str(exc),
+                "source": "Google Air Quality API",
+                "caveats": ["Air quality data is not available — the API may not be enabled."]}
+
+
 @app.get("/api/config")
 def config() -> dict:
     """The browser needs the Maps key. It is referrer-restricted and public by design:

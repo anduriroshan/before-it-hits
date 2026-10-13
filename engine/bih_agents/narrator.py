@@ -54,6 +54,10 @@ Hard rules, each of which is checked afterwards by a separate agent:
 8. The caveat must say that this is a terrain screening at the stated grid size, and that
    stormwater drains are not in the data.
 
+The JSON may include heat and air quality data alongside the flood findings. If they are present
+and relevant to the question, mention them briefly - but keep the hazards separate, never blend
+them into the flood ranking. Heat index and AQI are the provider's figures, attributed.
+
 Answer the question in the JSON. At most {MAX_BULLETS} bullets, one claim each, plainest English,
 no adjectives doing work the figures should do.
 

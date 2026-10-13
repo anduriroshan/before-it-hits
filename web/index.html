@@ -34,6 +34,20 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v3h5.5v12h3V7H19V4z"/></svg>
       <span id="labels-mode">Clean</span>
     </button>
+    <div class="tool-sep"></div>
+    <button class="tool" data-action="layers" title="Toggle data layers (L)">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.99 18.54l-7.37-5.73L3 14.07l9 7 9-7-1.63-1.27zM12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27z"/></svg>
+      <span>Layers</span>
+    </button>
+  </div>
+
+  <!-- Layer panel: Photoshop-like layer toggles with opacity sliders, floating over the map. -->
+  <div id="layers" class="layers-panel" hidden>
+    <button class="collapse" data-collapse="layers" title="Hide layers" aria-expanded="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z"/></svg>
+    </button>
+    <strong class="layers-title">Layers</strong>
+    <div id="layer-list" class="layer-list"></div>
   </div>
 
   <!-- Shown only while the box tool is armed: the one moment the map needs an instruction. -->
@@ -95,6 +109,8 @@
     <button type="button" role="tab" id="tab-agent" data-tab="agent" aria-selected="true" aria-controls="pane-agent">Agent</button>
     <button type="button" role="tab" id="tab-rain" data-tab="rain" aria-selected="false" aria-controls="pane-rain" tabindex="-1">Rain</button>
     <button type="button" role="tab" id="tab-details" data-tab="details" aria-selected="false" aria-controls="pane-details" tabindex="-1">Details<span class="dot" hidden></span></button>
+    <button type="button" role="tab" id="tab-heat" data-tab="heat" aria-selected="false" aria-controls="pane-heat" tabindex="-1">Heat</button>
+    <button type="button" role="tab" id="tab-air" data-tab="air" aria-selected="false" aria-controls="pane-air" tabindex="-1">Air</button>
     <button type="button" role="tab" id="tab-news" data-tab="news" aria-selected="false" aria-controls="pane-news" tabindex="-1">News</button>
   </nav>
 
@@ -244,6 +260,37 @@
       <footer>
         <p class="small muted" id="credits"></p>
       </footer>
+    </div>
+  </section>
+
+  <!-- ===== Heat: current and forecast heat conditions ===== -->
+  <section id="pane-heat" class="tabpane scroll" role="tabpanel" aria-labelledby="tab-heat" hidden>
+    <div class="pane-pad">
+      <h2 class="pane-title">Heat conditions</h2>
+      <div id="heat-current" class="heat-current"></div>
+      <div id="heat-chart" class="heat-chart" hidden></div>
+      <details class="card">
+        <summary>Forecast details</summary>
+        <div class="card-body"><div id="heat-forecast" class="forecast"></div></div>
+      </details>
+      <p class="muted tiny">Heat index from the Google Weather API forecast at the city centre.
+        Not a measured temperature at any specific spot. Actual conditions vary significantly
+        within an urban area due to land cover, shade and building density.</p>
+    </div>
+  </section>
+
+  <!-- ===== Air: current AQI and forecast ===== -->
+  <section id="pane-air" class="tabpane scroll" role="tabpanel" aria-labelledby="tab-air" hidden>
+    <div class="pane-pad">
+      <h2 class="pane-title">Air quality</h2>
+      <div id="air-current" class="air-current"></div>
+      <div id="air-chart" class="air-chart" hidden></div>
+      <div id="air-pollutants" class="air-pollutants" hidden></div>
+      <div id="air-health" class="air-health" hidden></div>
+      <p class="muted tiny">AQI and pollutant concentrations from the Google Air Quality API at the
+        city centre. Values are the provider's, shown as published. Air quality is a regional
+        reading — it does not vary at building level. This product does not predict health effects
+        for any individual.</p>
     </div>
   </section>
 

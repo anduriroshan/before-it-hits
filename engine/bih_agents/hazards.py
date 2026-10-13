@@ -15,6 +15,20 @@ HAZARDS = [
                 "roughly how many people live there",
         "example": "Will {place} flood tonight?",
     },
+    {
+        "id": "heat",
+        "label": "Heat stress",
+        "what": "current and forecast heat index, temperature and humidity conditions, "
+                "and whether the heat level is in a caution, warning or danger zone",
+        "example": "How hot will {place} be today?",
+    },
+    {
+        "id": "air",
+        "label": "Air quality",
+        "what": "current AQI, dominant pollutant and concentration levels, "
+                "plus an hourly AQI forecast",
+        "example": "How is the air quality in {place}?",
+    },
 ]
 
 

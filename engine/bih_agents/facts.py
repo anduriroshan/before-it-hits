@@ -237,3 +237,45 @@ def build(result: dict, *, question: str, rainfall: dict, region_title: str | No
 
     assert_no_own_depth(bundle)
     return bundle
+
+
+def add_heat(bundle: dict, heat_data: dict) -> None:
+    """Append heat conditions to a facts bundle. The Verifier's number check covers these
+    automatically — every number must trace to the bundle."""
+    cur = heat_data.get("current") or {}
+    peak = heat_data.get("peak") or {}
+    cur_level = heat_data.get("current_level") or {}
+    peak_level = heat_data.get("peak_level") or {}
+
+    bundle["heat"] = {
+        "heat_index_c": tidy(cur.get("heat_index_c")),
+        "temperature_c": tidy(cur.get("temperature_c")),
+        "humidity_pct": tidy(cur.get("humidity_pct")),
+        "wind_speed_kmh": tidy(cur.get("wind_speed_kmh")),
+        "level": cur_level.get("label", "Normal"),
+        "peak_heat_index_c": tidy(peak.get("heat_index_c") or peak.get("temperature_c")),
+        "peak_level": peak_level.get("label", "Normal"),
+        "source": heat_data.get("source", "Google Weather API"),
+        "note": "Heat index from the weather forecast at the city centre. Not a measured "
+                "temperature at any specific spot.",
+    }
+
+
+def add_air_quality(bundle: dict, aq_data: dict) -> None:
+    """Append air quality conditions to a facts bundle."""
+    bundle["air_quality"] = {
+        "aqi": tidy(aq_data.get("aqi")),
+        "category": aq_data.get("category", "Unknown"),
+        "dominant_pollutant": aq_data.get("dominant_pollutant"),
+        "source": aq_data.get("source", "Google Air Quality API"),
+        "note": "AQI is a regional reading from the provider, shown as published. It does not "
+                "vary at building level.",
+    }
+    polls = aq_data.get("pollutants", [])
+    if polls:
+        bundle["air_quality"]["pollutants"] = [
+            {"name": p.get("display_name", p.get("code", "")),
+             "concentration": tidy(p.get("concentration")),
+             "unit": p.get("unit", "")}
+            for p in polls[:5]
+        ]
