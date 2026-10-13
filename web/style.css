@@ -127,8 +127,11 @@ footer { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 12px;
 .rank.s2, .s2 { background: var(--p2); color: var(--ink) !important; }
 .rank.s1, .s1 { background: var(--p1); color: var(--ink) !important; }
 
+/* Top-right, just under Google's map-type dropdown: the bottom of the map belongs to the storm
+   scrubber, the left to the tools, and the centre-right to Google's zoom buttons. Only shown once
+   there is something on the map for it to explain. */
 #legend {
-  position: absolute; bottom: 24px; left: 16px; z-index: 5;
+  position: absolute; top: 64px; right: 12px; z-index: 5;
   background: rgba(255,255,255,.95); border: 1px solid var(--line); border-radius: 10px;
   padding: 10px 12px; font-size: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.08); max-width: 230px;
 }
@@ -311,6 +314,17 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 .pb-row b { color: var(--accent); }
 .pb-bar { height: 7px; border-radius: 999px; background: var(--line); margin: 5px 0 2px; overflow: hidden; }
 .pb-bar span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+.prep-ba { margin: 10px 0 12px; padding: 12px 14px; background: #f3faf5; border: 1px solid #cfe8d8; border-radius: 12px; }
+.ba-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.ba-cols { display: flex; justify-content: flex-end; font-size: 11px; color: var(--faint); margin-bottom: 2px; }
+.ba-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 5px 0; border-top: 1px solid #dcefe2; font-size: 13px; }
+.ba-vals { display: inline-flex; align-items: baseline; gap: 7px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ba-before { color: var(--muted); }
+.ba-arrow { color: var(--faint); }
+.ba-after { color: #0a7d34; font-size: 14.5px; }
+.ba-share { margin: 8px 0 8px; }
+.ba-btn { margin-top: 2px; }
+.ba-btn[aria-pressed="true"] { background: #0a7d34; border-color: #0a7d34; }
 .prep-items { list-style: none; margin: 0 0 8px; padding: 0; }
 .prep-items li { display: flex; align-items: baseline; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); }
 .prep-items li:first-child { border-top: none; }
@@ -417,6 +431,8 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 }
 .chip:hover { border-color: var(--accent); color: var(--accent); }
 .chip-alt { color: var(--accent); border-color: #b9dce6; background: #f0f9fc; }
+.chip-static { background: #e3f2f6; border-color: #b9dce6; color: var(--accent); font-weight: 600; cursor: default; }
+.chip-static:hover { border-color: #b9dce6; color: var(--accent); }
 
 /* The working block. It is open while the agents run and folds to one line when they finish; the
    checking stays one click away, because a briefing that was checked and one that was not look
@@ -512,6 +528,22 @@ details.block > :not(summary) { margin: 2px 0 8px; }
   background: var(--accent); color: #fff; border-color: var(--accent);
 }
 
+/* ---- News: headlines above, a chat below ------------------------------------------------------ */
+.news-feed { flex: 0 1 auto; max-height: 44%; overflow-y: auto; padding: 12px 16px 10px; border-bottom: 1px solid var(--line); }
+.news-feed .pane-title { margin: 0 0 8px; }
+.news-topics { margin: 0 0 8px; }
+.news-topics .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.news-chat { flex: 1 1 0; min-height: 140px; }
+.news-claims { margin: 0 0 8px; }
+.src-chip {
+  display: inline-block; margin: 0 3px 2px 0; padding: 0 7px; font-size: 10.5px; line-height: 17px;
+  border: 1px solid #b9dce6; border-radius: 999px; background: #f0f9fc; color: var(--accent);
+  text-decoration: none; vertical-align: 1px;
+}
+.src-chip:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+div.work { display: flex; align-items: center; gap: 8px; font-size: 12.5px; margin: 0; }
+.work-label { color: var(--muted); }
+
 /* ---- composer -------------------------------------------------------------------------------- */
 .composer { flex: 0 0 auto; padding: 8px 14px 12px; border-top: 1px solid var(--line); background: var(--card); }
 .composer-box {
@@ -544,11 +576,6 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 .rc-axis { display: flex; justify-content: space-between; margin-top: 3px; font-size: 10.5px; color: var(--faint); }
 .rc-foot { margin-top: 6px; }
 .chat-fine { margin-top: 12px !important; }
-
-/* On a narrower map the legend steps up out of the way of the road scrubber, so they never overlap. */
-@media (max-width: 1360px) {
-  #mapwrap:has(#tl-float:not([hidden])) #legend { bottom: 150px; }
-}
 
 /* ---- plain-language cards: one idea each, folded away until wanted -------------------------- */
 .card { border: 1px solid var(--line); border-radius: 12px; margin: 0 0 10px; background: #fff; }

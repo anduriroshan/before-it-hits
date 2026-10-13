@@ -42,6 +42,76 @@ def _measure_for(rank: int, is_worst: bool, measures: dict) -> str | None:
     return None
 
 
+# Measures that act on the water at a spot. A barricade keeps vehicles out of a low stretch; it does
+# not drain it, reopen the road or move anyone, so it is not counted as reducing exposure.
+REDUCING_MEASURES = ("clear_outlet_drain", "pre_position_pump")
+
+
+def treated_spot_ids(plan: dict) -> list[str]:
+    """The spots whose pooling a plan's measures act on, for the best-case 'after' run."""
+    return [it["spot_id"] for it in plan.get("items", []) if it["op"] in REDUCING_MEASURES]
+
+
+def _top_filling(result: dict) -> set[str]:
+    return {f["properties"]["id"] for f in result.get("geojson", {}).get("features", [])
+            if f["properties"]["pooling_index"] >= TOP_RANK and f["properties"].get("fills_at_rainfall")}
+
+
+def _road_km(result: dict) -> float:
+    return round(sum(r["length_m"] for r in result["screening"].get("routes_affected", [])) / 1000.0, 1)
+
+
+def _nearest_5_pct(before: float, after: float) -> int | None:
+    if not before:
+        return None
+    return int(round(100.0 * (1.0 - after / before) / 5.0) * 5)
+
+
+def before_after(baseline: dict, after: dict, plan: dict) -> dict:
+    """F10: the same box with and without the preparations - the difference in exposure.
+
+    `baseline` is the analysis as it is; `after` is the same analysis re-run with the spots the
+    plan acts on taken out of the exposed set (see `analyse_grid(treated=...)`). Everything in the
+    comparison is therefore computed by the engine, twice, and subtracted: no model, no estimate of
+    what a pump achieves.
+
+    It is a BEST CASE. It assumes each measure fully takes its spot out of the flood, which a pump
+    or a cleared drain will rarely do completely, and the screening has no storm-drain data to say how
+    much any of them would help. So it is an upper bound on what the plan can buy, and says so.
+    """
+    ids = treated_spot_ids(plan)
+    if not ids:
+        return {"available": False,
+                "reason": "the plan lists only barricades, which keep traffic out of a low stretch "
+                          "but do not reduce what the water reaches, so there is no before and after"}
+    spots_b, spots_a = len(_top_filling(baseline)), len(_top_filling(after))
+    out = {
+        "available": True,
+        "best_case": True,
+        "treated_spot_ids": ids,
+        "measures_counted": len(ids),
+        "measures_not_counted": len(plan.get("items", [])) - len(ids),
+        "worst_spots_that_fill": {"before": spots_b, "after": spots_a},
+        "road_km_through_worst_spots": {"before": _road_km(baseline), "after": _road_km(after)},
+        "people_in_worst_spots": None,
+        "limits": [
+            "A best case: it assumes every counted measure fully takes its spot out of the flood. A "
+            "pump or a cleared drain reduces a problem and rarely ends it.",
+            "Barricades keep vehicles out of a low stretch; they do not reduce who is exposed or "
+            "reopen the road, so they are not counted here.",
+            "No storm-drain data exists, so how much any measure helps is not modelled - only how "
+            "much of the exposure it acts on.",
+        ],
+    }
+    eb, ea = baseline.get("exposure") or {}, after.get("exposure") or {}
+    if eb.get("available") and ea.get("available"):
+        out["people_in_worst_spots"] = {"before": eb["people_in_worst_spots"],
+                                        "after": ea["people_in_worst_spots"],
+                                        "share_addressed_pct": _nearest_5_pct(
+                                            eb["people_in_worst_spots"], ea["people_in_worst_spots"])}
+    return out
+
+
 def rank(result: dict, capabilities: dict | None) -> dict:
     """A greedy preparation plan for one drawn box, capped by the documented budget.
 

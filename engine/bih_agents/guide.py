@@ -12,13 +12,23 @@ Fails closed: if no clean answer can be had, the caller shows a fixed fallback i
 """
 from __future__ import annotations
 
-from . import facts, llm, scenario
+from . import facts, hazards, llm, scenario
 
-REFERENCE = """WHAT THIS PRODUCT IS
-Before It Hits is a flood-screening tool. For an area on the map it shows where rain water would
-collect, which roads run through those places, and roughly how many people live there. It works
-from terrain (elevation) data at about 30 m resolution, OpenStreetMap roads and buildings, and a
-live rainfall forecast. It is for preparation and planning, never for live dispatch or evacuation.
+REFERENCE = f"""WHAT THIS PRODUCT IS
+Before It Hits shows what a hazard could do to a part of a city before it arrives. It is for
+preparation and planning, never for live dispatch or evacuation. The hazards it can screen today:
+{hazards.labels()}. If someone asks about a hazard that is not in that list, say plainly that it is
+not available yet and do not describe how it would work.
+
+For rain and flooding, an area on the map shows where rain water would collect, which roads run
+through those places, and roughly how many people live there. It works from terrain (elevation) data
+at about 30 m resolution, OpenStreetMap roads and buildings, and a live rainfall forecast.
+
+THE PARTS OF THE SCREEN
+- The Agent tab is a chat. Ask about a place, a whole city, or what any term means.
+- The Rain tab shows the forecast. The Details tab holds the findings behind an answer.
+- The News tab lists recent news reports about the city, and lets you ask questions about them. News
+  is context only: it is never stored and it changes no figure on the map.
 
 HOW TO READ WHAT IT SHOWS
 - A "low spot" or "pooling spot" is a hollow in the terrain where rain runoff collects.
@@ -36,6 +46,9 @@ HOW TO READ WHAT IT SHOWS
 - For Kochi, the Kerala State Disaster Management Authority publishes flood depth maps. They can be
   shown alongside our ranking, as published, and are never merged into it.
 - For Kochi, a preparation plan ranks measures a city can afford from its documented budget lines.
+  Beside it, a before-and-after view shows the best case: how many worst spots, people and road
+  stretches would be left if every listed measure fully worked. It is an upper bound on what the plan
+  could do, not a forecast, because a pump or an unblocked drain reduces a problem and rarely ends it.
 - The live rainfall forecast comes from the Google Weather API. It is a model prediction for one
   point at the centre of the area, not a measurement. Singapore also has live rain gauges.
 
@@ -53,7 +66,7 @@ WHAT IT DELIBERATELY DOES NOT CLAIM
 COVERAGE
 Two cities are set up: Kochi in India and Singapore. A place outside them cannot be analysed yet."""
 
-SYSTEM = """You answer a question about a flood-screening product for someone who is not an expert,
+SYSTEM = """You answer a question about a hazard-screening product for someone who is not an expert,
 using ONLY the reference below and the conversation so far.
 
 Rules, each checked afterwards:

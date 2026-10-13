@@ -190,6 +190,7 @@
           <p class="muted small" id="prep-sub"></p>
           <div id="prep-budget" class="prep-budget"></div>
           <ol id="prep-items" class="prep-items"></ol>
+          <div id="prep-ba" class="prep-ba" hidden></div>
           <div id="prep-note" class="prep-note" hidden></div>
           <details id="prep-infeasible" class="block" hidden>
             <summary>Not within this budget line</summary>
@@ -247,13 +248,26 @@
   </section>
 
   <!-- ===== News ===== -->
-  <section id="pane-news" class="tabpane scroll" role="tabpanel" aria-labelledby="tab-news" hidden>
-    <div class="pane-pad">
-      <h2 class="pane-title">In the news <span class="muted">about floods in this city</span></h2>
-      <p class="muted small">Recent reports from the GDELT news index, for context. Nothing here changes
+  <section id="pane-news" class="tabpane" role="tabpanel" aria-labelledby="tab-news" hidden>
+    <div class="news-feed">
+      <h2 class="pane-title">In the news <span class="muted">in this city</span></h2>
+      <div id="news-topics" class="chips news-topics" role="group" aria-label="News topic"></div>
+      <p class="muted tiny">Recent reports from the GDELT news index, for context. Nothing here changes
         the numbers on the map.</p>
       <div id="news-body"><p class="muted small">Opens when you visit this tab.</p></div>
     </div>
+    <div id="news-chat" class="chat news-chat" role="log" aria-live="polite" aria-label="Conversation about the news"></div>
+    <form id="news-composer" class="composer" autocomplete="off">
+      <div class="composer-box">
+        <textarea id="news-question" rows="1" maxlength="400"
+                  placeholder="Ask what is happening, or what happened…" aria-label="Ask about the news"></textarea>
+        <button id="news-send" type="submit" class="send" aria-label="Send" title="Send (Enter)"></button>
+      </div>
+      <div class="composer-foot">
+        <span>Answers come only from the headlines. No figure here changes the map.</span>
+        <button type="button" id="news-new" class="linkbtn">New chat</button>
+      </div>
+    </form>
   </section>
 </aside>
 

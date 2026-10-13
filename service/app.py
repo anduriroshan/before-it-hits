@@ -246,6 +246,15 @@ def preparations_for_box(req: PreparationsRequest) -> dict:
     res.pop("debug", None)
     res.pop("debug_excluded", None)
     plan = prep.rank(res, r.preparations)
+    if plan.get("available") and plan.get("items"):
+        # F10: the same box again, with the spots the plan acts on taken out of the exposed set.
+        ids = prep.treated_spot_ids(plan)
+        if ids:
+            after = analyse_area((w, s, e, n), rainfall_mm=req.rainfall_mm, res_m=10.0, region=r,
+                                 treated=set(ids))
+            plan["before_after"] = prep.before_after(res, after, plan)
+        else:
+            plan["before_after"] = prep.before_after(res, res, plan)
     if llm.available() and plan.get("available") and plan.get("items"):
         note = planner.write(r.manifest.get("title") or r.name, plan)
         if note:
@@ -254,18 +263,76 @@ def preparations_for_box(req: PreparationsRequest) -> dict:
 
 
 @app.get("/api/news")
-def news_for_region(region: str | None = None) -> dict:
+def news_for_region(region: str | None = None, topic: str = "flood") -> dict:
     """Live news about the city, for context only. A separate call from everything else: it is the
-    grounded, display-only path and must never be able to slow or break the screening."""
-    from bih_agents import news
+    grounded, display-only path and must never be able to slow or break the screening.
+
+    `topic` is one of the news agent's topics (flooding by default); the query is ours, never the
+    caller's."""
+    from bih_agents import news, news_agent
+    if topic not in news_agent.TOPICS:
+        raise HTTPException(422, f"unknown topic {topic!r}; choose one of: {', '.join(news_agent.TOPICS)}")
     r = region_or_404(region)
-    got = news.get(r.name, r.manifest.get("title") or r.name, query=r.manifest.get("news_query"))
+    title = r.manifest.get("title") or r.name
+    query = news_agent.topic_query(topic, title.split(",")[0].strip(), r.manifest.get("news_query"))
+    got = news.get(news_agent.cache_key(r.name, topic), title, query=query)
     if got["status"] == "ok":
-        return {**got["data"], "age_s": got["age_s"], "stale": got["stale"]}
+        return {**got["data"], "age_s": got["age_s"], "stale": got["stale"], "topic": topic}
     if got["status"] == "pending":
         # The index is slow; the browser asks again rather than hold a request open for a minute.
         return JSONResponse({"pending": True}, status_code=202)
     raise HTTPException(503, got.get("error") or "the news index is unavailable")
+
+
+class NewsTurn(BaseModel):
+    q: str = Field("", max_length=300)
+    a: str = Field("", max_length=400)
+
+
+class NewsAskRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=400)
+    region: str | None = None
+    history: list[NewsTurn] = Field(default_factory=list, max_length=8)
+
+
+@app.post("/api/news-ask")
+def news_ask(req: NewsAskRequest) -> StreamingResponse:
+    """Ask a question about what is being reported: what is happening and what happened.
+
+    Streams the same newline-delimited JSON as /api/ask. The answer is built only from headlines
+    the news index returned, every claim cites them, and a claim with a figure no headline carries
+    is removed. Display-only: it reads the news cache and changes nothing else."""
+    from bih_agents import news_agent
+    r = region_or_404(req.region)
+    if not llm.available():
+        raise HTTPException(503, "the agent layer is not configured on this deployment "
+                                 "(no GEMINI_API_KEY)")
+    events: queue.Queue = queue.Queue()
+    DONE = object()
+
+    def work():
+        try:
+            out = news_agent.run(req.question, region=r.name, title=r.manifest.get("title") or r.name,
+                                 place_query=r.manifest.get("news_query"),
+                                 history=[t.model_dump() for t in req.history],
+                                 emit=lambda step: events.put({"event": "step", **step}))
+            events.put({"event": "done", **out})
+        except Exception as exc:                 # a thread dying silently would hang the stream
+            events.put({"event": "error", "detail": f"{type(exc).__name__}: {exc}"})
+        finally:
+            events.put(DONE)
+
+    threading.Thread(target=work, daemon=True).start()
+
+    def stream():
+        while True:
+            item = events.get()
+            if item is DONE:
+                return
+            yield json.dumps(item) + "\n"
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 
 @app.get("/api/rainfall-now")
@@ -298,7 +365,9 @@ def rainfall_now(region: str | None = None, bbox: str | None = None) -> dict:
 def config() -> dict:
     """The browser needs the Maps key. It is referrer-restricted and public by design:
     a Maps browser key always ends up in the page source."""
-    return {"maps_api_key": os.environ.get("MAPS_API_KEY", ""), "agents": llm.available()}
+    from bih_agents import hazards, news_agent
+    return {"maps_api_key": os.environ.get("MAPS_API_KEY", ""), "agents": llm.available(),
+            "hazards": hazards.live(), "news_topics": news_agent.topic_list()}
 
 
 class HistoryTurn(BaseModel):

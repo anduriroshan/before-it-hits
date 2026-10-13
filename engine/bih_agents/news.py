@@ -71,10 +71,12 @@ def _parse_date(s: str) -> str | None:
 
 
 def fetch(query: str, *, timespan: str = "14d", max_records: int = 25,
-          timeout: float = 15.0) -> list[dict]:
-    """Recent articles matching `query`, newest first, de-duplicated by domain and title."""
+          timeout: float = 15.0, sort: str = "DateDesc") -> list[dict]:
+    """Articles matching `query` in the window, de-duplicated by domain and title. Newest first by
+    default; `sort="HybridRel"` ranks by relevance, which is what a long look-back needs, because the
+    newest 25 of three months says little about what happened earlier in it."""
     params = {"query": query, "mode": "ArtList", "maxrecords": str(max_records),
-              "format": "json", "timespan": timespan, "sort": "DateDesc"}
+              "format": "json", "timespan": timespan, "sort": sort}
     req = urllib.request.Request(f"{ENDPOINT}?{urllib.parse.urlencode(params)}",
                                  headers={"User-Agent": UA})
     # GDELT rate-limits an IP to roughly one call every five seconds and answers 429 when crossed,
@@ -148,10 +150,10 @@ _lock = threading.Lock()
 _state: dict[str, dict] = {}       # region key -> {data, at, running, failed_at, error}
 
 
-def _refresh(key: str, title: str, query: str | None) -> None:
+def _refresh(key: str, title: str, query: str | None, kw: dict | None = None) -> None:
     """Fetch one city's news and store it. Runs in a thread; never raises."""
     try:
-        data = for_region(title, query=query)
+        data = for_region(title, query=query, **(kw or {}))
         with _lock:
             _state[key].update(data=data, at=time.monotonic(), failed_at=None, error=None)
     except NewsUnavailable as exc:
@@ -167,15 +169,16 @@ def _refresh(key: str, title: str, query: str | None) -> None:
             done.set()
 
 
-def _start(key: str, title: str, query: str | None) -> threading.Event:
+def _start(key: str, title: str, query: str | None, kw: dict | None = None) -> threading.Event:
     """Begin a refresh unless one is already running. The caller holds `_lock`."""
     st = _state[key]
     st["running"] = threading.Event()
-    threading.Thread(target=_refresh, args=(key, title, query), daemon=True).start()
+    threading.Thread(target=_refresh, args=(key, title, query, kw), daemon=True).start()
     return st["running"]
 
 
-def get(key: str, title: str, *, query: str | None = None, wait_s: float = 20.0) -> dict:
+def get(key: str, title: str, *, query: str | None = None, wait_s: float = 20.0,
+        fetch_kw: dict | None = None) -> dict:
     """A city's news, without ever blocking on the index for longer than `wait_s`.
 
     Fresh cache: returned at once. Stale cache: returned at once and refreshed behind the request.
@@ -192,7 +195,7 @@ def get(key: str, title: str, *, query: str | None = None, wait_s: float = 20.0)
         running = st.get("running")
         cooling = st.get("failed_at") is not None and now - st["failed_at"] < RETRY_AFTER_FAIL_S
         if not fresh and running is None and not cooling:
-            running = _start(key, title, query)
+            running = _start(key, title, query, fetch_kw)
     if usable:
         return {"status": "ok", "data": data, "age_s": int(now - at), "stale": not fresh}
     if running is not None:

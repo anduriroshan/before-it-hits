@@ -29,7 +29,9 @@ Rules, each checked afterwards:
 - Choose only from the measures and spots in the plan. Invent no asset, team or measure.
 - Preparation and planning only. Never write dispatch, evacuation, rescue or 'send a team now'.
 - Name the honest limit in a clause: this is pre-season or pre-storm preparation against modelled
-  rain-pooling, not a live response plan."""
+  rain-pooling, not a live response plan.
+- If the plan has a "best_case_if_every_counted_measure_fully_works" block you may quote it, but only
+  as a best case ("at best, if every measure fully worked"). Never say a measure will achieve it."""
 
 # A note that reads as live response is worse than no note. These are stripped as a class, not
 # nudged against in the prompt alone.
@@ -39,7 +41,7 @@ FORBIDDEN = ("dispatch", "evacuat", "rescue", "send a team", "send teams", "depl
 def _plan_facts(plan: dict, region_title: str) -> dict:
     """Just the parts of the ranked plan a note may lean on - every number here already lives in
     the deterministic plan, so the arithmetic check has something to trace each figure back to."""
-    return {
+    out = {
         "city": region_title,
         "budget_line": plan.get("budget_line"),
         "budget_total_inr": plan.get("budget_total_inr"),
@@ -52,6 +54,16 @@ def _plan_facts(plan: dict, region_title: str) -> dict:
         "people_in_worst_spots": (plan.get("covers") or {}).get("people_in_worst_spots"),
         "not_worth_the_budget": [x.get("measure") for x in plan.get("infeasible", [])],
     }
+    ba = plan.get("before_after") or {}
+    if ba.get("available"):
+        # Written as the best case it is, so a note that quotes it quotes it as one.
+        out["best_case_if_every_counted_measure_fully_works"] = {
+            "worst_spots_that_fill_before": ba["worst_spots_that_fill"]["before"],
+            "worst_spots_that_fill_after": ba["worst_spots_that_fill"]["after"],
+            "road_km_through_worst_spots_before": ba["road_km_through_worst_spots"]["before"],
+            "road_km_through_worst_spots_after": ba["road_km_through_worst_spots"]["after"],
+        }
+    return out
 
 
 def write(region_title: str, plan: dict, *, model: str = llm.FAST_MODEL) -> dict | None:

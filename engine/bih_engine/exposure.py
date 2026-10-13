@@ -40,10 +40,15 @@ def _round2(x: float) -> int:
     return int(round(x / mag) * mag)
 
 
-def estimate(features: list[dict], buildings, crs, population: dict) -> dict:
+def estimate(features: list[dict], buildings, crs, population: dict,
+             treated: set | None = None) -> dict:
     """`features` are the screening's pooling-spot geojson (lon/lat); `buildings` are shapely
     footprints in lon/lat; `population` is the region manifest block with `people` and
-    `built_footprint_m2`. Returns a modelled exposure, or an honest 'not available'."""
+    `built_footprint_m2`. Returns a modelled exposure, or an honest 'not available'.
+
+    `treated` is a set of spot ids to leave out of the exposed set - the spots a preparation plan
+    would deal with, for the best-case "after" of F10. It changes which footprint is summed and
+    nothing else: the population, the denominator and the method are the same as the "before"."""
     people = population.get("people")
     region_fp = population.get("built_footprint_m2")
     if not people or not region_fp:
@@ -60,9 +65,11 @@ def estimate(features: list[dict], buildings, crs, population: dict) -> dict:
     b_m = [to_m(b) for b in buildings]
     box_footprint = float(sum(b.area for b in b_m))
 
+    treated = treated or set()
     top = [to_m(shape(f["geometry"])) for f in features
            if f["properties"]["pooling_index"] >= TOP_RANK
-           and f["properties"].get("fills_at_rainfall")]
+           and f["properties"].get("fills_at_rainfall")
+           and f["properties"].get("id") not in treated]
     affected_footprint = 0.0
     buildings_touched = 0
     if top:

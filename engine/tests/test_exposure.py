@@ -56,6 +56,20 @@ def test_only_top_ranked_filling_spots_expose_anyone():
     assert low["people_in_worst_spots"] == 0 and dry["people_in_worst_spots"] == 0
 
 
+def test_a_treated_spot_leaves_the_exposed_set_and_the_denominator_stays_put():
+    """F10: same population, same footprints; only the spots the plan acts on stop counting."""
+    inside, outside = sq(*CENTRE), sq(*FAR)
+    pop = {"people": 1_000_000, "built_footprint_m2": 2e5}
+    here, there = feat(*CENTRE), feat(*FAR)
+    here["properties"]["id"], there["properties"]["id"] = "d_1", "d_2"
+    both = exposure.estimate([here, there], [inside, outside], CRS, pop)
+    after = exposure.estimate([here, there], [inside, outside], CRS, pop, treated={"d_1"})
+    assert after["people_in_worst_spots"] < both["people_in_worst_spots"]
+    assert after["people_in_box"] == both["people_in_box"]
+    none_left = exposure.estimate([here, there], [inside, outside], CRS, pop, treated={"d_1", "d_2"})
+    assert none_left["people_in_worst_spots"] == 0
+
+
 def test_the_count_is_rounded_so_it_never_looks_precise():
     assert exposure._round2(0) == 0
     assert exposure._round2(273) == 270

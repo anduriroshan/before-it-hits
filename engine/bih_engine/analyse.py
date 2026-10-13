@@ -80,8 +80,14 @@ def analyse_grid(
     burn_waterway_m: float = DEFAULT_BURN_WATERWAY_M,
     burn_road_m: float = DEFAULT_BURN_ROAD_M,
     roads: list | None = None,
+    treated: set | None = None,
 ) -> dict:
-    """Run the screening on an already-read grid. Pure function of its inputs."""
+    """Run the screening on an already-read grid. Pure function of its inputs.
+
+    `treated` is a set of spot ids to treat as dealt with when counting which roads a flood cuts
+    (the best-case "after" of F10). The terrain, the ranking and the map are untouched: only the
+    road count leaves those spots out, so "with the plan" differs from "without it" in exactly
+    the way the plan claims and nowhere else."""
     t = {}
     dem = grid.dem.astype(np.float64)
     h, w = dem.shape
@@ -193,7 +199,8 @@ def analyse_grid(
         # Only top-ranked spots that actually hold water at this rainfall can cut a road.
         wet = [m for m, f in zip(pooling_m, feats)
                if f["properties"]["fills_at_rainfall"]
-               and f["properties"]["pooling_index"] >= AFFECTED_MIN_INDEX]
+               and f["properties"]["pooling_index"] >= AFFECTED_MIN_INDEX
+               and f["properties"]["id"] not in (treated or ())]
         graph = build_graph(roads, grid.crs)
         flooded = flooded_edges(graph, wet)
         routes_affected = affected_summary(graph, flooded)
@@ -293,7 +300,8 @@ def analyse_area(
         from . import exposure
         t0 = time.perf_counter()
         res["exposure"] = exposure.estimate(res["geojson"]["features"], data.buildings,
-                                             grid.crs, region.manifest["population"])
+                                             grid.crs, region.manifest["population"],
+                                             treated=kw.get("treated"))
         res["timings_s"]["exposure_s"] = time.perf_counter() - t0
     if region is not None and return_period is not None:
         t0 = time.perf_counter()

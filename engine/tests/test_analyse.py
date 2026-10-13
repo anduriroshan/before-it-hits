@@ -57,6 +57,28 @@ def test_ids_and_fill_order_do_not_change_with_rainfall():
     assert all(d["fills_at_rainfall"] for d in heavy)
 
 
+def test_treating_a_spot_takes_its_road_out_of_the_count_and_nothing_else():
+    """F10: the 'after' run differs from the 'before' run only in the roads the treated spot cut."""
+    from pyproj import Transformer
+    from shapely.geometry import LineString
+    from bih_engine.osm import Road
+
+    grid = make_grid(small_pit_with_huge_catchment_and_big_pit_with_small_one())
+    to_ll = Transformer.from_crs(32643, 4326, always_xy=True)
+    lon, lat = to_ll.transform(500_000 + 64.5 * 10, 1_100_000 - 64.5 * 10)      # over the big pit
+    road = Road(geom=LineString([(lon - 0.0008, lat), (lon + 0.0008, lat)]),
+                highway="residential", name="Test Rd")
+    before = analyse_grid(grid, rainfall_mm=1000, roads=[road])
+    big = before["debug"][0]["id"]
+    assert [r["road"] for r in before["screening"]["routes_affected"]] == ["Test Rd"]
+
+    after = analyse_grid(grid, rainfall_mm=1000, roads=[road], treated={big})
+    assert after["screening"]["routes_affected"] == []
+    # The terrain, the ranking and the map are the same: only the road count moved.
+    assert after["screening"]["depressions"] == before["screening"]["depressions"]
+    assert after["geojson"] == before["geojson"]
+
+
 def test_no_rain_means_nothing_to_rank():
     res = analyse_grid(make_grid(two_pits()), rainfall_mm=0)
     assert {d["pooling_index"] for d in res["screening"]["depressions"]} == {1}

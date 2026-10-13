@@ -102,6 +102,64 @@ def test_the_infeasible_measures_are_passed_through_with_their_reasons():
     assert "Capital work" in plan["infeasible"][0]["reason"]
 
 
+# ---- before / after (F10) -------------------------------------------------------------------
+
+def _analysis(top_filling_ids, people, road_m):
+    feats = [{"properties": {"id": i, "pooling_index": 5, "fills_at_rainfall": True}}
+             for i in top_filling_ids]
+    feats.append({"properties": {"id": "d_dry", "pooling_index": 5, "fills_at_rainfall": False}})
+    feats.append({"properties": {"id": "d_low", "pooling_index": 2, "fills_at_rainfall": True}})
+    out = {"geojson": {"features": feats},
+           "screening": {"routes_affected": [{"road": "X", "length_m": road_m}]}}
+    if people is not None:
+        out["exposure"] = {"available": True, "people_in_worst_spots": people}
+    return out
+
+
+def test_only_measures_that_act_on_the_water_are_counted_as_reducing_exposure():
+    plan = prep.rank(_result(_deps()), CAPS)       # drain, pump, pump, barricade
+    assert prep.treated_spot_ids(plan) == ["d_01", "d_02", "d_03"]
+
+
+def test_before_after_reports_the_difference_between_two_runs():
+    plan = prep.rank(_result(_deps()), CAPS)
+    before = _analysis(["d_01", "d_02", "d_03", "d_04"], 2400, 4200)
+    after = _analysis(["d_04"], 600, 900)
+    ba = prep.before_after(before, after, plan)
+    assert ba["available"] and ba["best_case"] is True
+    assert ba["worst_spots_that_fill"] == {"before": 4, "after": 1}      # dry and low-rank spots ignored
+    assert ba["road_km_through_worst_spots"] == {"before": 4.2, "after": 0.9}
+    assert ba["people_in_worst_spots"] == {"before": 2400, "after": 600, "share_addressed_pct": 75}
+    assert ba["measures_counted"] == 3 and ba["measures_not_counted"] == 1
+
+
+def test_before_after_says_it_is_a_best_case_and_that_barricades_are_not_counted():
+    plan = prep.rank(_result(_deps()), CAPS)
+    ba = prep.before_after(_analysis(["d_01"], None, 1000), _analysis([], None, 0), plan)
+    text = " ".join(ba["limits"]).lower()
+    assert "best case" in text and "barricade" in text and "drain" in text
+    assert ba["people_in_worst_spots"] is None          # no population configured: not invented
+
+
+def test_a_plan_of_only_barricades_has_no_before_and_after():
+    caps = dict(CAPS, measures={"barricade_low_stretch": CAPS["measures"]["barricade_low_stretch"]})
+    only_barricades = prep.rank(_result(_deps()), caps)
+    assert {it["op"] for it in only_barricades["items"]} == {"barricade_low_stretch"}
+    ba = prep.before_after(_analysis([], None, 0), _analysis([], None, 0), only_barricades)
+    assert ba["available"] is False and "barricade" in ba["reason"]
+
+
+def test_the_planner_may_quote_the_best_case_figures_because_they_are_in_the_plan(monkeypatch):
+    plan = prep.rank(_result(_deps()), CAPS)
+    plan["before_after"] = prep.before_after(_analysis(["d_01", "d_02", "d_03", "d_04"], 2400, 4200),
+                                             _analysis(["d_04"], 600, 900), plan)
+    _stub(monkeypatch, "At best, if every measure fully worked, the worst spots that fill would fall "
+                       "from 4 to 1. Preparation only, not a response plan.")
+    assert planner.write("Kochi, Kerala", plan) is not None
+    _stub(monkeypatch, "At best the worst spots that fill would fall from 4 to 2.")
+    assert planner.write("Kochi, Kerala", plan) is None          # 2 is in no fact
+
+
 # ---- the planner note (model stubbed) -------------------------------------------------------
 
 def _plan():

@@ -24,6 +24,7 @@ const state = {
   busy: false, mapReady: false, tool: 'pan', drag: null, lastBbox: null, officialLayer: null,
   regions: [], region: null, regionRect: null, forecast: null, rainMode: 'whatif',
   agents: false, newsFor: null, roadLayer: null, whatif: false, tab: 'agent',
+  hazards: [], newsTopics: [], newsTopic: 'flood', treated: null, afterView: false,
   tl: { feats: [], dur: 6, step: 6, total: 100, cum: [], steps: 6, real: false },
 };
 
@@ -76,8 +77,11 @@ async function boot() {
     setStatus('The engine has no staged region.', true);
     return;
   }
+  state.hazards = cfg.hazards || [];
+  state.newsTopics = cfg.news_topics || [];
   wireAsk(cfg.agents);           // before a region is chosen: the welcome message depends on it
   wireTabs();
+  wireNews();
   setTab('agent');
   buildRegionPicker();
   selectRegion(state.regions[0].name);
@@ -200,6 +204,7 @@ function clearAll(opts = {}) {
   clearRoadLayer();
   $('timeline').hidden = true;
   $('prep').hidden = true;
+  $('legend').hidden = true;
   voidLoaders();
   clearedArea(Boolean(state.lastBbox) && !opts.quiet);
   state.lastBbox = null;
@@ -313,7 +318,6 @@ window.initMap = function initMap() {
     frameRegion(state.region);   // outlines where the engine can answer
     $('toolbar').hidden = false;
     $('mapfallback').hidden = true;
-    $('legend').hidden = false;
     setStatus('');
     // Selecting the default tool is cosmetic. If it throws, the map and the tools are still
     // usable, so it must not take the whole page down with it.
@@ -772,10 +776,52 @@ function inr(n) {
   return '\u20b9' + Math.round(n).toLocaleString('en-IN');
 }
 
+/* The "with the plan" map view: spots the preparations act on, outlined instead of filled. */
+function setAfterView(on) {
+  state.afterView = Boolean(on) && Boolean(state.treated && state.treated.size);
+  if (state.layer) state.layer.setStyle(poolStyle);
+  const btn = $('prep-ba-toggle');
+  if (btn) {
+    btn.setAttribute('aria-pressed', String(state.afterView));
+    btn.textContent = state.afterView ? 'Back to the map as it is' : 'See it on the map';
+  }
+}
+
+function renderBeforeAfter(ba) {
+  const el = $('prep-ba');
+  state.treated = null;
+  if (!ba || !ba.available) { el.hidden = true; setAfterView(false); return; }
+  state.treated = new Set(ba.treated_spot_ids);
+  const n = (x) => Number(x).toLocaleString('en-IN');
+  const row = (label, b, a, unit = '') =>
+    `<div class="ba-row"><span class="ba-label">${label}</span>`
+    + `<span class="ba-vals"><span class="ba-before">${b}${unit}</span><span class="ba-arrow" aria-hidden="true">→</span>`
+    + `<b class="ba-after">${a}${unit}</b></span></div>`;
+  const rows = [row('Worst spots that fill', n(ba.worst_spots_that_fill.before), n(ba.worst_spots_that_fill.after))];
+  const p = ba.people_in_worst_spots;
+  if (p) rows.push(row('People in them (modelled)', `~${n(p.before)}`, `~${n(p.after)}`));
+  rows.push(row('Road through them', ba.road_km_through_worst_spots.before, ba.road_km_through_worst_spots.after, ' km'));
+  const share = p && p.share_addressed_pct;
+  el.innerHTML =
+    `<div class="ba-head"><span class="card-title">With and without the plan</span>`
+    + `<span class="tag-modelled">best case</span></div>`
+    + `<div class="ba-cols"><span></span><span class="ba-colhead">now → with the plan</span></div>`
+    + rows.join('')
+    + (share ? `<p class="small muted ba-share">At best, the plan acts on about <b>${share}%</b> of the people in the worst spots.</p>` : '')
+    + `<button type="button" id="prep-ba-toggle" class="btn-sm ba-btn" aria-pressed="false">See it on the map</button>`
+    + `<details class="fine"><summary>Why “best case”?</summary>`
+    + `<ul>${ba.limits.map((l) => `<li>${esc(l)}</li>`).join('')}</ul></details>`;
+  el.hidden = false;
+  $('prep-ba-toggle').onclick = () => setAfterView(!state.afterView);
+  setAfterView(false);
+}
+
 async function loadPreparations(rainfallMm) {
   const my = ++seq.prep;
   const sec = $('prep');
   sec.hidden = true;
+  state.treated = null;
+  setAfterView(false);
   if (!state.lastBbox || !state.region || state.region.preparations === false) return;
   try {
     const d = await fetch('/api/preparations', {
@@ -813,6 +859,8 @@ function renderPreparations(d) {
       + `<span class="pi-cost">${inr(it.cost_inr)}</span>`;
     return li;
   }));
+
+  renderBeforeAfter(d.before_after);
 
   const note = $('prep-note');
   if (d.planner_note) {
@@ -882,23 +930,70 @@ function renderPeople(ex) {
    Its own tab. Context only: it changes no number anywhere. The news index is slow (tens of seconds
    on a cold hit), so the server answers from a cache and, when it has nothing yet, says "pending";
    this asks again every few seconds and says plainly what it is doing, rather than sit on a spinner. */
-function resetNews(region) {
+function resetNews() {
   state.newsFor = null;
   $('news-body').innerHTML = '<p class="muted small">Opens when you visit this tab.</p>';
+  newsChatReset();
   if (state.tab === 'news') loadNews();
+}
+
+const safeUrl = (u) => (/^https?:\/\//i.test(String(u || '')) ? u : '#');
+
+/* The headline list is one topic at a time; the chips switch it. Every topic is cached on the
+   server like flooding is, so switching never waits on the index twice. */
+function wireNews() {
+  const wrap = $('news-topics');
+  wrap.replaceChildren(...(state.newsTopics || []).map((t) => {
+    const b = mk('button', 'chip');
+    b.type = 'button';
+    b.dataset.topic = t.id;
+    b.textContent = t.label;
+    b.setAttribute('aria-pressed', String(t.id === state.newsTopic));
+    b.onclick = () => {
+      state.newsTopic = t.id;
+      for (const c of wrap.children) c.setAttribute('aria-pressed', String(c.dataset.topic === t.id));
+      state.newsFor = null;
+      loadNews();
+    };
+    return b;
+  }));
+  const box = $('news-question');
+  $('news-composer').addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (newsChat.busy) { if (newsChat.abort) newsChat.abort.abort(); return; }
+    const q = box.value;
+    box.value = '';
+    growNewsComposer();
+    askNews(q);
+  });
+  box.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+    e.preventDefault();
+    if (!newsChat.busy) $('news-composer').requestSubmit();
+  });
+  box.addEventListener('input', growNewsComposer);
+  $('news-new').onclick = () => newsChatReset();
+  setNewsBusy(false);
+}
+
+function growNewsComposer() {
+  const t = $('news-question');
+  t.style.height = 'auto';
+  t.style.height = `${Math.min(110, t.scrollHeight)}px`;
 }
 
 async function loadNews(attempt = 0) {
   const region = state.region;
   if (!region) return;
+  const key = `${region.name}:${state.newsTopic}`;
   if (attempt === 0) {
-    if (state.newsFor === region.name) return;
-    state.newsFor = region.name;
+    if (state.newsFor === key) return;
+    state.newsFor = key;
     $('news-body').innerHTML = '<p class="muted small">checking the news\u2026</p>';
   }
-  const stillHere = () => state.region === region && state.newsFor === region.name;
+  const stillHere = () => state.region === region && state.newsFor === key;
   try {
-    const res = await fetch(`/api/news?region=${encodeURIComponent(region.name)}`);
+    const res = await fetch(`/api/news?region=${encodeURIComponent(region.name)}&topic=${encodeURIComponent(state.newsTopic)}`);
     if (!stillHere()) return;                       // they switched city while this was loading
     const d = await res.json();
     if (d.pending) {
@@ -920,13 +1015,168 @@ async function loadNews(attempt = 0) {
 
 function renderNews(d) {
   const arts = (d.articles || []).slice(0, 8).map((a) =>
-    `<li><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a>
+    `<li><a href="${esc(safeUrl(a.url))}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>
       <span class="src">${esc(a.domain)}${a.seen ? ' \u00b7 ' + esc(a.seen.slice(0, 10)) : ''}</span></li>`).join('');
   const age = d.age_s != null && d.age_s >= 90 ? ` Updated ${Math.round(d.age_s / 60)} min ago.` : '';
   $('news-body').innerHTML = `
     ${d.digest ? `<p class="digest">${esc(d.digest)}</p>` : ''}
     <ul class="newslist">${arts || '<li class="muted small">No recent reports found.</li>'}</ul>
     <p class="muted tiny">${esc(d.note)}${age}</p>`;
+}
+
+/* ---- asking the news -------------------------------------------------------------------------
+   A chat under the headlines. The answer is built only from headlines the news index returned: each
+   claim names the headlines behind it (shown as links), and the server deletes any claim that cites
+   nothing or carries a figure no headline has. Display-only, like the rest of News: it changes no
+   number on the map, and it says so. Questions can span topics (flooding, heat, traffic, air). */
+const newsChat = { busy: false, abort: null, history: [] };
+const MAX_NEWS_HISTORY = 4;
+const NEWS_SUGGESTIONS = [
+  'What has been reported this week?',
+  'Is anything other than rain disrupting the city?',
+  'What happened over the last few months?',
+  'Any heat or air-quality news?',
+];
+
+const newsToBottom = () => { const c = $('news-chat'); c.scrollTop = c.scrollHeight; };
+function newsPush(node) { $('news-chat').appendChild(node); newsToBottom(); return node; }
+
+function setNewsBusy(busy) {
+  const btn = $('news-send');
+  btn.classList.toggle('stop', busy);
+  btn.innerHTML = busy ? ICON.stop : ICON.send;
+  btn.title = busy ? 'Stop' : 'Send (Enter)';
+  btn.setAttribute('aria-label', busy ? 'Stop' : 'Send');
+}
+
+function newsChatReset() {
+  if (newsChat.abort) newsChat.abort.abort();
+  newsChat.history = [];
+  newsChat.busy = false;
+  setNewsBusy(false);
+  const chatEl = $('news-chat');
+  chatEl.replaceChildren();
+  const off = !state.agents;
+  chatEl.hidden = off;
+  $('news-composer').hidden = off;
+  if (off || !state.region) return;
+  const topics = (state.newsTopics || []).map((t) => t.label.toLowerCase()).join(', ');
+  const { m, b } = agentBubble();
+  b.innerHTML =
+    `<p><b>Ask me about the news in ${esc(state.region.title)}.</b></p>`
+    + `<p>What is happening now, or what happened earlier${topics ? ` — across ${esc(topics)}` : ''}. `
+    + 'I read the published headlines and cite each one; I cannot see inside the articles, and I never '
+    + 'change a figure on the map.</p>';
+  b.appendChild(mk('div', 'chat-label', 'Try'));
+  const chips = mk('div', 'chips');
+  for (const q of NEWS_SUGGESTIONS) {
+    const c = mk('button', 'chip chip-alt');
+    c.type = 'button';
+    c.textContent = q;
+    c.onclick = () => askNews(q);
+    chips.appendChild(c);
+  }
+  b.appendChild(chips);
+  newsPush(m);
+}
+
+const NEWS_WORKING = {
+  Router: (s) => `Looking for news on ${s.note}…`,
+  'News index': () => 'Reading the headlines…',
+  'News analyst': () => 'Checking each claim against its headline…',
+};
+
+function renderNewsAnswer(b, ev) {
+  b.replaceChildren();
+  const claims = ev.claims || [];
+  if (claims.length) {
+    const ul = mk('ul', 'a-bullets news-claims');
+    for (const c of claims) {
+      const li = mk('li');
+      li.appendChild(document.createTextNode(`${c.text} `));
+      for (const s of c.sources) {
+        const a = mk('a', 'src-chip');
+        a.href = safeUrl(s.url);
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = s.domain || 'source';
+        a.title = `${s.title}${s.seen ? ' · ' + s.seen : ''}`;
+        li.appendChild(a);
+      }
+      ul.appendChild(li);
+    }
+    b.appendChild(ul);
+  }
+  if (ev.not_covered) b.appendChild(mk('p', claims.length ? 'muted small' : '', esc(ev.not_covered)));
+  if (ev.missing && ev.missing.length) {
+    b.appendChild(mk('p', 'muted tiny', `Not back in time: ${esc(ev.missing.join(', '))}. Ask again in a minute.`));
+  }
+  if (ev.removed && ev.removed.length) {
+    const d = mk('details', 'a-removed');
+    d.innerHTML = `<summary>${ev.removed.length} statement${ev.removed.length > 1 ? 's' : ''} removed by the check</summary>`
+      + `<ul>${ev.removed.map((r) => `<li>${esc(r.why)}.<div class="cut">“${esc(r.text)}”</div></li>`).join('')}</ul>`;
+    b.appendChild(d);
+  }
+  if (ev.headlines_read) {
+    b.appendChild(mk('p', 'muted tiny chat-fine',
+      `Read ${ev.headlines_read} headlines, reaching back ${esc(ev.window_label || 'a while')}. ${esc(ev.note || '')}`));
+  }
+  const link = mk('button', 'linkbtn');
+  link.type = 'button';
+  link.textContent = 'Where does the ground trap water? Open the Agent tab';
+  link.onclick = () => setTab('agent');
+  b.appendChild(link);
+}
+
+async function askNews(q) {
+  q = (q || '').trim();
+  if (!q || newsChat.busy || !state.agents || !state.region) return;
+  const um = mk('div', 'msg msg-user', '<div class="bubble"></div>');
+  um.querySelector('.bubble').textContent = q;
+  newsPush(um);
+  const { m, b } = agentBubble();
+  b.innerHTML = '<div class="work"><span class="spin"></span><span class="work-label">Reading the news…</span></div>';
+  newsPush(m);
+  const label = () => b.querySelector('.work-label');
+  const ctl = new AbortController();
+  newsChat.abort = ctl;
+  newsChat.busy = true;
+  setNewsBusy(true);
+  let finished = false;
+  try {
+    const res = await fetch('/api/news-ask', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctl.signal,
+      body: JSON.stringify({ question: q, region: state.region.name, history: newsChat.history }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || 'the news agent could not answer that');
+    }
+    await readEvents(res, (ev) => {
+      if (ev.event === 'step') {
+        const f = NEWS_WORKING[ev.agent];
+        if (f && label()) label().textContent = f(ev);
+      } else if (ev.event === 'error') {
+        throw new Error(ev.detail);
+      } else if (ev.event === 'done') {
+        finished = true;
+        renderNewsAnswer(b, ev);
+        const gist = (ev.claims || []).map((c) => c.text).join(' ') || ev.not_covered || '';
+        newsChat.history.push({ q, a: gist });
+        if (newsChat.history.length > MAX_NEWS_HISTORY) newsChat.history.shift();
+      }
+    });
+    if (!finished) throw new Error('the answer ended before it was finished');
+  } catch (err) {
+    b.innerHTML = err.name === 'AbortError'
+      ? '<p class="muted small">Stopped.</p>'
+      : `<p class="a-error">${esc(err.message)}</p>`;
+  } finally {
+    newsChat.busy = false;
+    newsChat.abort = null;
+    setNewsBusy(false);
+    newsToBottom();
+  }
 }
 
 /* ---- checked against a real storm ----------------------------------------------------------
@@ -1125,7 +1375,14 @@ const SUGGESTIONS = [
   { q: 'How does this compare with the official map?', needs: 'official' },
 ];
 
-const ASK_ME = ['What does pooling rank mean?', 'How far can I trust this?'];
+const ASK_ME = ['What can you do?', 'How far can I trust this?'];
+
+/* One example question per hazard the engine can screen, from the server's list, so the welcome
+   never describes a capability that is not built and gains a line the moment one is. */
+function hazardExamples(region) {
+  const place = (region && region.presets && region.presets[0] && region.presets[0].label) || 'this area';
+  return (state.hazards || []).filter((h) => h.example).map((h) => h.example.replace('{place}', place));
+}
 
 const ICON = {
   drop: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c-5.33 4.55-8 8.48-8 11.8 0 4.98 3.8 8.2 8 8.2s8-3.22 8-8.2C20 10.48 17.33 6.55 12 2z"/></svg>',
@@ -1229,14 +1486,19 @@ function chatReset() {
   const { m, b } = agentBubble();
   if (state.agents) {
     b.innerHTML =
-      `<p><b>Hi — I'm the flood-screening agent${region ? ' for ' + esc(region.title) : ''}.</b></p>`
-      + '<p>Pick an area below, draw a box on the map, or just <b>name a place</b> — “will '
-      + 'Vyttila flood tonight?”. I predict from the live rainfall forecast, and you can ask me '
-      + 'what anything means.</p>';
+      `<p><b>Hi — I'm the screening agent${region ? ' for ' + esc(region.title) : ''}.</b></p>`
+      + '<p>I show what a hazard could do to a place <b>before it hits</b>, from live forecasts and '
+      + 'terrain. Pick an area below, draw a box on the map, or just <b>name a place</b>.</p>';
+    if ((state.hazards || []).length) {
+      b.appendChild(mk('div', 'chat-label', 'I can screen'));
+      const hz = mk('div', 'chips');
+      for (const h of state.hazards) hz.appendChild(mk('span', 'chip chip-static', esc(h.label)));
+      b.appendChild(hz);
+    }
     b.appendChild(mk('div', 'chat-label', 'Start with an area'));
     b.appendChild(areaChips(region));
     b.appendChild(mk('div', 'chat-label', 'Or ask'));
-    b.appendChild(askChips(ASK_ME));
+    b.appendChild(askChips([...hazardExamples(region), ...ASK_ME]));
     b.appendChild(mk('p', 'muted tiny chat-fine',
       'I never write a number myself: every figure comes from the engine and is checked before you see it.'));
   } else {
@@ -1801,6 +2063,20 @@ function renderSummary(res, driver) {
   $('summary').innerHTML = lines.map((l) => `<p>${l}</p>`).join('');
 }
 
+/* Pooling spots, coloured by rank. In the "with the plan" view the spots the preparations act on are
+   drawn as a pale green outline instead, so the same box can be read with and without them. */
+function poolStyle(f) {
+  const idx = f.getProperty('pooling_index');
+  if (state.afterView && state.treated && state.treated.has(f.getProperty('id'))) {
+    return { fillColor: '#9bd3ae', fillOpacity: 0.14, strokeColor: '#0a7d34', strokeWeight: 1.6,
+             strokeOpacity: 0.95, zIndex: idx };
+  }
+  return {
+    fillColor: POOLING_FILL[idx], fillOpacity: f.getProperty('fills_at_rainfall') ? 0.75 : 0.35,
+    strokeColor: POOLING_FILL[idx], strokeWeight: 0.6, strokeOpacity: 0.9, zIndex: idx,
+  };
+}
+
 function render(res, driver) {
   const sc = res.screening;
   if (state.layer) state.layer.setMap(null);
@@ -1821,13 +2097,7 @@ function render(res, driver) {
   if (state.mapReady) {
     const layer = new google.maps.Data({ map: state.map });
     layer.addGeoJson(res.geojson);
-    layer.setStyle((f) => {
-      const idx = f.getProperty('pooling_index');
-      return {
-        fillColor: POOLING_FILL[idx], fillOpacity: f.getProperty('fills_at_rainfall') ? 0.75 : 0.35,
-        strokeColor: POOLING_FILL[idx], strokeWeight: 0.6, strokeOpacity: 0.9, zIndex: idx,
-      };
-    });
+    layer.setStyle(poolStyle);
     const info = new google.maps.InfoWindow();
     layer.addListener('click', (ev) => {
       if (state.tool === 'box') return;   // do not pop a window mid-draw
@@ -1844,6 +2114,7 @@ function render(res, driver) {
   }
 
   $('results').hidden = false;
+  $('legend').hidden = !state.mapReady;
   renderSummary(res, driver);
   updateRainEffect(res, driver);
   $('gridline').textContent =
