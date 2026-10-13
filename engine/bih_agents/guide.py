@@ -44,8 +44,11 @@ THE PARTS OF THE SCREEN
 - The Layers button on the map toolbar stacks data layers over the map, each with its own opacity:
   Heat index, Temperature, Humidity, Rain per hour, Wind speed, People per km2, Air quality and
   Traffic. The weather ones are drawn as a smooth colour field interpolated between sixteen
-  forecast points across the city; the colour between those points is interpolation, not a reading,
-  and the scale on the right of the map says what each colour is worth.
+  forecast points - across the whole city, or across the box once one is drawn, where the points
+  sit closer together. The colour between those points is interpolation, not a reading, and the
+  scale on the right of the map says what each colour is worth. A forecast model does not resolve
+  streets or roofs, so inside a small box the field shows gentle shading rather than block-by-block
+  detail; the layer's note under its name gives the box's own figure for how much it varies.
 - The bar at the bottom of the map is the one clock. It runs the forecast forward - press play or
   drag it - and everything time-shaped follows it: the weather fields move hour by hour, and the
   road playback lights roads at the rainfall that has fallen by that hour. It shows only the time;

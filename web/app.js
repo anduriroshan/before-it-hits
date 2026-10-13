@@ -226,7 +226,7 @@ function clearAll(opts = {}) {
   setStatus('');
   setTool('pan');
   if (had) {
-    refreshAreaLayers();     // back to the whole city, at the city's coarser cell
+    refreshAreaLayers();     // back to the whole city, at the city's coarser spacing
     forgetConditions();
     if (state.tab === 'heat') loadHeat();
     if (state.tab === 'air') loadAir();
@@ -430,25 +430,43 @@ function clearDataLayers() {
   updateTimebar();
 }
 
-/* The area a layer covers. Weather is a regional thing and a sixteen-point grid over one
-   neighbourhood would be sixteen copies of the same number, so it always covers the whole staged
-   city. Population genuinely does vary street to street, so it follows the drawn box and is drawn
-   at a finer cell there. The layer says which it is, under its own row. */
+/* The area a layer covers: the drawn box when there is one, else the whole staged city. The weather
+   fields follow the box too. That was once ruled out on the guess that sixteen points over one
+   neighbourhood would be sixteen copies of one number; measured, the forecast differs by a degree
+   or two across a box, so the field is drawn there at a finer spacing. It is gentle shading, not
+   block-by-block detail, and the layer's note says so with the box's own figure. */
 function layerArea(kind) {
-  if (kind === 'density' && state.lastBbox) return state.lastBbox;
+  if ((kind === 'density' || kind === 'weather') && state.lastBbox) return state.lastBbox;
   return null;
 }
 
-/* A layer that follows the drawn box has to be rebuilt when the box moves. Drawing a box is a
-   deliberate act, so reloading one layer behind it is expected; the weather fields do not move
-   and are left alone. */
-function refreshAreaLayers() {
+/* Layers that follow the drawn box are rebuilt when the box moves or goes. Population is torn down
+   and rebuilt. A weather field is swapped in place once its new data lands, so the picture and the
+   time bar do not blink off while it loads. They load one after another: the first fills the
+   server's cache and the rest are answered from it, rather than five layers each asking the weather
+   provider for the same sixteen points at once. */
+async function refreshAreaLayers() {
   for (const l of Object.values(dataLayers)) {
     if (l.def.kind !== 'density' || !l.visible) continue;
     destroyLayer(l.def.id);
     createLayer(l.def.id);
   }
   renderFieldScales();
+  for (const l of Object.values(dataLayers)) {
+    if (l.def.kind === 'weather' && l.visible) await loadWeatherField(l.def.id);
+  }
+}
+
+/* How far apart the forecast is from one side of the box to the other, at its widest hour, from the
+   points themselves. It is what lets the layer say plainly why a small box looks nearly flat. */
+function widestSpread(d) {
+  let widest = 0;
+  const hours = Math.max(0, ...d.points.map((p) => (p.values || []).length));
+  for (let h = 0; h < hours; h += 1) {
+    const v = d.points.map((p) => (p.values || [])[h]).filter((x) => x != null);
+    if (v.length > 1) widest = Math.max(widest, Math.max(...v) - Math.min(...v));
+  }
+  return widest;
 }
 
 async function loadWeatherField(id) {
@@ -457,16 +475,27 @@ async function loadWeatherField(id) {
   l.loading = true;
   layerNote(id, 'loading the forecast…');
   try {
+    const box = layerArea('weather');
     const url = `/api/weather-grid?region=${encodeURIComponent(state.region.name)}`
-      + `&type=${encodeURIComponent(l.def.field)}&hours=24`;
+      + `&type=${encodeURIComponent(l.def.field)}&hours=24`
+      + (box ? `&bbox=${box.map((v) => v.toFixed(5)).join(',')}` : '');
     const d = await fetch(url).then((r) => { if (!r.ok) throw new Error('no field'); return r.json(); });
     if (my !== l.token || !l.visible) return;
+    if (l.instance && l.instance.setMap) l.instance.setMap(null);   // swapping to the new area
     l.src = scatterSource(d, RAMPS[l.def.field] || RAMPS.heat);
     l.instance = new FieldOverlay(l);
     l.instance.setMap(state.map);
     clockAdopt(d.times);
-    layerNote(id, `Forecast at ${d.points.length} points about ${d.spacing_km} km apart, `
-      + 'coloured between them. The colour between points is interpolation, not a reading.');
+    const unit = d.field.unit || '';
+    const gap = Math.round(widestSpread(d) * 10) / 10;
+    layerNote(id, box
+      ? `Forecast at ${d.points.length} points about ${d.spacing_km} km apart across the box you drew. `
+        + `At its widest it differs by only ${gap}${/^[a-z]/i.test(unit) ? ' ' : ''}${unit} from one side `
+        + 'of the box to the other: a weather forecast does not resolve streets, so expect gentle '
+        + 'shading here, not block-by-block detail.'
+      : `Forecast at ${d.points.length} points about ${d.spacing_km} km apart across the whole city, `
+        + 'coloured between them. The colour between points is interpolation, not a reading. '
+        + 'Draw a box to zoom this in.');
     renderFieldScales();
     updateTimebar();
   } catch {
@@ -2623,7 +2652,7 @@ function setArea(bbox, label) {
   chatNote(`${label} · ${boxKm2(bbox).toFixed(1)} km²`);
   loadForecast(bbox);      // the Rain tab, and it seeds the what-if slider
   loadRainNow(bbox);       // live gauges, where a city has an open feed
-  refreshAreaLayers();     // population density is drawn for the box, finer than for the city
+  refreshAreaLayers();     // the field layers are drawn for the box, finer than for the city
   forgetConditions();      // heat and air are now about this box, not the whole city
   if (state.tab === 'heat') loadHeat();
   if (state.tab === 'air') loadAir();
