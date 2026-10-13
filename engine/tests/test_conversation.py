@@ -20,9 +20,9 @@ BOX = (76.3, 9.99, 76.32, 10.0)
 
 def spec(**over):
     base = {"reading": "r", "mode": "whatif", "rainfall_mm": -1, "rainfall_stated_as": "",
-            "duration_h": -1, "return_period_years": -1, "focus": "f", "intent": "analyse",
-            "place": "", "same_rainfall_as_before": False, "audience": "officer",
-            "needs_clarification": False, "question_back": ""}
+            "duration_h": -1, "return_period_years": -1, "focus": "f", "scope": "area",
+            "intent": "analyse", "place": "", "same_rainfall_as_before": False,
+            "audience": "officer", "needs_clarification": False, "question_back": ""}
     base.update(over)
     return base
 
@@ -267,3 +267,73 @@ def test_the_reference_states_the_limits_the_product_keeps():
     for must in ("No water depth in metres", "No storm-drain data", "not a clock",
                  "never for live dispatch"):
         assert must in guide.REFERENCE, must
+
+
+# ---- city overview: scope "city" analyses every preset instead of one box ------------------
+
+class RegionWithPresets:
+    name = "kochi"
+    official_return_periods = []
+    bounds = (76.2, 9.85, 76.45, 10.1)
+    manifest = {"title": "Kochi, Kerala"}
+    presets = [{"label": "A", "bbox": [76.3, 9.99, 76.32, 10.0]},
+               {"label": "B", "bbox": [76.31, 9.99, 76.33, 10.0]}]
+
+    def covers(self, bbox):
+        return True
+
+
+def test_scope_city_runs_city_overview(monkeypatch):
+    read_returns(monkeypatch, scope="city", mode="whatif")
+    monkeypatch.setattr(coordinator, "analyse_area", lambda *a, **k: result_fixture())
+    out = coordinator.run(question="will it flood in Kochi?", bbox=None,
+                          region=RegionWithPresets(), slider_mm=50)
+    assert out["kind"] == "city_overview"
+    assert out.get("presets") is not None
+    assert len(out["presets"]) == 2
+    assert out["answer_checked"] is True
+    assert "Kochi" in (out["answer"] or "")
+
+
+def test_scope_city_with_forecast(monkeypatch):
+    read_returns(monkeypatch, scope="city", mode="forecast", duration_h=24)
+
+    def fake_forecast(bbox, hours=48):
+        return type("F", (), {"as_dict": lambda self: {
+            "source": "test", "hours_ahead": 48,
+            "peaks": {"24": {"mm": 15.0, "starts": "2026-10-13T00:00:00Z"}},
+            "hours": [{"t": "2026-10-13T00:00:00Z", "mm": 0.5}] * 24,
+        }})()
+    monkeypatch.setattr(coordinator.forecast, "for_bbox", fake_forecast)
+    monkeypatch.setattr(coordinator, "analyse_area", lambda *a, **k: result_fixture())
+    out = coordinator.run(question="what is the expected rainfall?", bbox=None,
+                          region=RegionWithPresets(), slider_mm=50)
+    assert out["kind"] == "city_overview"
+    assert out["scenario"]["rainfall_mm"] == 15.0
+    assert out["scenario"]["mode"] == "forecast"
+    assert out["rain_profile"] is not None
+
+
+def test_scope_area_does_not_trigger_city_overview(monkeypatch):
+    read_returns(monkeypatch, scope="area", place="Edappally")
+    out = coordinator.run(question="what about Edappally?", bbox=None,
+                          region=RegionWithPresets(), slider_mm=50)
+    assert out["kind"] == "place_needed"
+
+
+def test_settle_includes_scope():
+    s = scenario.settle(spec(scope="city"), question="will it flood?", slider_mm=100)
+    assert s["scope"] == "city"
+    s2 = scenario.settle(spec(), question="which spots?", slider_mm=100)
+    assert s2["scope"] == "area"
+
+
+def test_city_answer_text():
+    from bih_agents.coordinator import _build_city_answer
+    s = {"rainfall_mm": 10, "duration_h": 24, "mode": "forecast"}
+    presets = [{"label": "A", "spots": 50, "top_ranked": 20, "fills": 5, "road_km": 2.1},
+               {"label": "B", "spots": 30, "top_ranked": 10, "fills": 0, "road_km": 0}]
+    text = _build_city_answer(s, presets, "Kochi, Kerala")
+    assert "10 mm" in text
+    assert "A" in text and "B" in text
+    assert "would fill" in text

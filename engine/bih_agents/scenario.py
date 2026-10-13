@@ -48,9 +48,14 @@ SCHEMA = {
                    "description": "analyse = a prediction or finding for an area; explain = what a "
                                   "term means, how this works, how far to trust it, or why the "
                                   "last answer said what it said."},
+        "scope": {"type": "STRING", "enum": ["area", "city"],
+                  "description": "city = the message asks about the whole selected city or region "
+                                 "(by its name, or 'the whole city', 'this city', or generally). "
+                                 "area = about a specific neighbourhood, road, or the drawn box."},
         "place": {"type": "STRING",
-                  "description": "A place the asker names that is not the selected area, exactly "
-                                 "as written in THIS message. Empty if none."},
+                  "description": "A place the asker names that is not the selected area AND not "
+                                 "the selected city itself, exactly as written in THIS message. "
+                                 "Empty if none, and empty when the named place IS the city."},
         "same_rainfall_as_before": {"type": "BOOLEAN",
                                     "description": "True only if they ask to reuse the previous "
                                                    "answer's storm ('the same rainfall')."},
@@ -61,8 +66,8 @@ SCHEMA = {
                                          "question to ask back. Otherwise empty."},
     },
     "required": ["reading", "mode", "rainfall_mm", "rainfall_stated_as", "duration_h",
-                 "return_period_years", "focus", "intent", "place", "same_rainfall_as_before",
-                 "audience", "needs_clarification", "question_back"],
+                 "return_period_years", "focus", "scope", "intent", "place",
+                 "same_rainfall_as_before", "audience", "needs_clarification", "question_back"],
 }
 
 SYSTEM = """You read one message in an ongoing conversation about flooding on a map and turn it
@@ -74,11 +79,15 @@ the message refers to: "and the roads?" is about the same area and storm as the 
 first in Palarivattom") so that nothing downstream needs the history.
 
 Rules:
+- scope: "city" when the message asks about the whole selected city by name, or says "the whole
+  city", "this city", or asks generally about what is expected across the city without naming a
+  specific neighbourhood. If the only place they name IS the selected city, that is scope "city"
+  and place should be empty - do not treat the city name as a place to look up. "area" otherwise.
 - intent "analyse" when they want a prediction or finding for an area: the selected one, or a place
   they name. intent "explain" when they ask what a term means, how this works, how far to trust it,
   or why the last answer said what it said - anything answerable without analysing an area afresh.
-- place: only a place the message itself names that is not the selected area (a neighbourhood, road,
-  landmark or city), exactly as written. Never take one from the history. Empty otherwise.
+- place: only a place the message itself names that is not the selected area AND not the selected
+  city itself, exactly as written. Never take one from the history. Empty otherwise.
 - Never invent a rainfall figure. If the asker gave one in THIS message, copy it and the words it
   came from. If they said something vague like "heavy rain" or "a storm", set rainfall_mm to -1.
   If they ask to reuse the last storm ("the same rainfall", "same storm", "as before"), set
@@ -153,9 +162,10 @@ def _figure_is_the_askers(spec: dict, question: str) -> bool:
 
 
 def read(question: str, *, history: list | None = None, area_label: str | None = None,
-         model: str = llm.FAST_MODEL) -> llm.Reply:
+         region_title: str | None = None, model: str = llm.FAST_MODEL) -> llm.Reply:
     history = clean_history(history)
-    prompt = f"Selected area: {area_label or 'none'}\n"
+    prompt = f"Selected city: {region_title or 'unknown'}\n"
+    prompt += f"Selected area: {area_label or 'none'}\n"
     if history:
         prompt += f"Earlier in this conversation (oldest first):\n{_history_block(history)}\n"
     prompt += f"\nMessage: {question}"
@@ -219,6 +229,7 @@ def settle(spec: dict, *, question: str, slider_mm: float,
     return {
         "reading": (spec.get("reading") or "").strip(),
         "focus": (spec.get("focus") or "").strip(),
+        "scope": "city" if spec.get("scope") == "city" else "area",
         "intent": "explain" if spec.get("intent") == "explain" else "analyse",
         "place": _clean_place(spec, question),
         "reused_previous_rainfall": reuse,

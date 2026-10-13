@@ -485,6 +485,20 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 .icon-btn:hover { background: #e9edf1; color: var(--ink); border: 0; }
 .icon-btn svg { width: 16px; height: 16px; fill: currentColor; }
 .followups { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.preset-grid { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.preset-card {
+  display: flex; flex-direction: column; gap: 3px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: #fff;
+  cursor: pointer; text-align: left; font: inherit; color: inherit;
+  transition: border-color .15s, box-shadow .15s;
+}
+.preset-card:hover { border-color: var(--accent); box-shadow: 0 1px 4px rgba(14,116,144,.15); }
+.preset-card.has-fills { border-left: 3px solid var(--accent); }
+.preset-card strong { font-size: 13.5px; }
+.preset-stats { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--muted); }
+.preset-stats .fill-count { color: var(--accent); font-weight: 600; }
+.city-src { font-size: 12px; color: var(--muted); margin: 2px 0 6px; }
+.city-hint { font-size: 12.5px; color: var(--muted); margin: 8px 0 4px; }
 .whatif-inline { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
 .whatif-inline label { display: flex; justify-content: space-between; font-size: 12.5px; font-weight: 600; margin-bottom: 4px; }
 .whatif-inline output { font-family: var(--mono); font-weight: 400; color: var(--accent); }

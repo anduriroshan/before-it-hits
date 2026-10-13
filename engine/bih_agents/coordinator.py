@@ -102,8 +102,127 @@ def _default_spec(slider_mm: float, return_period: int | None, question: str) ->
         "rainfall_mm": float(slider_mm), "rainfall_source": "the rainfall already set on screen",
         "duration_h": None, "return_period_years": return_period, "ignored_figure": False,
         "needs_clarification": False, "question_back": "",
-        "intent": "analyse", "place": "", "reused_previous_rainfall": False,
+        "scope": "area", "intent": "analyse", "place": "", "reused_previous_rainfall": False,
     }
+
+
+def _run_city_overview(question, spec, region, trace, return_period) -> dict:
+    """Answer a city-wide question by fetching the forecast and analysing each preset area."""
+    region_title = region.manifest.get("title") if region is not None else None
+    presets = region.presets if region is not None else []
+    periods = region.official_return_periods if region is not None else []
+
+    if not presets:
+        return _reply(question, spec, trace, kind="needs_area",
+                      answer="I don't have preset areas for this city yet. "
+                             "Draw a box on the map to analyse a specific area.")
+
+    rain_profile, profile_start, forecast_meta = None, None, None
+
+    # Forecast for the city centre
+    if spec["mode"] in ("forecast", "whatif"):
+        t0 = time.perf_counter()
+        try:
+            lat = (region.bounds[1] + region.bounds[3]) / 2
+            lng = (region.bounds[0] + region.bounds[2]) / 2
+            d = 0.01
+            f = forecast.for_bbox((lng - d, lat - d, lng + d, lat + d), hours=48).as_dict()
+            window = _choose_window(spec.get("duration_h"), f["peaks"])
+            if window:
+                peak = f["peaks"][window]
+                spec["rainfall_mm"] = peak["mm"]
+                spec["duration_h"] = float(window)
+                spec["rainfall_source"] = f"the wettest {window} h in the next {f['hours_ahead']} h"
+                spec["mode"] = "forecast"
+                rain_profile = _profile_for(f.get("hours", []), peak["starts"], int(window))
+                profile_start = peak["starts"]
+                forecast_meta = {"source": f["source"], "window_hours": int(window),
+                                 "fetched_at": datetime.now(timezone.utc).isoformat(
+                                     timespec="seconds")}
+            trace.add("A3 Forecast", "ok", int((time.perf_counter() - t0) * 1000),
+                      f"City-wide: wettest {window} h: {spec['rainfall_mm']} mm.",
+                      detail=f["peaks"])
+        except ForecastUnavailable as exc:
+            trace.add("A3 Forecast", "failed", int((time.perf_counter() - t0) * 1000),
+                      f"{exc}. Using the rainfall already set.")
+            spec["mode"] = "whatif"
+
+    # Run engine on each preset
+    rp = return_period if return_period in periods else None
+    preset_results = []
+    for p in presets:
+        t0 = time.perf_counter()
+        box = tuple(p["bbox"])
+        try:
+            result = analyse_area(box, rainfall_mm=spec["rainfall_mm"], res_m=10.0,
+                                  region=region, return_period=rp)
+            result.pop("debug", None)
+            result.pop("debug_excluded", None)
+            screening = result.get("screening", {})
+            deps = screening.get("depressions", [])
+            top = [d for d in deps if d["pooling_index"] >= 4]
+            feats = result.get("geojson", {}).get("features", [])
+            fills = sum(1 for feat in feats if feat["properties"].get("fills_at_rainfall"))
+            routes = screening.get("routes_affected", [])
+            total_road_m = sum(r.get("length_m", 0) for r in routes)
+            preset_results.append({
+                "label": p["label"], "bbox": p["bbox"],
+                "spots": len(deps), "top_ranked": len(top), "fills": fills,
+                "road_km": round(total_road_m / 1000, 1),
+                "top_roads": [{"road": r["road"], "kind": r["highway"],
+                               "length_m": r["length_m"]} for r in routes[:3]],
+            })
+            trace.add("A4 Engine", "ok", int((time.perf_counter() - t0) * 1000),
+                      f"{p['label']}: {len(deps)} spots, {len(top)} top-ranked, {fills} fill.")
+        except Exception as exc:
+            trace.add("A4 Engine", "failed", int((time.perf_counter() - t0) * 1000),
+                      f"{p['label']}: {exc}")
+
+    answer = _build_city_answer(spec, preset_results, region_title)
+    return _reply(question, spec, trace, kind="city_overview", answer=answer,
+                  answer_checked=True, presets=preset_results,
+                  rain_profile=rain_profile, rain_profile_start=profile_start,
+                  forecast_meta=forecast_meta)
+
+
+def _build_city_answer(spec, preset_results, region_title):
+    mm = spec["rainfall_mm"]
+    dur = spec.get("duration_h") or 24
+    is_forecast = spec["mode"] == "forecast"
+
+    if is_forecast:
+        lines = [f"About {mm:g} mm of rain is expected over the next {dur:g} hours in {region_title}."]
+    else:
+        lines = [f"At {mm:g} mm over {dur:g} hours in {region_title}:"]
+
+    ranked = sorted(preset_results, key=lambda p: (p["fills"], p["top_ranked"]), reverse=True)
+    if ranked:
+        lines.append("")
+        for p in ranked:
+            parts = [f"{p['spots']} low spots"]
+            if p["top_ranked"]:
+                parts.append(f"{p['top_ranked']} top-ranked")
+            if p["fills"]:
+                parts.append(f"{p['fills']} would fill")
+            if p["road_km"]:
+                parts.append(f"{p['road_km']} km of roads through worst spots")
+            lines.append(f"{p['label']}: {' · '.join(parts)}")
+
+    fills_areas = [p["label"] for p in ranked if p["fills"] > 0]
+    if fills_areas:
+        lines.append("")
+        if len(fills_areas) == len(ranked):
+            lines.append("All areas have low spots that would fill at this rainfall.")
+        else:
+            names = ", ".join(fills_areas[:-1]) + " and " + fills_areas[-1] \
+                if len(fills_areas) > 1 else fills_areas[0]
+            lines.append(f"At this rainfall, {names} "
+                         f"{'have' if len(fills_areas) > 1 else 'has'} low spots that would fill.")
+
+    lines.append("")
+    lines.append("This is a terrain screening. Stormwater drains are not in the data, "
+                 "so pooling is overstated where drains work.")
+    return "\n".join(lines)
 
 
 def run(*, question: str, bbox, region, slider_mm: float = 100.0,
@@ -121,18 +240,21 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
     periods = region.official_return_periods if region is not None else []
 
     # --- A2 Scenario: the question becomes parameters -------------------------------------
+    region_title = region.manifest.get("title") if region is not None else None
     t0 = time.perf_counter()
     spec, raw = None, None
     try:
         reply = scenario.read(question, history=history,
-                              area_label=area_label if bbox is not None else None)
+                              area_label=area_label if bbox is not None else None,
+                              region_title=region_title)
         raw = reply.data or {}
         spec = scenario.settle(raw, question=question, slider_mm=slider_mm,
                                published_return_periods=list(periods),
                                forecast_peak_mm=None, history=history)
         trace.add("A2 Scenario", "ok", reply.ms, spec["reading"], model=reply.model,
-                  detail={k: spec[k] for k in ("intent", "mode", "rainfall_mm", "rainfall_source",
-                                               "return_period_years", "audience")})
+                  detail={k: spec[k] for k in ("scope", "intent", "mode", "rainfall_mm",
+                                               "rainfall_source", "return_period_years",
+                                               "audience")})
         if spec["ignored_figure"]:
             trace.add("A2 Scenario", "guarded", 0,
                       "A rainfall figure was proposed that is not in your words, so it was "
@@ -144,7 +266,9 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
     if spec["return_period_years"] is None:
         spec["return_period_years"] = return_period
 
-    region_title = region.manifest.get("title") if region is not None else None
+    # --- city-wide question: analyse each preset instead of one box -------------------------
+    if spec.get("scope") == "city" and spec["intent"] == "analyse":
+        return _run_city_overview(question, spec, region, trace, return_period)
 
     # --- a message about the product, not about an area: answered from the reference ---------
     if spec["intent"] == "explain":

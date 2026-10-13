@@ -372,13 +372,16 @@ def ask(req: AskRequest) -> StreamingResponse:
                 return
             if out.get("result"):
                 out["result"]["timings_s"]["total"] = time.perf_counter() - t0
-            events.put({"event": "done", "kind": out["kind"], "answer": out.get("answer"),
-                        "answer_checked": out.get("answer_checked"), "briefing": out["briefing"],
-                        "withheld": out["withheld"], "removed": out["removed"],
-                        "scenario": out["scenario"], "result": out["result"],
-                        "rain_profile": out.get("rain_profile"),
-                        "rain_profile_start": out.get("rain_profile_start"),
-                        "forecast_meta": out.get("forecast_meta")})
+            ev = {"event": "done", "kind": out["kind"], "answer": out.get("answer"),
+                  "answer_checked": out.get("answer_checked"), "briefing": out["briefing"],
+                  "withheld": out["withheld"], "removed": out["removed"],
+                  "scenario": out["scenario"], "result": out["result"],
+                  "rain_profile": out.get("rain_profile"),
+                  "rain_profile_start": out.get("rain_profile_start"),
+                  "forecast_meta": out.get("forecast_meta")}
+            if out.get("presets"):
+                ev["presets"] = out["presets"]
+            events.put(ev)
         except Exception as exc:                 # a thread dying silently would hang the stream
             events.put({"event": "error", "detail": f"{type(exc).__name__}: {exc}"})
         finally:

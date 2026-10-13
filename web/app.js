@@ -1559,6 +1559,72 @@ function finishNeedsArea(turn, ev) {
   finishText(turn, 'I need a place first', ev.answer, { areas: true });
 }
 
+function finishCityOverview(turn, ev) {
+  const sc = ev.scenario || {};
+  settle(turn, `City overview · ${turn.steps} steps · ${(turn.ms / 1000).toFixed(1)} s`);
+  turn.work.open = false;
+  const stick = nearBottom();
+  const a = turn.answer;
+  a.hidden = false;
+
+  const presets = ev.presets || [];
+  const mm = sc.rainfall_mm;
+  const dur = sc.duration_h || 24;
+  const isForecast = sc.mode === 'forecast';
+
+  const head = mk('p', 'a-head');
+  head.textContent = isForecast
+    ? `About ${fmtMm(mm)} mm of rain is expected over the next ${dur} hours.`
+    : `At ${fmtMm(mm)} mm over ${dur} hours:`;
+  a.appendChild(head);
+
+  if (ev.forecast_meta) {
+    const src = mk('div', 'city-src');
+    src.textContent = `Live forecast · ${ev.forecast_meta.source || 'Google Weather API'}`;
+    a.appendChild(src);
+  }
+
+  if (presets.length) {
+    const sorted = [...presets].sort((x, y) => (y.fills - x.fills) || (y.top_ranked - x.top_ranked));
+    const grid = mk('div', 'preset-grid');
+    for (const p of sorted) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'preset-card' + (p.fills ? ' has-fills' : '');
+      let inner = `<strong>${esc(p.label)}</strong><div class="preset-stats">`;
+      inner += `<span>${p.spots} low spots</span>`;
+      if (p.top_ranked) inner += `<span>${p.top_ranked} top-ranked</span>`;
+      if (p.fills) inner += `<span class="fill-count">${p.fills} would fill</span>`;
+      if (p.road_km) inner += `<span>${p.road_km} km roads</span>`;
+      inner += '</div>';
+      card.innerHTML = inner;
+      card.onclick = () => chooseArea({ label: p.label, bbox: p.bbox });
+      grid.appendChild(card);
+    }
+    a.appendChild(grid);
+  }
+
+  const cav = mk('p', 'caveat');
+  cav.textContent = 'Terrain screening · stormwater drains are not in the data';
+  a.appendChild(cav);
+  a.appendChild(actionsRow(turn, { details: false }));
+
+  const hint = mk('p', 'city-hint');
+  hint.textContent = 'Tap an area to look closer:';
+  a.appendChild(hint);
+  a.appendChild(areaChips(state.region));
+
+  turn.text = ev.answer || '';
+  remember({
+    q: turn.question, area: state.region ? state.region.title : null,
+    mode: sc.mode, rainfall_mm: mm, duration_h: dur,
+    headline: head.textContent,
+  });
+  const c = $('chat');
+  if (turn.m.offsetHeight > c.clientHeight) turn.m.scrollIntoView({ block: 'start' });
+  else if (stick) toBottom();
+}
+
 function onAskEvent(turn, ev) {
   if (ev.event === 'step') { addTraceRow(turn, ev); return null; }
   if (ev.event === 'error') { errorTurn(turn, ev.detail); return null; }
@@ -1566,6 +1632,7 @@ function onAskEvent(turn, ev) {
   if (ev.event === 'done') {
     if (ev.kind === 'explain') finishExplain(turn, ev);
     else if (ev.kind === 'needs_area') finishNeedsArea(turn, ev);
+    else if (ev.kind === 'city_overview') finishCityOverview(turn, ev);
     else {
       // The agent settled a rainfall and a window (from the live forecast, or the figure in the
       // question). The map, the result list and the road playback follow that, not the slider.

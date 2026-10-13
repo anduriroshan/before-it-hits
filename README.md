@@ -1,6 +1,6 @@
 # Before It Hits
 
-**Live: https://before-it-hits-z5r5gsxkza-el.a.run.app** — pick a city, draw a box, or click a preset area.
+**Live: https://before-it-hits-1019287218541.asia-south1.run.app** — pick a city, draw a box, or just ask about the whole city.
 
 Two cities are staged: **Kochi** (where an authority publishes a depth map to check against) and **Singapore** (where none does). Adding a city is a config entry plus the staging tools — no engine change.
 
@@ -68,8 +68,10 @@ discriminating return period: the KSDMA agreement above, 1.25–3.26×. The repl
 
 ## Ask it in plain language — and watch something check the answer
 
-Draw a box, type a question, and five agents run in about ten seconds with every step streamed to
-the screen as it finishes.
+Ask about a whole city ("what's the rainfall in Kochi tomorrow?") and the agent runs the engine on
+every preset area and ranks them by risk — no box needed. Ask about a specific place and it zooms
+in. Draw a box and type a question, and five agents run in about ten seconds with every step
+streamed to the screen as it finishes.
 
 > *"Which spots fill first here, and how does it compare with the official map?"*
 
@@ -246,7 +248,7 @@ KEYS
 Without `GEMINI_API_KEY` the agent layer reports itself unavailable and the ask box does not
 appear. Everything else works unchanged.
 
-Tests: `./.venv/Scripts/python.exe -m pytest engine` — 181 tests, all offline, no network, no
+Tests: `./.venv/Scripts/python.exe -m pytest engine` — 186 tests, all offline, no network, no
 staged data and no model. The agent tests stub both models out on purpose: what is worth testing
 there is the part that holds when the model is wrong, and that part is deterministic by design.
 
@@ -260,7 +262,7 @@ engine/bih_engine/   terrain, hydrology, osm, routes, official, store  — no I/
 engine/bih_agents/   scenario, narrator, verifier, coordinator, news, and the facts bundle
 engine/bih_engine/   ...terrain, hydrology, osm, routes, official, exposure, preparations, replay, store
 engine/tools/        staging jobs: the only code that talks to Overpass or a data portal
-engine/tests/        181 tests on synthetic terrain where the answer is known
+engine/tests/        186 tests on synthetic terrain where the answer is known
 service/             FastAPI: bbox + rainfall in, screening + official layer out
 web/                 map, modal tool palette, and the right-hand panel: Agent (chat with memory), Rain, Details, News
 plan/                the design written before building
