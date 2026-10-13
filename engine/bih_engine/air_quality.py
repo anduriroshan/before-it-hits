@@ -33,6 +33,20 @@ AQ_CATEGORIES = [
 ]
 
 
+# The provider names its units as enum constants. They are correct and they are unreadable, so they
+# are written the way a chemist or a newspaper would write them. The value is untouched.
+UNITS = {
+    "PARTS_PER_BILLION": "ppb",
+    "MICROGRAMS_PER_CUBIC_METER": "µg/m³",
+    "PARTS_PER_MILLION": "ppm",
+    "MILLIGRAMS_PER_CUBIC_METER": "mg/m³",
+}
+
+
+def _unit(raw: str) -> str:
+    return UNITS.get(str(raw).upper(), str(raw).replace("_", " ").lower())
+
+
 def _category(aqi: int | None) -> dict:
     if aqi is None:
         return {"label": "Unknown", "color": "#999"}
@@ -137,7 +151,7 @@ def fetch_current(lat: float, lon: float) -> AirQualityResult:
         conc = p.get("concentration", {})
         if conc:
             entry["concentration"] = conc.get("value")
-            entry["unit"] = conc.get("units", "")
+            entry["unit"] = _unit(conc.get("units", ""))
         pollutants.append(entry)
 
     result = AirQualityResult(lat=lat, lon=lon)

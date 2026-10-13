@@ -11,10 +11,26 @@ documented budget lines in the region manifest (unit costs, the budget ceiling).
 invented, and no language model runs in this file: a model only phrases the result afterwards, and
 even then may use no number that is not already here (see bih_agents/planner.py).
 
+It also has to be able to say "nothing". A planner handed a spending list every time they look at a
+map learns to ignore the list, and most days are ordinary - the rain forecast is the rain this city
+gets, and its drains were built for it. So the plan is gated on the rainfall before it is gated on
+anything else, by two deterministic tests:
+
+  - Is this an ordinary amount of rain? Judged against the India Meteorological Department's own
+    published daily classes, not against anything we invented. Light rain or less is a normal day,
+    and a normal day does not get the preparedness budget spent on it.
+  - If it is more than that, does it actually reach anything? A spot only earns a measure when this
+    rainfall fills it, which the screening already computes per spot as `rain_to_fill_mm`.
+
+Either way the answer is no measures and the reason, with the rainfall it would take to change it -
+not a shorter list of things to buy anyway. Neither test says the city is safe, and the quiet
+verdict carries the limits that say so.
+
 What it deliberately does not do:
   - No per-building or per-home claim. A measure addresses a spot and the road it sits on.
   - No absolute water depth. Spots are ranked against each other, never quoted in metres.
   - No live dispatch, evacuation routing or "send a team now". Preparation and planning only.
+  - No "the city is fine". A quiet verdict is about this rainfall in this box, nothing wider.
 """
 from __future__ import annotations
 
@@ -24,6 +40,17 @@ MIN_RANK = 3
 TOP_RANK = 4
 # The list is a prioritised plan an officer can act on, not a dump of every low spot in the box.
 MAX_ITEMS = 6
+# How close to filling a spot has to be before it is worth preparing against anyway. A spot that
+# needs 5% more rain than the forecast carries is a spot inside the forecast's own error.
+NEAR_MISS = 1.05
+
+# The top of "light rain" on the India Meteorological Department's daily rainfall classes, which is
+# where an ordinary day stops being ordinary. Their boundary, published and named - we are not the
+# ones deciding what counts as a normal amount of rain for a city.
+ROUTINE_MM = 15.5
+MODERATE_MM = 15.6
+RAIN_CLASS_SOURCE = ("India Meteorological Department daily rainfall classes "
+                     "(light rain is up to 15.5 mm; moderate begins at 15.6 mm)")
 
 
 def _measure_for(rank: int, is_worst: bool, measures: dict) -> str | None:
@@ -115,12 +142,62 @@ def before_after(baseline: dict, after: dict, plan: dict) -> dict:
     return out
 
 
-def rank(result: dict, capabilities: dict | None) -> dict:
+def _quiet_day(cand: list[dict], rainfall_mm: float, capabilities: dict, *, because: str) -> dict:
+    """The plan when there is nothing worth spending the preparedness budget on.
+
+    Every figure here is the screening's own or the IMD's: the rainfall the run was given, the
+    class that rainfall falls in, and the `rain_to_fill_mm` the screening already computed per
+    spot. It says nothing about the city beyond this box and nothing about any other hazard.
+    """
+    budget = int(float(capabilities.get("budget_total_inr") or 0))
+    needed = min(d["rain_to_fill_mm"] for d in cand) if cand else None
+    fills = sum(1 for d in cand if d["rain_to_fill_mm"] <= float(rainfall_mm))
+    ordinary = because == "light_rain"
+    return {
+        "available": True,
+        "routine": True,
+        "because": because,
+        "items": [],
+        "rainfall_mm": round(float(rainfall_mm), 1),
+        "moderate_rain_begins_mm": MODERATE_MM,
+        "rain_class_source": RAIN_CLASS_SOURCE,
+        "spots_considered": len(cand),
+        "spots_that_fill_at_this_rainfall": fills,
+        "rain_to_first_spot_mm": None if needed is None else round(float(needed), 1),
+        "headroom_mm": None if needed is None else round(float(needed) - float(rainfall_mm), 1),
+        "budget_total_inr": budget,
+        "budget_used_inr": 0,
+        "budget_left_inr": budget or None,
+        "budget_line": capabilities.get("budget_line"),
+        "verdict": (
+            "An ordinary amount of rain, so nothing to buy for it. The India Meteorological "
+            "Department would call this light rain or less, which is the weather a city's drains "
+            "are built for - the preparedness budget is for the days that are not this one."
+            if ordinary else
+            "Nothing to buy for this rainfall. The screening finds low spots in this box, but "
+            "none of the ones worth spending against fill at the rainfall being looked at, so "
+            "the preparedness budget is better left unspent than spent here today."),
+        "source": capabilities.get("source"),
+        "limits": [
+            "This is about this box and this rainfall only. It is not a verdict on the city, on "
+            "any other day, or on any hazard other than rain pooling.",
+            "The screening has no storm-drain data, so it already overstates pooling. A quiet "
+            "answer here is therefore a conservative one, not an optimistic one.",
+            "Rain that falls outside the window the screening was run on is not in this answer.",
+            "Routine readiness a city does anyway - clearing drains before the season, keeping "
+            "pumps serviced - is not in scope here and is not cancelled by this.",
+        ],
+    }
+
+
+def rank(result: dict, capabilities: dict | None, rainfall_mm: float | None = None) -> dict:
     """A greedy preparation plan for one drawn box, capped by the documented budget.
 
     `result` is an `analyse_area` result. `capabilities` is the region manifest's `preparations`
     block: a budget ceiling, the measures it pays for (each with a unit cost), and the measures it
-    explicitly cannot (capital works), with reasons. Returns a plan, or an honest "not available".
+    explicitly cannot (capital works), with reasons. `rainfall_mm` is the rainfall the result was
+    run on; given it, the plan only spends against spots that rainfall actually fills, and returns
+    an explicit "nothing to buy" when it fills none. Returns a plan, or an honest "not available".
     """
     if not capabilities or not capabilities.get("measures"):
         return {"available": False,
@@ -133,6 +210,23 @@ def rank(result: dict, capabilities: dict | None) -> dict:
     # Worst first: most water trapped (pooling_index), ties to whichever fills sooner.
     cand = sorted((d for d in deps if d["pooling_index"] >= MIN_RANK),
                   key=lambda d: (-d["pooling_index"], d["fill_order"]))
+
+    # Spend only where this rainfall puts water, plus spots that sit just inside the forecast's own
+    # error. The rest are real low spots and stay in the screening - they are simply not what this
+    # forecast is asking the budget for.
+    held_back = 0
+    if rainfall_mm is not None and cand:
+        # An ordinary day first. Low spots take water on any wet day, so "something fills" is not
+        # on its own a reason to spend - the question is whether this is a day worth spending on,
+        # and that is the IMD's call, not ours.
+        if float(rainfall_mm) <= ROUTINE_MM:
+            return _quiet_day(cand, float(rainfall_mm), capabilities, because="light_rain")
+        reach = float(rainfall_mm) * NEAR_MISS
+        at_risk = [d for d in cand if d["rain_to_fill_mm"] <= reach]
+        if not at_risk:
+            return _quiet_day(cand, float(rainfall_mm), capabilities, because="nothing_fills")
+        held_back = len(cand) - len(at_risk)
+        cand = at_risk
 
     items: list[dict] = []
     spent = 0.0
@@ -167,6 +261,8 @@ def rank(result: dict, capabilities: dict | None) -> dict:
 
     return {
         "available": True,
+        "routine": False,
+        "rainfall_mm": None if rainfall_mm is None else round(float(rainfall_mm), 1),
         "budget_total_inr": int(budget_total),
         "budget_used_inr": int(spent),
         "budget_left_inr": int(budget_total - spent) if budget_total else None,
@@ -175,6 +271,9 @@ def rank(result: dict, capabilities: dict | None) -> dict:
         "spots_considered": len(cand),
         "spots_not_listed": max(0, len(cand) - len(items)),
         "spots_skipped_for_budget": skipped_for_budget,
+        # Ranked spots this rainfall does not reach. They are not a backlog and not a shortfall;
+        # they are simply not what today is asking the budget for.
+        "spots_dry_at_this_rainfall": held_back,
         "covers": {
             "people_in_worst_spots": covers_people,
             "note": ("A modelled distribution across the worst spots these measures target, not a "
@@ -192,5 +291,7 @@ def rank(result: dict, capabilities: dict | None) -> dict:
             "Costs and the budget ceiling are the city's own documented figures, not a quote. The "
             "measure chosen for each spot is a fixed rule by severity, not a tendered plan.",
             "Spots are ranked against each other in this box, never quoted as a depth.",
+            "This plan is for the rainfall being looked at. Low spots that rainfall does not reach "
+            "are left out of it, and a different forecast gives a different list.",
         ],
     }

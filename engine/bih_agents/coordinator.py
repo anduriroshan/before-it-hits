@@ -226,11 +226,15 @@ def _build_city_answer(spec, preset_results, region_title):
 
 
 def _add_supplementary_hazards(bundle: dict, region, bbox, trace: Trace) -> None:
-    """Best-effort: fetch heat and air quality for the region centre, add to the facts bundle.
-    Failures here never block the flood analysis."""
+    """Best-effort: heat and air quality for the same box the screening ran on, into the bundle.
+
+    Asked at the centre of the drawn box, so the briefing's three hazards are all about the same
+    patch of ground rather than silently mixing a neighbourhood with a city. Both providers answer
+    at a point, and the notes in the bundle say so. Failures never block the flood analysis.
+    """
     if region is None:
         return
-    w, s, e, n = region.bounds
+    w, s, e, n = bbox if bbox else region.bounds
     lat, lon = (s + n) / 2, (w + e) / 2
 
     try:

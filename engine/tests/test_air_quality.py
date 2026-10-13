@@ -76,6 +76,14 @@ def test_result_as_dict_no_aqi():
     assert d["category"] == "Unknown"
 
 
+def test_the_provider_s_unit_enums_are_written_the_way_people_write_them():
+    """The value is the provider's and untouched; only the name of the unit is made readable."""
+    assert aq._unit("PARTS_PER_BILLION") == "ppb"
+    assert aq._unit("MICROGRAMS_PER_CUBIC_METER") == "µg/m³"
+    assert aq._unit("SOMETHING_NEW") == "something new"      # an unknown one is not dropped
+    assert aq._unit("") == ""
+
+
 def test_categories_ordered():
     prev_max = -1
     for cat in aq.AQ_CATEGORIES:

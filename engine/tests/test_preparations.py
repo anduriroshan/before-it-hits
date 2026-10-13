@@ -102,6 +102,89 @@ def test_the_infeasible_measures_are_passed_through_with_their_reasons():
     assert "Capital work" in plan["infeasible"][0]["reason"]
 
 
+# ---- an ordinary day: the plan has to be able to say "nothing" ------------------------------
+
+def test_an_ordinary_amount_of_rain_buys_nothing_even_though_spots_fill():
+    """The real case, and the one that matters: low spots take water on any wet day, so "something
+    fills" cannot on its own justify spending. 12 mm is light rain on the IMD's own classes."""
+    deps = _deps()
+    for d in deps:
+        d["rain_to_fill_mm"] = 2.0             # every spot fills in a drizzle
+    plan = prep.rank(_result(deps), CAPS, rainfall_mm=12.0)
+    assert plan["available"] is True and plan["routine"] is True
+    assert plan["because"] == "light_rain"
+    assert plan["items"] == [] and plan["budget_used_inr"] == 0
+    assert plan["spots_that_fill_at_this_rainfall"] == 4      # said plainly, not hidden
+
+
+def test_the_ordinary_day_boundary_is_the_imd_s_and_is_named_as_theirs():
+    plan = prep.rank(_result(_deps()), CAPS, rainfall_mm=12.0)
+    assert "India Meteorological Department" in plan["rain_class_source"]
+    assert "India Meteorological Department" in plan["verdict"]
+    assert plan["moderate_rain_begins_mm"] == prep.MODERATE_MM
+
+
+def test_moderate_rain_is_not_an_ordinary_day():
+    """One tenth of a millimetre either side of the IMD's boundary is the whole difference."""
+    deps = _deps()
+    for d in deps:
+        d["rain_to_fill_mm"] = 2.0
+    assert prep.rank(_result(deps), CAPS, rainfall_mm=prep.ROUTINE_MM)["routine"] is True
+    louder = prep.rank(_result(deps), CAPS, rainfall_mm=prep.MODERATE_MM)
+    assert louder["routine"] is False and louder["items"]
+
+
+def test_rain_that_fills_nothing_buys_nothing():
+    """The second route to the same verdict: a real storm that still reaches no ranked spot."""
+    deps = _deps()
+    for d in deps:
+        d["rain_to_fill_mm"] = 200.0
+    plan = prep.rank(_result(deps), CAPS, rainfall_mm=40.0)
+    assert plan["routine"] is True and plan["because"] == "nothing_fills"
+    assert plan["items"] == []
+    assert plan["rain_to_first_spot_mm"] == 200.0
+    assert plan["headroom_mm"] == 160.0
+    assert plan["spots_that_fill_at_this_rainfall"] == 0
+
+
+def test_a_quiet_verdict_is_about_this_box_and_this_rain_only():
+    plan = prep.rank(_result(_deps()), CAPS, rainfall_mm=4.0)
+    text = " ".join(plan["limits"]).lower()
+    assert "this box" in text and "not a verdict on the city" in text
+    assert "storm-drain" in text and "conservative" in text          # quiet here means cautious
+    assert "not cancelled by this" in text                           # nor is routine readiness
+
+
+def test_rain_that_fills_the_spots_still_buys_the_full_plan():
+    plan = prep.rank(_result(_deps()), CAPS, rainfall_mm=60.0)
+    assert plan["routine"] is False
+    assert [it["op"] for it in plan["items"]] == [
+        "clear_outlet_drain", "pre_position_pump", "pre_position_pump", "barricade_low_stretch"]
+
+
+def test_only_the_spots_this_rain_reaches_are_spent_against():
+    deps = _deps()
+    deps[0]["rain_to_fill_mm"] = 15.0          # the rank-5 spot fills
+    deps[1]["rain_to_fill_mm"] = 90.0          # these three do not
+    deps[2]["rain_to_fill_mm"] = 90.0
+    deps[3]["rain_to_fill_mm"] = 90.0
+    plan = prep.rank(_result(deps), CAPS, rainfall_mm=30.0)
+    assert [it["spot_id"] for it in plan["items"]] == ["d_01"]
+    assert plan["spots_dry_at_this_rainfall"] == 3
+
+
+def test_a_spot_just_inside_the_forecast_error_is_still_prepared_against():
+    deps = _deps()
+    for d in deps:
+        d["rain_to_fill_mm"] = 103.0           # 3% above the rain in play
+    plan = prep.rank(_result(deps), CAPS, rainfall_mm=100.0)
+    assert plan["routine"] is False and len(plan["items"]) == 4
+
+
+def test_without_a_rainfall_the_ranker_behaves_exactly_as_before():
+    assert prep.rank(_result(_deps()), CAPS) == prep.rank(_result(_deps()), CAPS, rainfall_mm=None)
+
+
 # ---- before / after (F10) -------------------------------------------------------------------
 
 def _analysis(top_filling_ids, people, road_m):

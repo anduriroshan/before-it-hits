@@ -197,13 +197,41 @@ select#rp {
 .layers-panel.collapsed .layer-list, .layers-panel.collapsed .layers-title { display: none; }
 .layers-panel.collapsed .collapse svg { transform: rotate(180deg); }
 .layers-panel.collapsed { padding: 6px 32px 6px 10px; min-width: 0; }
-.layer-list { display: flex; flex-direction: column; gap: 4px; }
-.layer-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
-.layer-row label { display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; flex: 1 1 auto; min-width: 0; }
+/* Eight layers, each of which grows a note when it is on, is taller than some screens. */
+.layer-list { display: flex; flex-direction: column; gap: 1px; max-height: 62vh; overflow-y: auto; }
+/* Two rows: the toggle and its opacity on one line, and a note under it that is only there when
+   the layer has something to say about what it is showing. */
+.layer-row { display: grid; grid-template-columns: 1fr auto; align-items: center;
+  gap: 2px 6px; padding: 3px 4px; border-radius: 7px; }
+.layer-row.on { background: rgba(14,116,144,.07); }
+.layer-name { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; min-width: 0; }
+.layer-row.on .layer-name { font-weight: 600; }
 .layer-row input[type="checkbox"] { margin: 0; accent-color: var(--accent); }
-.layer-row input[type="range"] { width: 54px; margin: 0; accent-color: var(--accent); height: 14px; }
-.layer-opacity { flex: 0 0 auto; display: flex; align-items: center; gap: 3px; }
-.layer-opacity span { font-size: 10px; color: var(--faint); font-family: var(--mono); min-width: 22px; text-align: right; }
+.layer-row input[type="range"] { width: 56px; margin: 0; accent-color: var(--accent); height: 14px; }
+.layer-opacity { display: flex; align-items: center; }
+.layer-row .layer-opacity { visibility: hidden; }     /* opacity is meaningless on a layer that is off */
+.layer-row.on .layer-opacity { visibility: visible; }
+.layer-note { grid-column: 1 / -1; font-size: 10.5px; line-height: 1.35; color: var(--muted);
+  padding: 0 0 2px 20px; }
+.layer-note.warn { color: var(--warn); }
+
+/* ---- the colour scale, right edge of the map -------------------------------------------------
+   One bar per field that is on, built from the same ramp the field is painted with. */
+#fieldscale {
+  position: absolute; right: 12px; bottom: 96px; z-index: 6;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+  max-height: calc(100% - 190px); overflow: hidden;
+}
+.fs-item {
+  background: rgba(255,255,255,.95); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.12); padding: 6px 8px;
+}
+.fs-label { font-size: 10.5px; font-weight: 600; margin-bottom: 4px; white-space: nowrap; }
+.fs-label span { color: var(--muted); font-weight: 400; }
+.fs-row { display: flex; gap: 5px; }
+.fs-bar { width: 12px; height: 86px; border-radius: 3px; border: 1px solid rgba(0,0,0,.12); }
+.fs-ticks { display: flex; flex-direction: column; justify-content: space-between;
+  font-size: 10px; font-family: var(--mono); color: var(--muted); }
 
 select#region {
   width: 100%; padding: 8px 9px; margin-bottom: 8px; font: inherit; font-size: 14px;
@@ -316,19 +344,38 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 .road-outlook .ro-head { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); font-weight: 600; margin-bottom: 5px; }
 .road-outlook p { font-size: 13px; line-height: 1.5; margin: 0 0 6px; }
 
-/* ---- the storm scrubber: a temporary overlay fixed at the centre bottom of the map -------- */
+/* ---- the map's one clock, centre bottom ------------------------------------------------------
+   Play, the moment it is showing, and what is moving - then the hourly rain it is stepping
+   through, the bar itself, and the readout. */
 #tl-float {
   position: absolute; z-index: 6; left: 50%; bottom: 20px; transform: translateX(-50%);
-  width: 420px; max-width: calc(100% - 32px);
+  width: 460px; max-width: calc(100% - 32px);
   background: rgba(255, 255, 255, 0.97); border: 1px solid var(--line); border-radius: 12px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22); padding: 9px 13px 10px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22); padding: 8px 13px 10px;
 }
+.tl-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+#tb-play {
+  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line);
+  background: var(--card); color: var(--ink); cursor: pointer; font-size: 11px; line-height: 1;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+}
+#tb-play:hover { background: var(--bg); border-color: var(--accent); color: var(--accent); }
+.tb-when {
+  flex: 0 0 auto; font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  min-width: 92px;
+}
+.tl-head .tl-src { margin: 0; flex: 1 1 auto; text-align: right; line-height: 1.3; }
 #tl-float #tl-step { display: block; width: 100%; margin: 0 0 5px; accent-color: var(--warn); }
+#tl-float.fields-only #tl-step { accent-color: var(--accent); }
 .tl-floatrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .tl-floatread { font-size: 11.5px; color: var(--ink); line-height: 1.3; }
 .tl-floatread b { color: var(--warn); }
 #tl-float .tl-dur { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
 #tl-float .tl-dur select { width: auto; padding: 2px 5px; font-size: 11px; }
+
+/* The field canvases. Non-interactive: the map underneath has to stay draggable and the box tool
+   has to keep working through them. */
+.fieldcanvas { position: absolute; pointer-events: none; }
 /* ---- preparations within budget (F9) ------------------------------------------------------- */
 .prep-budget { margin: 6px 0 10px; }
 .pb-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13px; }
@@ -349,6 +396,14 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 .prep-items { list-style: none; margin: 0 0 8px; padding: 0; }
 .prep-items li { display: flex; align-items: baseline; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); }
 .prep-items li:first-child { border-top: none; }
+/* An ordinary day: deliberately calm, and not styled as an alert. Nothing to do is a finding. */
+.prep-quiet { display: block !important; padding: 12px 14px !important; border-top: none !important;
+  background: #f3faf5; border: 1px solid #cfe8d8; border-radius: 12px; }
+.pq-title { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #0a7d34;
+  font-weight: 700; margin-bottom: 6px; }
+.prep-quiet p { font-size: 13px; line-height: 1.5; margin: 0 0 7px; }
+.prep-quiet .pq-figures b { font-variant-numeric: tabular-nums; color: var(--ink); }
+.prep-quiet p:last-child { margin-bottom: 0; }
 .pi-body { flex: 1 1 auto; }
 .pi-body .meta { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
 .pi-cost { flex: 0 0 auto; font-family: var(--mono); font-size: 12.5px; color: var(--ink); white-space: nowrap; }
@@ -549,6 +604,17 @@ details.block > :not(summary) { margin: 2px 0 8px; }
   background: var(--accent); color: #fff; border-color: var(--accent);
 }
 
+/* ---- which patch of ground a reading is about ------------------------------------------------
+   A box and a whole city are different claims, and the difference is invisible unless it is said.
+   Two colours so it reads at a glance which one is on screen. */
+.scopeline {
+  margin: 0 0 10px; padding: 8px 11px; border-radius: 10px; font-size: 13px;
+  background: var(--bg); border-left: 3px solid var(--line);
+}
+.scopeline.box { background: #eef7fb; border-left-color: var(--accent); }
+.scopeline.city { background: #faf7ee; border-left-color: #c9a227; }
+.scopeline .tiny { margin-top: 3px; line-height: 1.4; }
+
 /* ---- Heat tab: current conditions and forecast ------------------------------------------------ */
 .heat-current {
   margin: 8px 0 14px; padding: 14px 16px; background: var(--bg); border-radius: 12px;
@@ -590,8 +656,20 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 .air-health h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
 
 /* ---- News: headlines above, a chat below ------------------------------------------------------ */
-.news-feed { flex: 0 1 auto; max-height: 44%; overflow-y: auto; padding: 12px 16px 10px; border-bottom: 1px solid var(--line); }
-.news-feed .pane-title { margin: 0 0 8px; }
+.news-feed { flex: 0 1 auto; max-height: 44%; overflow-y: auto; padding: 8px 16px 10px; border-bottom: 1px solid var(--line); }
+.news-feed .pane-title { margin: 0; }
+/* Folded, the feed is one title bar and the chat takes the rest of the pane. */
+.news-fold {
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 0 8px;
+  background: none; border: none; font: inherit; color: inherit; cursor: pointer; text-align: left;
+}
+.news-fold svg { width: 16px; height: 16px; fill: var(--faint); flex: 0 0 auto; transition: transform .15s; }
+.news-fold:hover svg { fill: var(--accent); }
+.news-count { font-size: 11.5px; margin-left: auto; flex: 0 0 auto; }
+.news-feed.folded { max-height: none; flex: 0 0 auto; padding-bottom: 4px; }
+.news-feed.folded #news-feed-body { display: none; }
+.news-feed.folded .news-fold { padding-bottom: 4px; }
+.news-feed.folded .news-fold svg { transform: rotate(-90deg); }
 .news-topics { margin: 0 0 8px; }
 .news-topics .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 .news-chat { flex: 1 1 0; min-height: 140px; }

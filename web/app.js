@@ -25,7 +25,9 @@ const state = {
   regions: [], region: null, regionRect: null, forecast: null, rainMode: 'whatif',
   agents: false, newsFor: null, roadLayer: null, whatif: false, tab: 'agent',
   hazards: [], newsTopics: [], newsTopic: 'flood', treated: null, afterView: false,
-  tl: { feats: [], dur: 6, step: 6, total: 100, cum: [], steps: 6, real: false },
+  lastRainMm: null,
+  tl: { feats: [], dur: 6, step: 6, total: 100, cum: [], steps: 6, real: false,
+        profile: [], forecastMeta: null, start: null },
 };
 
 /* Late answers from the loaders (forecast, gauges, preparations, road outlook) must not land on an
@@ -85,10 +87,10 @@ async function boot() {
   wireNews();
   setTab('agent');
   buildRegionPicker();
+  buildLayerPanel();             // before a region is chosen: choosing one clears the layers
   selectRegion(state.regions[0].name);
   wireToolbar();
   wireTimeline();
-  buildLayerPanel();
 
   if (!cfg.maps_api_key) {
     mapFailed('No Maps API key is configured. Set MAPS_API_KEY in .env.local and restart.');
@@ -135,10 +137,14 @@ function selectRegion(name, opts = {}) {
   $('rain-nogauge').hidden = Boolean(region.live_rainfall);
   loadReplay(region);
   resetNews(region);
-  heatFor = null;
-  airFor = null;
+  forgetConditions();
   if (state.tab === 'heat') loadHeat();
   if (state.tab === 'air') loadAir();
+  // Every layer holds data for the city it was loaded in, so they come off with the city.
+  clock.times = [];
+  for (const cb of document.querySelectorAll('#layer-list input[type=checkbox]')) cb.checked = false;
+  for (const l of Object.values(dataLayers)) { l.visible = false; l.row.classList.remove('on'); }
+  clearDataLayers();
   clearAll({ quiet: true });
   if (!opts.keepChat) chatReset();
   if (state.mapReady) frameRegion(region);
@@ -213,11 +219,18 @@ function clearAll(opts = {}) {
   $('legend').hidden = true;
   voidLoaders();
   clearedArea(Boolean(state.lastBbox) && !opts.quiet);
+  const had = Boolean(state.lastBbox);
   state.lastBbox = null;
   state.areaLabel = null;
   $('results').hidden = true;
   setStatus('');
   setTool('pan');
+  if (had) {
+    refreshAreaLayers();     // back to the whole city, at the city's coarser cell
+    forgetConditions();
+    if (state.tab === 'heat') loadHeat();
+    if (state.tab === 'air') loadAir();
+  }
 }
 
 function toggleCollapse(which) {
@@ -255,19 +268,50 @@ function wireToolbar() {
   });
 }
 
-/* ---- data layers: Photoshop-like toggles with opacity ----------------------------------------
-   Each layer can be turned on/off and its opacity adjusted. Layers stack on the map like
-   Photoshop layers. Available layers depend on what data we have for the region. */
+/* ---- data layers: stacked fields with their own opacity -------------------------------------
+   Layers stack like a drawing app: each one is on or off and carries its own opacity, and they
+   compose in a fixed order so turning one on never reshuffles the rest.
+
+   How a field is drawn, and why it is not drawn as numbers. A weather provider answers at a point,
+   so sixteen points across a city is what we have. Printing sixteen figures on the map implies a
+   reading at each dot and says nothing at all about everywhere else, which is most of the map. A
+   field instead interpolates between the points and colours the result, which is both honest about
+   what it is - a smooth guess between known points - and legible at a glance, which is the whole
+   job of a map layer. The figures are still available: the Heat and Air tabs state them, with their
+   source, and the scale on the right says what every colour is worth.
+
+   Everything here is drawn into a canvas rather than built from markers or polygons: a few hundred
+   DOM nodes restyled on every animation frame is not something a browser enjoys, and a canvas lets
+   the same field be redrawn sixty times a second while the clock runs. */
 
 const LAYER_DEFS = [
-  { id: 'traffic',    label: 'Traffic',            icon: '🚗', defaultOn: false, defaultOpacity: 0.7 },
-  { id: 'population', label: 'Population density', icon: '👥', defaultOn: false, defaultOpacity: 0.5 },
-  { id: 'humidity',   label: 'Humidity',           icon: '💧', defaultOn: false, defaultOpacity: 0.6 },
-  { id: 'heat',       label: 'Heat index',         icon: '🌡', defaultOn: false, defaultOpacity: 0.6 },
-  { id: 'airquality', label: 'Air quality',        icon: '🌫', defaultOn: false, defaultOpacity: 0.5 },
+  { id: 'heat', label: 'Heat index', kind: 'weather', field: 'heat', opacity: 0.65 },
+  { id: 'temperature', label: 'Temperature', kind: 'weather', field: 'temperature', opacity: 0.65 },
+  { id: 'humidity', label: 'Humidity', kind: 'weather', field: 'humidity', opacity: 0.6 },
+  { id: 'rain', label: 'Rain, per hour', kind: 'weather', field: 'rain', opacity: 0.7 },
+  { id: 'wind', label: 'Wind speed', kind: 'weather', field: 'wind', opacity: 0.55 },
+  { id: 'population', label: 'People per km²', kind: 'density', opacity: 0.6 },
+  { id: 'airquality', label: 'Air quality', kind: 'tiles', opacity: 0.55 },
+  { id: 'traffic', label: 'Traffic', kind: 'traffic', opacity: 0.8 },
 ];
 
+/* Blue through green, yellow and orange to red: the order every weather map uses, so nobody has to
+   learn ours. Stops are positions along the colour bar, 0 at the bottom of the scale and 1 at the
+   top; the bar on the right of the map is drawn from these same numbers, so the legend cannot drift
+   from the picture. */
+const RAMPS = {
+  heat: [[0, '#3b6fb5'], [0.18, '#56a8d4'], [0.34, '#8fd3a8'], [0.5, '#f0e05e'],
+    [0.64, '#f4a63a'], [0.8, '#e2512a'], [1, '#8b1414']],
+  temperature: [[0, '#3b6fb5'], [0.18, '#56a8d4'], [0.34, '#8fd3a8'], [0.5, '#f0e05e'],
+    [0.64, '#f4a63a'], [0.8, '#e2512a'], [1, '#8b1414']],
+  humidity: [[0, '#f7f3e4'], [0.3, '#bfe4cd'], [0.55, '#64c3c8'], [0.78, '#2d7cb8'], [1, '#14306b']],
+  rain: [[0, '#eaf6ff'], [0.22, '#86cff0'], [0.45, '#2f84d4'], [0.7, '#2a3da0'], [1, '#6b2a9c']],
+  wind: [[0, '#f2f6f5'], [0.35, '#9ad4c2'], [0.65, '#3f9f8c'], [0.85, '#2a6f8f'], [1, '#1b3566']],
+  population: [[0, '#fff8e8'], [0.28, '#ffd481'], [0.52, '#fb9242'], [0.74, '#df472a'], [1, '#75102c']],
+};
+
 const dataLayers = {};
+let FieldOverlay = null;          // defined once Maps has loaded; it extends an OverlayView
 
 function toggleLayers() {
   const el = $('layers');
@@ -283,9 +327,9 @@ function buildLayerPanel() {
     row.dataset.layer = def.id;
 
     const lbl = document.createElement('label');
+    lbl.className = 'layer-name';
     const cb = document.createElement('input');
     cb.type = 'checkbox';
-    cb.checked = def.defaultOn;
     cb.dataset.layer = def.id;
     lbl.appendChild(cb);
     lbl.appendChild(document.createTextNode(` ${def.label}`));
@@ -295,32 +339,43 @@ function buildLayerPanel() {
     opWrap.className = 'layer-opacity';
     const slider = document.createElement('input');
     slider.type = 'range';
-    slider.min = '0'; slider.max = '100'; slider.step = '5';
-    slider.value = String(Math.round(def.defaultOpacity * 100));
-    slider.dataset.layer = def.id;
-    const pct = document.createElement('span');
-    pct.textContent = slider.value + '%';
+    slider.min = '10'; slider.max = '100'; slider.step = '5';
+    slider.value = String(Math.round(def.opacity * 100));
+    slider.title = `${def.label} opacity`;
+    slider.setAttribute('aria-label', `${def.label} opacity`);
     opWrap.appendChild(slider);
-    opWrap.appendChild(pct);
     row.appendChild(opWrap);
 
+    const note = document.createElement('div');
+    note.className = 'layer-note';
+    note.hidden = true;
+    row.appendChild(note);
+
     cb.addEventListener('change', () => setLayerVisible(def.id, cb.checked));
-    slider.addEventListener('input', () => {
-      pct.textContent = slider.value + '%';
-      setLayerOpacity(def.id, parseInt(slider.value) / 100);
-    });
+    slider.addEventListener('input', () => setLayerOpacity(def.id, Number(slider.value) / 100));
 
     list.appendChild(row);
-    dataLayers[def.id] = { def, visible: def.defaultOn, opacity: def.defaultOpacity, instance: null };
+    dataLayers[def.id] = { def, row, note, visible: false, opacity: def.opacity,
+                           instance: null, src: null, loading: false, token: 0 };
   }
+}
+
+function layerNote(id, text, cls = '') {
+  const l = dataLayers[id];
+  if (!l) return;
+  l.note.hidden = !text;
+  l.note.className = `layer-note ${cls}`;
+  l.note.textContent = text || '';
 }
 
 function setLayerVisible(id, on) {
   const l = dataLayers[id];
   if (!l) return;
   l.visible = on;
-  if (on) createLayer(id);
-  else destroyLayer(id);
+  l.row.classList.toggle('on', on);
+  if (on) createLayer(id); else destroyLayer(id);
+  renderFieldScales();
+  updateTimebar();
 }
 
 function setLayerOpacity(id, opacity) {
@@ -328,188 +383,537 @@ function setLayerOpacity(id, opacity) {
   if (!l) return;
   l.opacity = opacity;
   if (!l.instance) return;
-  if (id === 'traffic') {
-    // TrafficLayer has no setOpacity - use CSS on the map tiles
-    const tiles = document.querySelectorAll('#map img[src*="vt?pb"]');
-    tiles.forEach(t => { t.style.opacity = String(opacity); });
-  } else if (l.instance.setOpacity) {
-    l.instance.setOpacity(opacity);
-  } else if (l.instance.setStyle) {
-    refreshLayerStyle(id);
-  }
+  if (l.def.kind === 'traffic') trafficOpacity(opacity);
+  else if (l.instance.setOpacity) l.instance.setOpacity(opacity);
+  else if (l.instance.repaint) l.instance.repaint();
+}
+
+/* TrafficLayer has no opacity of its own, so the tiles it adds are faded directly. They are
+   replaced as the map moves, so this runs again on idle while the layer is on. */
+function trafficOpacity(opacity) {
+  document.querySelectorAll('#map img[src*="vt?pb"]').forEach((t) => {
+    t.style.opacity = String(opacity);
+  });
 }
 
 function createLayer(id) {
-  if (!state.map) return;
   const l = dataLayers[id];
-  if (l.instance) return;
-
-  switch (id) {
-    case 'traffic':
-      l.instance = new google.maps.TrafficLayer();
-      l.instance.setMap(state.map);
-      break;
-
-    case 'population':
-      loadPopulationLayer();
-      break;
-
-    case 'humidity':
-      loadWeatherOverlay('humidity');
-      break;
-
-    case 'heat':
-      loadWeatherOverlay('heat');
-      break;
-
-    case 'airquality':
-      loadAirQualityLayer();
-      break;
+  if (!state.mapReady || l.instance || l.loading) return;
+  if (l.def.kind === 'traffic') {
+    l.instance = new google.maps.TrafficLayer();
+    l.instance.setMap(state.map);
+    trafficOpacity(l.opacity);
+    layerNote(id, 'Google’s live traffic. Display only — no figure here enters the screening.');
+    return;
   }
+  if (l.def.kind === 'tiles') { createAirTiles(id); return; }
+  if (l.def.kind === 'weather') { loadWeatherField(id); return; }
+  if (l.def.kind === 'density') { loadDensityField(id); return; }
 }
 
 function destroyLayer(id) {
   const l = dataLayers[id];
-  if (!l || !l.instance) return;
-  if (l.instance.setMap) l.instance.setMap(null);
-  if (id === 'population' && l.markers) { l.markers.forEach(m => m.setMap(null)); l.markers = null; }
-  if (id === 'humidity' && l.markers) { l.markers.forEach(m => m.setMap(null)); l.markers = null; }
-  if (id === 'heat' && l.markers) { l.markers.forEach(m => m.setMap(null)); l.markers = null; }
-  l.instance = null;
+  if (!l) return;
+  l.token += 1;                                  // a load in flight must not attach after this
+  l.loading = false;
+  if (l.instance) {
+    if (l.instance.setMap) l.instance.setMap(null);
+    if (l.def.kind === 'traffic') trafficOpacity(1);
+    l.instance = null;
+  }
+  layerNote(id, '');
 }
 
 function clearDataLayers() {
   for (const id of Object.keys(dataLayers)) destroyLayer(id);
+  renderFieldScales();
+  updateTimebar();
 }
 
-async function loadPopulationLayer() {
-  const l = dataLayers.population;
-  if (!state.region || !state.region.population) {
-    l.instance = { setMap: () => {} };
-    return;
+/* The area a layer covers. Weather is a regional thing and a sixteen-point grid over one
+   neighbourhood would be sixteen copies of the same number, so it always covers the whole staged
+   city. Population genuinely does vary street to street, so it follows the drawn box and is drawn
+   at a finer cell there. The layer says which it is, under its own row. */
+function layerArea(kind) {
+  if (kind === 'density' && state.lastBbox) return state.lastBbox;
+  return null;
+}
+
+/* A layer that follows the drawn box has to be rebuilt when the box moves. Drawing a box is a
+   deliberate act, so reloading one layer behind it is expected; the weather fields do not move
+   and are left alone. */
+function refreshAreaLayers() {
+  for (const l of Object.values(dataLayers)) {
+    if (l.def.kind !== 'density' || !l.visible) continue;
+    destroyLayer(l.def.id);
+    createLayer(l.def.id);
   }
+  renderFieldScales();
+}
+
+async function loadWeatherField(id) {
+  const l = dataLayers[id];
+  const my = ++l.token;
+  l.loading = true;
+  layerNote(id, 'loading the forecast…');
   try {
-    const res = await fetch(`/api/population-density?region=${encodeURIComponent(state.region.name)}`);
-    if (!res.ok) { l.instance = { setMap: () => {} }; return; }
-    const data = await res.json();
-    if (!l.visible) return;
-    const layer = new google.maps.Data({ map: state.map });
-    layer.addGeoJson(data.geojson);
-    layer.setStyle((f) => {
-      const d = f.getProperty('density');
-      const maxD = data.max_density || 1;
-      const ratio = Math.min(d / maxD, 1);
-      return {
-        fillColor: densityColor(ratio), fillOpacity: l.opacity * 0.7,
-        strokeWeight: 0, clickable: false, zIndex: -1,
-      };
-    });
-    l.instance = layer;
-  } catch { l.instance = { setMap: () => {} }; }
+    const url = `/api/weather-grid?region=${encodeURIComponent(state.region.name)}`
+      + `&type=${encodeURIComponent(l.def.field)}&hours=24`;
+    const d = await fetch(url).then((r) => { if (!r.ok) throw new Error('no field'); return r.json(); });
+    if (my !== l.token || !l.visible) return;
+    l.src = scatterSource(d, RAMPS[l.def.field] || RAMPS.heat);
+    l.instance = new FieldOverlay(l);
+    l.instance.setMap(state.map);
+    clockAdopt(d.times);
+    layerNote(id, `Forecast at ${d.points.length} points about ${d.spacing_km} km apart, `
+      + 'coloured between them. The colour between points is interpolation, not a reading.');
+    renderFieldScales();
+    updateTimebar();
+  } catch {
+    if (my !== l.token) return;
+    layerNote(id, 'The forecast for this layer is not available right now.', 'warn');
+  } finally {
+    if (my === l.token) l.loading = false;
+  }
 }
 
-function densityColor(ratio) {
-  if (ratio > 0.8) return '#7c0a02';
-  if (ratio > 0.6) return '#c0392b';
-  if (ratio > 0.4) return '#e67e22';
-  if (ratio > 0.2) return '#f1c40f';
-  return '#2ecc71';
-}
-
-async function loadWeatherOverlay(type) {
-  const l = dataLayers[type];
+async function loadDensityField(id) {
+  const l = dataLayers[id];
+  const my = ++l.token;
+  l.loading = true;
+  layerNote(id, 'counting building footprints…');
   try {
-    const res = await fetch(`/api/weather-grid?region=${encodeURIComponent(state.region.name)}&type=${type}`);
-    if (!res.ok) { l.instance = { setMap: () => {} }; return; }
-    const data = await res.json();
-    if (!l.visible) return;
-    const markers = [];
-    for (const pt of data.points) {
-      const color = type === 'humidity' ? humidityColor(pt.value) : heatColor(pt.value);
-      const m = new google.maps.Marker({
-        position: { lat: pt.lat, lng: pt.lng },
-        map: state.map,
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          fillColor: color,
-          fillOpacity: l.opacity,
-          strokeWeight: 0,
-          scale: 18,
-        },
-        label: {
-          text: `${Math.round(pt.value)}${type === 'humidity' ? '%' : '°'}`,
-          fontSize: '10px', fontWeight: '600', color: '#fff',
-        },
-        clickable: false,
-        zIndex: -2,
-      });
-      markers.push(m);
-    }
-    l.markers = markers;
-    l.instance = { setMap: (m) => markers.forEach(mk => mk.setMap(m)) };
-  } catch { l.instance = { setMap: () => {} }; }
+    const box = layerArea('density');
+    const url = `/api/population-density?region=${encodeURIComponent(state.region.name)}`
+      + (box ? `&bbox=${box.map((v) => v.toFixed(5)).join(',')}` : '');
+    const d = await fetch(url).then((r) => { if (!r.ok) throw new Error('no density'); return r.json(); });
+    if (my !== l.token || !l.visible) return;
+    if (!d.available) { layerNote(id, d.reason || 'Not available for this city.', 'warn'); return; }
+    l.src = rasterSource(d, RAMPS.population);
+    l.instance = new FieldOverlay(l);
+    l.instance.setMap(state.map);
+    layerNote(id, `${box ? 'The box you drew' : 'The whole city'}, in about ${d.cell_m} m cells. `
+      + 'An approximation by area from building footprints — never a count of a street or a home.');
+    renderFieldScales();
+  } catch {
+    if (my !== l.token) return;
+    layerNote(id, 'Population density could not be built for this area.', 'warn');
+  } finally {
+    if (my === l.token) l.loading = false;
+  }
 }
 
-function humidityColor(v) {
-  if (v > 90) return '#1a5276';
-  if (v > 75) return '#2980b9';
-  if (v > 60) return '#5dade2';
-  if (v > 40) return '#85c1e9';
-  return '#aed6f1';
-}
-
-function heatColor(v) {
-  if (v > 40) return '#7c0a02';
-  if (v > 35) return '#c0392b';
-  if (v > 30) return '#e67e22';
-  if (v > 25) return '#f1c40f';
-  return '#27ae60';
-}
-
-function loadAirQualityLayer() {
-  const l = dataLayers.airquality;
-  if (!state.mapsApiKey) { l.instance = { setMap: () => {} }; return; }
+/* Google's own air-quality heatmap tiles. Not a field we interpolate: it is their picture, shown
+   as published, which is why it is the one layer here with no scale of ours beside it. */
+function createAirTiles(id) {
+  const l = dataLayers[id];
+  if (!state.mapsApiKey) { layerNote(id, 'No Maps key, so the tiles cannot be fetched.', 'warn'); return; }
   const overlay = new google.maps.ImageMapType({
-    getTileUrl: (coord, zoom) =>
-      `https://airquality.googleapis.com/v1/mapTypes/UAQI_RED_GREEN/heatmapTiles/${zoom}/${coord.x}/${coord.y}?key=${state.mapsApiKey}`,
+    getTileUrl: (c, z) => `https://airquality.googleapis.com/v1/mapTypes/UAQI_RED_GREEN/`
+      + `heatmapTiles/${z}/${c.x}/${c.y}?key=${state.mapsApiKey}`,
     tileSize: new google.maps.Size(256, 256),
     opacity: l.opacity,
     name: 'airquality',
   });
   state.map.overlayMapTypes.push(overlay);
-  l.instance = overlay;
-  l.instance.setMap = (m) => {
-    if (!m) {
+  l.instance = {
+    setOpacity: (o) => overlay.setOpacity(o),
+    setMap: (m) => {
+      if (m) return;
       const types = state.map.overlayMapTypes;
-      for (let i = 0; i < types.getLength(); i++) {
+      for (let i = 0; i < types.getLength(); i += 1) {
         if (types.getAt(i) === overlay) { types.removeAt(i); break; }
       }
+    },
+  };
+  layerNote(id, 'Google’s own air-quality tiles, shown as published. Green is cleaner, red worse; '
+    + 'the Air tab gives the figure and the pollutant behind it.');
+}
+
+/* ---- the two kinds of field -----------------------------------------------------------------
+   Scattered points interpolated between (weather), and a regular grid of cells smoothed (people).
+   Both end up as the same thing: a function from a cell of a small raster to a value, plus the
+   bounds and ramp to colour it with. The overlay below knows nothing else about them. */
+
+const FIELD_RES = 72;             // the raster the field is computed at, before it is scaled up
+
+function scatterSource(d, ramp) {
+  return {
+    kind: 'scatter', bbox: d.bbox, ramp, times: d.times || [],
+    min: d.field.min, max: d.field.max, label: d.field.label, unit: d.field.unit,
+    note: d.field.note, source: d.source,
+    points: d.points, rw: FIELD_RES, rh: FIELD_RES, weights: null,
+  };
+}
+
+function rasterSource(d, ramp) {
+  return {
+    kind: 'raster', bbox: d.bbox, ramp, times: [],
+    min: 0, max: Math.max(1, d.p95), label: 'People per km²', unit: '', note: d.method,
+    source: d.source, values: d.values, rw: d.cols, rh: d.rows, cellM: d.cell_m, peak: d.max,
+  };
+}
+
+/* Inverse distance weighting, worked out once per source and reused for every frame. The weights
+   depend only on where the points are, which does not change as the clock runs, so animating the
+   field costs one weighted sum per cell rather than a fresh interpolation. */
+function buildWeights(src) {
+  const [w, s, e, n] = src.bbox;
+  const pts = src.points;
+  const out = new Float32Array(src.rw * src.rh * pts.length);
+  for (let y = 0; y < src.rh; y += 1) {
+    const lat = n - (n - s) * ((y + 0.5) / src.rh);
+    for (let x = 0; x < src.rw; x += 1) {
+      const lng = w + (e - w) * ((x + 0.5) / src.rw);
+      const base = (y * src.rw + x) * pts.length;
+      let total = 0;
+      for (let i = 0; i < pts.length; i += 1) {
+        const dx = lng - pts[i].lng;
+        const dy = lat - pts[i].lat;
+        // A small floor keeps the weight finite right on top of a point, where 1/d would blow up.
+        const wgt = 1 / Math.pow(dx * dx + dy * dy + 1e-7, 1.6);
+        out[base + i] = wgt;
+        total += wgt;
+      }
+      for (let i = 0; i < pts.length; i += 1) out[base + i] /= total;
+    }
+  }
+  src.weights = out;
+}
+
+/* The value at a cell, at a moment between two forecast hours. A point with no value for the hour
+   drops out of the sum entirely rather than contributing a zero - a gap in the forecast must not
+   read as cold, dry air. */
+function scatterValue(src, cell, hour, frac) {
+  const pts = src.points;
+  const base = cell * pts.length;
+  let sum = 0;
+  let weight = 0;
+  for (let i = 0; i < pts.length; i += 1) {
+    const vals = pts[i].values;
+    const a = vals[Math.min(hour, vals.length - 1)];
+    if (a == null) continue;
+    const bRaw = vals[Math.min(hour + 1, vals.length - 1)];
+    const v = bRaw == null ? a : a + (bRaw - a) * frac;
+    const wgt = src.weights[base + i];
+    sum += v * wgt;
+    weight += wgt;
+  }
+  return weight > 0 ? sum / weight : null;
+}
+
+const hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16),
+  parseInt(h.slice(5, 7), 16)];
+
+/* The ramp, flattened to 256 steps once. Looking a colour up per pixel per frame is what this is
+   for: parsing hex and interpolating five thousand times a frame is the one thing in here that
+   would actually be felt. */
+function rampAt(ramp, t) {
+  const x = Math.max(0, Math.min(1, t));
+  let [p0, c0] = [ramp[0][0], hexRgb(ramp[0][1])];
+  let [p1, c1] = [ramp[ramp.length - 1][0], hexRgb(ramp[ramp.length - 1][1])];
+  for (let j = 1; j < ramp.length; j += 1) {
+    if (x <= ramp[j][0]) {
+      [p0, c0] = [ramp[j - 1][0], hexRgb(ramp[j - 1][1])];
+      [p1, c1] = [ramp[j][0], hexRgb(ramp[j][1])];
+      break;
+    }
+  }
+  const k = p1 === p0 ? 0 : (x - p0) / (p1 - p0);
+  return [Math.round(c0[0] + (c1[0] - c0[0]) * k), Math.round(c0[1] + (c1[1] - c0[1]) * k),
+    Math.round(c0[2] + (c1[2] - c0[2]) * k)];
+}
+
+function buildLut(ramp) {
+  const lut = new Uint8Array(256 * 3);
+  for (let i = 0; i < 256; i += 1) {
+    const [r, g, b] = rampAt(ramp, i / 255);
+    lut[i * 3] = r; lut[i * 3 + 1] = g; lut[i * 3 + 2] = b;
+  }
+  return lut;
+}
+
+/* ---- the overlay ------------------------------------------------------------------------------
+   One canvas pinned to the layer's own bounding box, painted from a small raster and scaled up by
+   the browser. The scaling is the smoothing: a 72-square raster stretched over the map is exactly
+   the soft field a weather map draws, and it costs one drawImage. */
+function defineFieldOverlay() {
+  if (FieldOverlay) return;
+  FieldOverlay = class extends google.maps.OverlayView {
+    constructor(layer) {
+      super();
+      this.layer = layer;
+      this.canvas = null;
+      this.small = document.createElement('canvas');
+    }
+
+    onAdd() {
+      const c = document.createElement('canvas');
+      c.className = 'fieldcanvas';
+      this.canvas = c;
+      this.getPanes().overlayLayer.appendChild(c);
+    }
+
+    onRemove() {
+      if (this.canvas && this.canvas.parentNode) this.canvas.parentNode.removeChild(this.canvas);
+      this.canvas = null;
+    }
+
+    draw() {
+      const src = this.layer.src;
+      const proj = this.getProjection();
+      if (!this.canvas || !proj || !src) return;
+      const [w, s, e, n] = src.bbox;
+      const nw = proj.fromLatLngToDivPixel(new google.maps.LatLng(n, w));
+      const se = proj.fromLatLngToDivPixel(new google.maps.LatLng(s, e));
+      const width = Math.max(1, Math.round(se.x - nw.x));
+      const height = Math.max(1, Math.round(se.y - nw.y));
+      const st = this.canvas.style;
+      st.left = `${Math.round(nw.x)}px`;
+      st.top = `${Math.round(nw.y)}px`;
+      st.width = `${width}px`;
+      st.height = `${height}px`;
+      this.canvas.width = Math.min(width, 1400);
+      this.canvas.height = Math.min(height, 1400);
+      this.repaint();
+    }
+
+    repaint() {
+      const src = this.layer.src;
+      if (!this.canvas || !src) return;
+      paintSmall(this.small, src);
+      const ctx = this.canvas.getContext('2d');
+      ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      ctx.globalAlpha = this.layer.opacity;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(this.small, 0, 0, this.canvas.width, this.canvas.height);
+      ctx.globalAlpha = 1;
     }
   };
 }
 
-function refreshLayerStyle(id) {
-  const l = dataLayers[id];
-  if (!l || !l.instance) return;
-  if (id === 'population' && l.instance.setStyle) {
-    l.instance.setStyle((f) => {
-      const d = f.getProperty('density');
-      const maxD = 1;
-      const ratio = Math.min(d / maxD, 1);
-      return { fillColor: densityColor(ratio), fillOpacity: l.opacity * 0.7, strokeWeight: 0, clickable: false, zIndex: -1 };
-    });
+/* The small raster, in whichever way this source knows how to produce a value. Anything the source
+   has no value for stays fully transparent, so empty ground reads as empty rather than as the
+   bottom of the scale. */
+function paintSmall(canvas, src) {
+  if (src.kind === 'scatter' && !src.weights) buildWeights(src);
+  if (!src.lut) src.lut = buildLut(src.ramp);
+  if (canvas.width !== src.rw || canvas.height !== src.rh) {
+    canvas.width = src.rw;
+    canvas.height = src.rh;
+    src.img = null;
   }
-  if ((id === 'humidity' || id === 'heat') && l.markers) {
-    l.markers.forEach(m => {
-      const icon = m.getIcon();
-      icon.fillOpacity = l.opacity;
-      m.setIcon(icon);
-    });
+  const ctx = canvas.getContext('2d');
+  if (!src.img) src.img = ctx.createImageData(src.rw, src.rh);
+  const px = src.img.data;
+  const lut = src.lut;
+  const span = (src.max - src.min) || 1;
+  // The bar's hour, shifted onto this source's own window. A field whose forecast starts an hour
+  // after the rain window should show its own first hour then, not at the bar's zero.
+  const hour = Math.max(0, clock.hour - (src.offset || 0));
+  const frac = clock.frac;
+
+  for (let y = 0; y < src.rh; y += 1) {
+    for (let x = 0; x < src.rw; x += 1) {
+      const cell = y * src.rw + x;
+      const v = src.kind === 'scatter'
+        ? scatterValue(src, cell, hour, frac)
+        // The raster arrives with its first row at the south edge; the canvas starts at the north.
+        : src.values[(src.rh - 1 - y) * src.rw + x];
+      const o = cell * 4;
+      if (v == null) { px[o + 3] = 0; continue; }
+      const t = Math.max(0, Math.min(255, Math.round(((v - src.min) / span) * 255))) * 3;
+      px[o] = lut[t]; px[o + 1] = lut[t + 1]; px[o + 2] = lut[t + 2]; px[o + 3] = 255;
+    }
   }
-  if (id === 'airquality' && l.instance && l.instance.setOpacity) {
-    l.instance.setOpacity(l.opacity);
+  ctx.putImageData(src.img, 0, 0);
+}
+
+function repaintFields() {
+  for (const l of Object.values(dataLayers)) {
+    if (l.instance && l.instance.repaint) l.instance.repaint();
   }
 }
+
+const visibleFields = () => Object.values(dataLayers)
+  .filter((l) => l.visible && l.src && l.instance);
+
+/* ---- the scale on the right -------------------------------------------------------------------
+   A colour bar per field that is on, drawn from the same ramp as the map, so the legend and the
+   picture cannot disagree. Without it a coloured field is decoration. */
+function renderFieldScales() {
+  const host = $('fieldscale');
+  if (!host) return;
+  const on = visibleFields();
+  host.hidden = !on.length;
+  if (!on.length) { host.replaceChildren(); return; }
+  host.replaceChildren(...on.map((l) => {
+    const src = l.src;
+    const stops = src.ramp.map(([p, c]) => `${c} ${(p * 100).toFixed(0)}%`).join(', ');
+    const mid = src.min + (src.max - src.min) / 2;
+    const box = document.createElement('div');
+    box.className = 'fs-item';
+    box.innerHTML = `<div class="fs-label">${esc(src.label)}${src.unit ? ` <span>${esc(src.unit)}</span>` : ''}</div>
+      <div class="fs-row">
+        <div class="fs-bar" style="background:linear-gradient(to top, ${stops})"></div>
+        <div class="fs-ticks">
+          <span>${fmtScale(src.max)}</span><span>${fmtScale(mid)}</span><span>${fmtScale(src.min)}</span>
+        </div>
+      </div>`;
+    box.title = src.note || '';
+    return box;
+  }));
+}
+
+const fmtScale = (v) => (Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}k`
+  : (Math.abs(v) >= 10 ? String(Math.round(v)) : String(Math.round(v * 10) / 10)));
+
+/* ---- one clock for the whole map --------------------------------------------------------------
+   There used to be two time controls on this map doing unrelated things, and the rain playback on
+   its own was the weaker of them: a scrubber that only ever meant "how much rain has fallen by now"
+   reads as a loading bar, not as weather. A map that moves is a better explanation than a bar that
+   fills, which is what a weather map has always known.
+
+   So there is one bar, and everything time-shaped follows it: the field layers morph between
+   forecast hours, and the road playback - which is genuinely a rainfall-accumulation clock and
+   nothing else - lights its roads at the same moment. The bar's hours are real local clock hours,
+   not "hour 4", because nobody plans against hour 4.
+
+   What the bar does NOT do: it does not run the engine again. The screening is computed once for
+   the rainfall window the agent settled on, and scrubbing moves through that one result. The
+   readout says which it is. */
+
+const clock = {
+  hour: 0, frac: 0, steps: 0, start: null,
+  playing: false, raf: null, last: 0,
+  times: [],                                   // the forecast window the weather fields carry
+};
+const CLOCK_SPEED = 1.1;                       // forecast hours per real second while playing
+
+function clockAdopt(times) {
+  if (times && times.length > clock.times.length) clock.times = times.slice();
+  updateTimebar();
+}
+
+/* Hour zero of the bar. The rain window wins when there is one: that is the window the screening
+   was actually run on, and the roads mean nothing against any other clock. */
+function clockStart() {
+  if (state.tl.real && state.tl.start) return new Date(state.tl.start);
+  if (clock.times.length && clock.times[0]) return new Date(clock.times[0]);
+  return null;
+}
+
+function clockLabel(step, o = { weekday: 'short', hour: 'numeric' }) {
+  const start = clockStart();
+  if (!start) return `+${Math.round(step)} h`;
+  const t = new Date(start.getTime() + step * 3600e3);
+  const tz = state.region && state.region.timezone;
+  try { return new Intl.DateTimeFormat([], { timeZone: tz || undefined, ...o }).format(t); }
+  catch { return new Intl.DateTimeFormat([], o).format(t); }
+}
+
+/* Where each field's own hour 0 sits on the bar. The weather grid and the rainfall forecast come
+   from the same provider but are fetched at different moments, so they can be an hour apart; this
+   lines them up rather than assuming they agree. */
+function syncFieldOffsets() {
+  const start = clockStart();
+  for (const l of visibleFields()) {
+    const t = l.src.times;
+    l.src.offset = (start && t && t.length && t[0])
+      ? Math.round((new Date(t[0]).getTime() - start.getTime()) / 3600e3) : 0;
+  }
+}
+
+/* The bar covers whatever the longest thing on the map needs: the rain window, the forecast the
+   fields carry, or both. */
+function timebarSteps() {
+  const fieldHours = visibleFields().reduce(
+    (m, l) => Math.max(m, (l.src.times || []).length), clock.times.length);
+  const rainSteps = state.tl.feats && state.tl.feats.length ? state.tl.steps : 0;
+  return Math.max(rainSteps, Math.max(0, fieldHours - 1));
+}
+
+function updateTimebar() {
+  const bar = $('tl-float');
+  if (!bar) return;
+  const hasRoads = Boolean(state.roadLayer && state.tl.feats && state.tl.feats.length);
+  const fields = visibleFields().filter((l) => (l.src.times || []).length);
+  if (!hasRoads && !fields.length) {
+    clockPause();
+    bar.hidden = true;
+    return;
+  }
+  bar.hidden = false;
+  clock.steps = timebarSteps();
+  syncFieldOffsets();
+  $('tl-step').max = String(Math.max(1, clock.steps));
+  if (clock.hour > clock.steps) clock.hour = clock.steps;
+  $('tl-step').value = String(clock.hour);
+  $('tl-duration').parentElement.style.display = (hasRoads && !state.tl.real) ? '' : 'none';
+  $('tb-play').hidden = clock.steps < 2;
+  bar.classList.toggle('fields-only', !hasRoads);
+  renderTimebarSource(hasRoads, fields);
+  stepTo(clock.hour, clock.frac);
+}
+
+/* Where the numbers on this bar come from, in plain sight. Two different things can be on it at
+   once, so both are named rather than one standing in for the other. */
+function renderTimebarSource(hasRoads, fields) {
+  const parts = [];
+  if (hasRoads) {
+    const meta = state.tl.forecastMeta;
+    const fetched = meta && meta.fetched_at
+      ? new Date(meta.fetched_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit',
+        timeZone: (state.region && state.region.timezone) || undefined }) : null;
+    parts.push(state.tl.real
+      ? `<span class="live">Rain: live forecast</span>${fetched ? ` · fetched ${fetched}` : ''}`
+      : `<b>Rain: what-if</b> · ${fmtMm(state.tl.total)} mm assumed to fall evenly over ${state.tl.dur} h`);
+  }
+  if (fields.length) {
+    parts.push(`<span class="live">${fields.map((l) => esc(l.def.label)).join(' · ')}</span>`
+      + ' from the hourly forecast');
+  }
+  $('tl-src').innerHTML = parts.join(' &nbsp;|&nbsp; ');
+}
+
+function clockSet(step, frac = 0) {
+  clock.hour = Math.max(0, Math.min(Math.floor(step), clock.steps));
+  clock.frac = Math.max(0, Math.min(frac, 0.999));
+  $('tb-when').textContent = clockLabel(clock.hour + clock.frac,
+    { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  repaintFields();
+}
+
+function clockTick(now) {
+  if (!clock.playing) return;
+  const dt = (now - clock.last) / 1000;
+  clock.last = now;
+  let pos = clock.hour + clock.frac + dt * CLOCK_SPEED;
+  if (pos >= clock.steps + 0.999) pos = 0;               // loop, like every weather map does
+  $('tl-step').value = String(Math.floor(pos));
+  stepTo(Math.floor(pos), pos % 1);
+  clock.raf = requestAnimationFrame(clockTick);
+}
+
+function clockPlay() {
+  if (clock.playing || clock.steps < 2) return;
+  clock.playing = true;
+  clock.last = performance.now();
+  $('tb-play').textContent = '⏸';
+  $('tb-play').title = 'Pause';
+  clock.raf = requestAnimationFrame(clockTick);
+}
+
+function clockPause() {
+  clock.playing = false;
+  if (clock.raf) cancelAnimationFrame(clock.raf);
+  clock.raf = null;
+  const b = $('tb-play');
+  if (b) { b.textContent = '▶'; b.title = 'Play the forecast'; }
+}
+
+function clockToggle() { if (clock.playing) clockPause(); else clockPlay(); }
 
 /* ---- map ------------------------------------------------------------------------------------ */
 
@@ -574,9 +978,15 @@ window.initMap = function initMap() {
     // to say why. UI chrome should never depend on a map event firing.
     enableBoxDrawing();
     applyLabels();
+    defineFieldOverlay();        // needs google.maps.OverlayView, which only exists now
     // Stroke widths are in pixels, so the road layer is restyled as the zoom changes.
     state.map.addListener('zoom_changed', () => {
       if (state.roadLayer) styleRoads(cumAt(state.tl.step));
+    });
+    // Traffic tiles are replaced as the map moves, and the new ones arrive at full strength.
+    state.map.addListener('idle', () => {
+      const t = dataLayers.traffic;
+      if (t && t.visible && t.instance) trafficOpacity(t.opacity);
     });
     state.mapReady = true;
     frameRegion(state.region);   // outlines where the engine can answer
@@ -728,6 +1138,10 @@ async function analyse(bbox) {
   if (state.busy) return;
   state.busy = true;
   state.lastBbox = bbox;
+  // Pinned before anything async: the forecast lands while this is in flight and re-seeds the
+  // slider, so re-reading it afterwards would cost the plan and the roads the same rainfall.
+  const rainfallMm = Number($('rain').value);
+  state.lastRainMm = rainfallMm;
   loadForecast(bbox);   // fire-and-forget: a weather outage must not stop the screening
   loadRainNow(bbox);    // live gauge rainfall, where a city has an open feed (Singapore / NEA)
   setStatus('Reading the terrain and working out where water goes…');
@@ -736,7 +1150,7 @@ async function analyse(bbox) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        bbox, rainfall_mm: Number($('rain').value),
+        bbox, rainfall_mm: rainfallMm,
         region: state.region.name,
         return_period: $('rp').value ? Number($('rp').value) : null,
       }),
@@ -848,12 +1262,18 @@ function seedWhatIf() {
 
 /* ---- roads over time: a rain-driven playback (F8) -------------------------------------------
    Honest framing lives in the panel: this is modelled road difficulty from rain pooling, not a
-   traffic measurement. Each road carries the rainfall at which a spot it crosses fills; the slider
+   traffic measurement. Each road carries the rainfall at which a spot it crosses fills; the bar
    is a rainfall-accumulation clock (assumes no drainage -> worst case), so as rain builds the
-   roads light up in the order they flood. Severity colours the worst spot each road sits in. */
+   roads light up in the order they flood. Severity colours the worst spot each road sits in.
+
+   It shares the map's one clock with the field layers, so a storm and the heat ahead of it move
+   together, but it is still its own thing: the roads answer to accumulated rainfall and nothing
+   else, and the readout says so. */
 function clearRoadLayer() {
   if (state.roadLayer) { state.roadLayer.setMap(null); state.roadLayer = null; }
-  $('tl-float').hidden = true;
+  state.tl.feats = [];
+  $('tl-roads').replaceChildren();
+  updateTimebar();                 // the bar stays if a field layer still needs it
 }
 
 /* The cumulative-rainfall curve the playback steps through. With the live forecast the agent hands us
@@ -877,28 +1297,27 @@ function setDurationSelect(dur) {
   $('tl-duration').value = String(near);
 }
 
-/* Real clock times for the forecast window, in the city's own time zone: "Wed 3 PM", not "hour 24". */
-function clockAt(step, o = { weekday: 'short', hour: 'numeric' }) {
-  if (!state.tl.start) return `+${step} h`;
-  const t = new Date(new Date(state.tl.start).getTime() + step * 3600e3);
-  const tz = state.region && state.region.timezone;
-  try { return new Intl.DateTimeFormat([], { timeZone: tz || undefined, ...o }).format(t); }
-  catch { return new Intl.DateTimeFormat([], o).format(t); }
-}
-
-/* The hourly rain the scrubber is stepping through, drawn above it, so it is plain to see that this is
+/* The hourly rain the bar is stepping through, drawn above it, so it is plain to see that this is
    the forecast's own data: how much falls, and in which hours. Scaled to at least 1 mm an hour so a
-   drizzle does not look like a storm. */
+   drizzle does not look like a storm. Hours past the end of the rain window are drawn flat: the
+   bar may run longer than the storm when a field layer needs the room. */
 function renderPlaybackStrip(profile) {
   const bars = $('tl-bars');
   const axis = $('tl-axis');
-  if (!state.tl.real) { bars.hidden = true; axis.hidden = true; return; }
+  if (!state.tl.real || !profile.length) { bars.hidden = true; axis.hidden = true; return; }
   const max = Math.max(1, ...profile);
-  bars.innerHTML = profile.map((mm, i) =>
-    `<span class="tb" style="height:${mm > 0 ? Math.max(10, (mm / max) * 100) : 4}%" `
-    + `title="${clockAt(i)} · ${fmtMm(mm)} mm"></span>`).join('');
-  axis.children[0].textContent = clockAt(0);
-  axis.children[1].textContent = clockAt(profile.length);
+  const span = Math.max(profile.length, clock.steps);
+  const cells = [];
+  for (let i = 0; i < span; i += 1) {
+    const mm = profile[i];
+    cells.push(mm == null
+      ? `<span class="tb none" title="${clockLabel(i)} · outside the rain window"></span>`
+      : `<span class="tb" style="height:${mm > 0 ? Math.max(10, (mm / max) * 100) : 4}%" `
+        + `title="${clockLabel(i)} · ${fmtMm(mm)} mm"></span>`);
+  }
+  bars.innerHTML = cells.join('');
+  axis.children[0].textContent = clockLabel(0);
+  axis.children[1].textContent = clockLabel(span);
   bars.hidden = false;
   axis.hidden = false;
 }
@@ -925,27 +1344,17 @@ function renderTimeline(res, driver) {
   }
   state.tl.cum = buildCumulative(state.tl.total, state.tl.dur, profile);
   state.tl.steps = state.tl.cum.length - 1;
-  $('tl-step').max = state.tl.steps;
+  state.tl.profile = profile || [];
+  state.tl.forecastMeta = driver && driver.forecastMeta;
   if (!state.tl.real) setDurationSelect(state.tl.dur);
-  $('tl-duration').parentElement.style.display = state.tl.real ? 'none' : '';
-  renderPlaybackStrip(profile || []);
-
-  // Where the numbers on the scrubber come from, in plain sight: a forecast, or a hypothesis.
-  const meta = driver && driver.forecastMeta;
-  const fetched = meta && meta.fetched_at
-    ? new Date(meta.fetched_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit',
-        timeZone: (state.region && state.region.timezone) || undefined }) : null;
-  $('tl-src').innerHTML = state.tl.real
-    ? `<span class="live">Live forecast</span> · Google Weather API${fetched ? ` · fetched ${fetched}` : ''}`
-    : `<b>What-if, not a forecast</b> · ${fmtMm(state.tl.total)} mm assumed to fall evenly over ${state.tl.dur} h`;
 
   const floods = Math.min(...feats.map((f) => f.properties.rain_to_flood_mm));
   const dry = state.tl.real && state.tl.total < floods;
   $('timeline-sub').textContent = dry
     ? 'In this forecast the rain stays below what any road here needs to go under, so nothing is '
-      + 'marked. Use “Try a heavier storm” to see what a bigger one would do.'
-    : `${feats.length} road stretches run through the low spots. Drag the bar on the map to watch them `
-      + 'go under as the rain builds, the most vulnerable first.';
+      + 'marked. Use “Try a heavier stormâ€ to see what a bigger one would do.'
+    : `${feats.length} road stretches run through the low spots. Play or drag the bar on the map to `
+      + 'watch them go under as the rain builds, the most vulnerable first.';
   $('tl-note').innerHTML =
     'Modelled road difficulty from where rain collects &mdash; not a traffic measurement, and not a '
     + 'forecast of standing water hours later. It adds up the rain assuming <b>none of it drains '
@@ -957,9 +1366,10 @@ function renderTimeline(res, driver) {
     const layer = new google.maps.Data({ map: state.map });
     layer.addGeoJson(res.roads_timeline);
     state.roadLayer = layer;
-    $('tl-float').hidden = false;
   }
-  stepTo(state.tl.steps);               // open on the full window; drag back to watch it build
+  clock.hour = state.tl.steps;          // open on the full window; drag back to watch it build
+  clock.frac = 0;
+  updateTimebar();
   loadRoadOutlook(res);                 // the agent's qualitative, region-specific read (if any)
 }
 
@@ -991,15 +1401,27 @@ function cumAt(step) {
   return c[Math.max(0, Math.min(step, c.length - 1))];
 }
 
-function stepTo(step) {
+/* One position on the bar: the fields move to that moment, and the roads to the rain that has
+   fallen by it. Both readouts are written every time, so it is never ambiguous which part of the
+   picture a given sentence is about. */
+function stepTo(step, frac = 0) {
   state.tl.step = step;
-  $('tl-step').value = step;
+  $('tl-step').value = String(step);
+  clockSet(step, frac);
+  renderPlaybackStrip(state.tl.profile || []);
+  [...$('tl-bars').children].forEach((b, i) => b.classList.toggle('past', i < step));
+
+  const hasRoads = Boolean(state.roadLayer && state.tl.feats.length);
+  if (!hasRoads) {
+    $('tl-read').innerHTML = `<b>${esc(clockLabel(step, { weekday: 'short', hour: 'numeric' }))}</b>`
+      + ' · forecast field, interpolated between points';
+    return;
+  }
   const cum = cumAt(step);
   styleRoads(cum);                       // instant: one setStyle, no animation
   const on = state.tl.feats.filter((f) => f.properties.rain_to_flood_mm <= cum);
   const km = on.reduce((a, f) => a + f.properties.length_m, 0) / 1000;
-  [...$('tl-bars').children].forEach((b, i) => b.classList.toggle('past', i < step));
-  const when = state.tl.real ? `by ${clockAt(step)}` : `${step} h into the storm`;
+  const when = state.tl.real ? `by ${clockLabel(step)}` : `${step} h into the storm`;
   const roads = on.length ? `${on.length} stretches · ${km.toFixed(1)} km` : 'no roads under yet';
   $('tl-read').innerHTML = `<b>~${fmtMm(cum)} mm</b> ${when} · ${roads}`;
   const ARTERIAL = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'];
@@ -1019,14 +1441,21 @@ function stepTo(step) {
 }
 
 function wireTimeline() {
-  $('tl-step').oninput = (e) => stepTo(Number(e.target.value));
+  $('tl-step').oninput = (e) => { clockPause(); stepTo(Number(e.target.value), 0); };
+  $('tb-play').onclick = clockToggle;
   $('tl-duration').onchange = () => {
     state.tl.dur = Number($('tl-duration').value);
     state.tl.cum = buildCumulative(state.tl.total, state.tl.dur, null);
     state.tl.steps = state.tl.cum.length - 1;
-    $('tl-step').max = state.tl.steps;
-    stepTo(state.tl.steps);
+    clock.hour = state.tl.steps;
+    updateTimebar();
   };
+  document.addEventListener('keydown', (ev) => {
+    if (ev.target.matches('input, textarea') || ev.code !== 'Space') return;
+    if ($('tl-float').hidden) return;
+    ev.preventDefault();
+    clockToggle();
+  });
 }
 
 /* The agent's read is optional and must never block the playback: the deterministic timeline above
@@ -1073,7 +1502,7 @@ function renderBeforeAfter(ba) {
     + rows.join('')
     + (share ? `<p class="small muted ba-share">At best, the plan acts on about <b>${share}%</b> of the people in the worst spots.</p>` : '')
     + `<button type="button" id="prep-ba-toggle" class="btn-sm ba-btn" aria-pressed="false">See it on the map</button>`
-    + `<details class="fine"><summary>Why “best case”?</summary>`
+    + `<details class="fine"><summary>Why “best caseâ€?</summary>`
     + `<ul>${ba.limits.map((l) => `<li>${esc(l)}</li>`).join('')}</ul></details>`;
   el.hidden = false;
   $('prep-ba-toggle').onclick = () => setAfterView(!state.afterView);
@@ -1092,9 +1521,56 @@ async function loadPreparations(rainfallMm) {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ bbox: state.lastBbox, region: state.region.name, rainfall_mm: rainfallMm }),
     }).then((r) => { if (!r.ok) throw new Error('no prep'); return r.json(); });
-    if (my !== seq.prep || !d.available || !d.items || !d.items.length) return;
-    renderPreparations(d);
-  } catch { /* the screening and the list stand without this */ }
+    if (my !== seq.prep || !d.available) return;
+    if (d.routine) renderOrdinaryDay(d);
+    else if (d.items && d.items.length) renderPreparations(d);
+  } catch (err) {
+    // The screening and the spot list stand without this, so nothing is shown - but a fault in
+    // our own drawing should be findable rather than silently indistinguishable from "no plan".
+    console.error('preparations failed', err);
+  }
+}
+
+/* The answer when the rain in play fills nothing worth spending against. A product that hands a
+   city a shopping list every time it is opened teaches them to stop reading the list, so "nothing
+   to buy today" is a real answer here and is shown as plainly as a plan would be - with the
+   rainfall it would take to change it, and with what the quiet verdict does not cover. */
+function renderOrdinaryDay(d) {
+  $('prep').hidden = false;
+  $('prep-sub').textContent = 'Nothing to buy for this rainfall.';
+  $('prep-budget').innerHTML =
+    `<div class="pb-row"><span><b>${inr(0)}</b> of ${inr(d.budget_total_inr)}</span>`
+    + '<span class="muted">the budget stays unspent</span></div>'
+    + '<div class="pb-bar"><span style="width:2%"></span></div>'
+    + (d.budget_line ? `<p class="muted tiny">${esc(d.budget_line)}</p>` : '');
+
+  // Two different reasons for the same answer, and they are not interchangeable: one says the
+  // rain is ordinary, the other says the storm misses everything worth acting on.
+  const figures = d.because === 'light_rain'
+    ? `<p class="pq-figures">The rain being looked at is <b>${fmtMm(d.rainfall_mm)} mm</b>, below `
+      + `the <b>${fmtMm(d.moderate_rain_begins_mm)} mm</b> where moderate rain begins. `
+      + `${d.spots_that_fill_at_this_rainfall} of the ${d.spots_considered} low spots worth `
+      + 'spending against still take water — they take water on any wet day, which is why there '
+      + 'is nothing extra to buy for this one.</p>'
+      + `<p class="muted tiny">Class from the ${esc(d.rain_class_source)}.</p>`
+    : `<p class="pq-figures">The rain being looked at is <b>${fmtMm(d.rainfall_mm)} mm</b>. The `
+      + `first of the ${d.spots_considered} low spots worth spending against needs about `
+      + `<b>${fmtMm(d.rain_to_first_spot_mm)} mm</b> before it fills — `
+      + `${fmtMm(d.headroom_mm)} mm more than this.</p>`;
+
+  const head = document.createElement('li');
+  head.className = 'prep-quiet';
+  head.innerHTML = '<div class="pq-title">An ordinary day for this box</div>'
+    + `<p>${esc(d.verdict)}</p>${figures}`
+    + '<p class="muted tiny">Use <b>Try a heavier storm</b> in the Rain tab to see what it would '
+    + 'take, and what the budget would buy then.</p>';
+  $('prep-items').replaceChildren(head);
+
+  $('prep-ba').hidden = true;
+  $('prep-note').hidden = true;
+  $('prep-infeasible').hidden = true;
+  $('prep-source').innerHTML =
+    `<b>What this does not say:</b> ${esc(d.limits[0])} ${esc(d.limits[1])} ${esc(d.limits[3])}`;
 }
 
 function renderPreparations(d) {
@@ -1106,11 +1582,15 @@ function renderPreparations(d) {
 
   const used = d.budget_used_inr, total = d.budget_total_inr;
   const pct = total ? Math.min(100, Math.max(2, Math.round((used / total) * 100))) : 0;
+  const dry = d.spots_dry_at_this_rainfall;
   $('prep-budget').innerHTML =
     `<div class="pb-row"><span><b>${inr(used)}</b> of ${inr(total)}</span>`
     + `<span class="muted">${d.items.length} measure${d.items.length > 1 ? 's' : ''}`
     + (d.spots_not_listed ? ` \u00b7 ${d.spots_not_listed} more below the cut` : '')
     + `</span></div>`
+    + (dry ? `<p class="muted tiny">${dry} other low spot${dry > 1 ? 's are' : ' is'} ranked high `
+      + 'enough to spend against but not reached by this rainfall, so nothing is bought for '
+      + 'them today.</p>' : '')
     + `<div class="pb-bar"><span style="width:${pct}%"></span></div>`
     + (d.budget_line ? `<p class="muted tiny">${esc(d.budget_line)}</p>` : '');
 
@@ -1190,27 +1670,64 @@ function renderPeople(ex) {
       <ul>${ex.caveats.map((c) => `<li>${esc(c)}</li>`).join('')}</ul></details>`;
 }
 
-/* ---- heat tab: current and forecast heat conditions ----------------------------------------- */
-let heatFor = null;
+/* ---- heat and air: conditions, and which patch of ground they are about ----------------------
+   Both providers answer at a single point. Without a drawn box that point is the middle of the
+   whole staged city, which is a different claim from the neighbourhood someone just drew - so the
+   answer carries its own scope and the tab says it in a line at the top rather than leaving it to
+   be assumed. Drawing a box re-asks both, at the centre of the box. */
+const conditionsFor = { heat: null, air: null };
+const forgetConditions = () => { conditionsFor.heat = null; conditionsFor.air = null; };
+
+const areaKey = () => `${state.region ? state.region.name : ''}:`
+  + (state.lastBbox ? state.lastBbox.map((v) => v.toFixed(4)).join(',') : 'city');
+
+const bboxParam = () => (state.lastBbox
+  ? `&bbox=${state.lastBbox.map((v) => v.toFixed(5)).join(',')}` : '');
+
+function renderScope(elId, scope) {
+  const el = $(elId);
+  if (!el) return;
+  if (!scope) { el.hidden = true; return; }
+  el.hidden = false;
+  el.className = `scopeline ${scope.of === 'box' ? 'box' : 'city'}`;
+  el.innerHTML = `<b>${scope.of === 'box' ? 'For the box you drew' : `For all of ${esc(scope.label)}`}</b>`
+    + `<span class="muted"> · ${scope.km2} km²</span>`
+    + `<div class="muted tiny">${esc(scope.note)}</div>`;
+}
 
 function loadHeat() {
   if (!state.region) return;
-  const key = state.region.name;
-  if (heatFor === key) return;
-  heatFor = key;
+  const key = areaKey();
+  if (conditionsFor.heat === key) return;
+  conditionsFor.heat = key;
+  $('heat-scope').hidden = true;
   $('heat-current').innerHTML = '<p class="muted small">Loading heat conditions…</p>';
   $('heat-chart').hidden = true;
   $('heat-forecast').innerHTML = '';
-  fetch(`/api/heat?region=${encodeURIComponent(key)}`)
+  fetch(`/api/heat?region=${encodeURIComponent(state.region.name)}${bboxParam()}`)
     .then(r => { if (!r.ok) throw new Error('heat data unavailable'); return r.json(); })
-    .then(data => { if (heatFor === key) renderHeat(data); })
+    .then(data => { if (conditionsFor.heat === key) draw(() => renderHeat(data), 'heat-current'); })
     .catch(() => {
-      if (heatFor === key)
+      if (conditionsFor.heat === key)
         $('heat-current').innerHTML = '<p class="muted small">Heat conditions are not available right now.</p>';
     });
 }
 
+/* A bug in our own drawing is not the provider being down, and must never be reported as one -
+   "not available right now" is a claim about the world, and saying it when the data arrived fine
+   is exactly the kind of quiet untruth the rest of this product is built to avoid. */
+function draw(render, intoId) {
+  try {
+    render();
+  } catch (err) {
+    console.error('render failed', err);
+    $(intoId).innerHTML = '<p class="muted small">The data arrived but this panel could not be '
+      + 'drawn. That is a fault in this page, not in the reading.</p>';
+  }
+}
+
 function renderHeat(data) {
+  renderScope('heat-scope', data.scope);
   const cur = data.current || {};
   const level = data.current_level || {};
   const peak = data.peak || {};
@@ -1268,11 +1785,15 @@ function renderHeatChart(data) {
   const first = hrs[0].time ? fmt(hrs[0].time) : '';
   const last = hrs[hrs.length - 1].time ? fmt(hrs[hrs.length - 1].time) : '';
 
+  // Coloured from the same ramp and the same bounds the Heat layer paints the map with, so a bar
+  // here and the map under it mean the same thing.
+  const spec = { min: 24, max: 44 };
   el.innerHTML = `
-    <div class="heat-bars">${vals.map((v, i) => {
+    <div class="heat-bars">${vals.map((v) => {
       const pct = ((v - minV) / range * 100).toFixed(1);
-      const c = heatColor(v);
-      return `<div class="hbar" style="height:${pct}%;background:${c}" title="${Math.round(v)}°C"></div>`;
+      const [r, g, b] = rampAt(RAMPS.heat, (v - spec.min) / (spec.max - spec.min));
+      return `<div class="hbar" style="height:${pct}%;background:rgb(${r},${g},${b})" `
+        + `title="${Math.round(v)}°C"></div>`;
     }).join('')}</div>
     <div class="heat-axis"><span>${esc(first)}</span><span>${esc(last)}</span></div>`;
 }
@@ -1299,22 +1820,22 @@ function renderHeatForecast(data) {
 }
 
 /* ---- air quality (Google Air Quality API) ---------------------------------------------------- */
-let airFor = null;
 
 function loadAir() {
   if (!state.region) return;
-  const key = state.region.name;
-  if (airFor === key) return;
-  airFor = key;
+  const key = areaKey();
+  if (conditionsFor.air === key) return;
+  conditionsFor.air = key;
+  $('air-scope').hidden = true;
   $('air-current').innerHTML = '<p class="muted small">Loading air quality…</p>';
   $('air-chart').hidden = true;
   $('air-pollutants').hidden = true;
   $('air-health').hidden = true;
-  fetch(`/api/air-quality-current?region=${encodeURIComponent(key)}`)
+  fetch(`/api/air-quality-current?region=${encodeURIComponent(state.region.name)}${bboxParam()}`)
     .then(r => { if (!r.ok) throw new Error('air quality unavailable'); return r.json(); })
-    .then(data => { if (airFor === key) renderAir(data); })
+    .then(data => { if (conditionsFor.air === key) draw(() => renderAir(data), 'air-current'); })
     .catch(() => {
-      if (airFor === key)
+      if (conditionsFor.air === key)
         $('air-current').innerHTML = '<p class="muted small">Air quality data is not available right now. The Air Quality API may need to be enabled in the GCP project.</p>';
     });
 }
@@ -1330,6 +1851,7 @@ function aqiColor(aqi) {
 }
 
 function renderAir(data) {
+  renderScope('air-scope', data.scope);
   if (data.error || data.aqi == null) {
     $('air-current').innerHTML = `<p class="muted small">${esc(data.error || 'Air quality data is not available.')}</p>`;
     return;
@@ -1449,7 +1971,21 @@ function wireNews() {
   });
   box.addEventListener('input', growNewsComposer);
   $('news-new').onclick = () => newsChatReset();
+  $('news-fold').onclick = () => foldNews();
+  try { if (localStorage.getItem('bih.newsfold') === '1') foldNews(true); } catch { /* private mode */ }
   setNewsBusy(false);
+}
+
+/* Folded or not is remembered: someone who closed the feed once is telling us they came here for
+   the conversation. It is never folded for them automatically - that would hide the sources an
+   answer is built from without being asked. */
+function foldNews(force) {
+  const feed = $('news-feed');
+  const folded = force === undefined ? !feed.classList.contains('folded') : force;
+  feed.classList.toggle('folded', folded);
+  $('news-fold').setAttribute('aria-expanded', String(!folded));
+  $('news-fold').title = folded ? 'Show the headlines' : 'Hide the headlines';
+  try { localStorage.setItem('bih.newsfold', folded ? '1' : '0'); } catch { /* private mode */ }
 }
 
 function growNewsComposer() {
@@ -1495,6 +2031,8 @@ function renderNews(d) {
       <span class="src">${esc(a.domain)}${a.seen ? ' \u00b7 ' + esc(a.seen.slice(0, 10)) : ''}</span></li>`).join('');
   const age = d.age_s != null && d.age_s >= 90 ? ` Updated ${Math.round(d.age_s / 60)} min ago.` : '';
   const n = (d.articles || []).length;
+  // Visible on the folded bar, so folding the feed never hides that there is something in it.
+  $('news-count').textContent = n ? `${n} headline${n > 1 ? 's' : ''}` : 'nothing found';
   const list = `<ul class="newslist">${arts || '<li class="muted small">No recent reports found.</li>'}</ul>`;
   // With the chat on, the list folds away so the conversation gets the room; without it the list is the tab.
   $('news-body').innerHTML = `
@@ -1593,7 +2131,7 @@ function renderNewsAnswer(b, ev) {
   if (ev.removed && ev.removed.length) {
     const d = mk('details', 'a-removed');
     d.innerHTML = `<summary>${ev.removed.length} statement${ev.removed.length > 1 ? 's' : ''} removed by the check</summary>`
-      + `<ul>${ev.removed.map((r) => `<li>${esc(r.why)}.<div class="cut">“${esc(r.text)}”</div></li>`).join('')}</ul>`;
+      + `<ul>${ev.removed.map((r) => `<li>${esc(r.why)}.<div class="cut">“${esc(r.text)}â€</div></li>`).join('')}</ul>`;
     b.appendChild(d);
   }
   if (ev.headlines_read) {
@@ -2052,6 +2590,10 @@ function setArea(bbox, label) {
   chatNote(`${label} · ${boxKm2(bbox).toFixed(1)} km²`);
   loadForecast(bbox);      // the Rain tab, and it seeds the what-if slider
   loadRainNow(bbox);       // live gauges, where a city has an open feed
+  refreshAreaLayers();     // population density is drawn for the box, finer than for the city
+  forgetConditions();      // heat and air are now about this box, not the whole city
+  if (state.tab === 'heat') loadHeat();
+  if (state.tab === 'air') loadAir();
 }
 
 /* ---- one agent turn -------------------------------------------------------------------------- */
@@ -2458,7 +3000,7 @@ async function continueWithPlace(turn, q, place, alreadyResolved) {
   if (!hit) {
     const cities = state.regions.map((r) => r.title).join(' and ');
     finishText(turn, 'Could not find that place',
-      `I could not find “${place}” inside the areas I have data for (${cities}). `
+      `I could not find “${place}â€ inside the areas I have data for (${cities}). `
       + 'Draw a box on the map or pick one of these:', { areas: true });
     return;
   }
@@ -2624,7 +3166,9 @@ function render(res, driver) {
 
   renderPeople(res.exposure);
   renderTimeline(res, driver);
-  loadPreparations(driver ? Math.round(driver.total) : Number($('rain').value));
+  // The rainfall this result was actually computed on, never whatever the slider says now.
+  loadPreparations(driver ? Math.round(driver.total)
+    : (state.lastRainMm != null ? state.lastRainMm : Number($('rain').value)));
   renderOfficial(res);
 
   const roads = $('roads');

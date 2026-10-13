@@ -72,13 +72,18 @@
     <div class="muted small" id="legend-note"></div>
   </div>
 
-  <!-- The storm scrubber: a temporary overlay fixed at the centre bottom of the map. Slider-only:
-       each step renders instantly, no autoplay. It appears with a box and is removed on erase.
-       In forecast mode it shows the hourly rain it is stepping through, so the data is visible. -->
+  <!-- The one clock on the map, bottom centre. Everything time-shaped follows it: the weather
+       fields morph between forecast hours, and the road playback lights its roads at the rainfall
+       that has fallen by the same moment. Play runs it; dragging pauses it. It appears when there
+       is something to animate and goes when there is not. -->
   <div id="tl-float" hidden>
-    <div class="tl-src" id="tl-src"></div>
+    <div class="tl-head">
+      <button type="button" id="tb-play" title="Play the forecast" aria-label="Play the forecast">▶</button>
+      <span class="tb-when" id="tb-when"></span>
+      <span class="tl-src" id="tl-src"></span>
+    </div>
     <div class="tl-bars" id="tl-bars" hidden></div>
-    <input type="range" id="tl-step" min="0" max="6" step="1" value="6" aria-label="Hour into the storm">
+    <input type="range" id="tl-step" min="0" max="6" step="1" value="6" aria-label="Hour of the forecast">
     <div class="tl-axis" id="tl-axis" hidden><span></span><span></span></div>
     <div class="tl-floatrow">
       <span class="tl-floatread" id="tl-read"></span>
@@ -92,6 +97,10 @@
       </label>
     </div>
   </div>
+
+  <!-- What every colour on a field layer is worth. One bar per field that is on, drawn from the
+       same ramp the map is painted with, so the legend cannot drift from the picture. -->
+  <div id="fieldscale" hidden aria-label="What the colours mean"></div>
 </main>
 
 <aside id="panel">
@@ -267,15 +276,17 @@
   <section id="pane-heat" class="tabpane scroll" role="tabpanel" aria-labelledby="tab-heat" hidden>
     <div class="pane-pad">
       <h2 class="pane-title">Heat conditions</h2>
+      <div id="heat-scope" class="scopeline" hidden></div>
       <div id="heat-current" class="heat-current"></div>
       <div id="heat-chart" class="heat-chart" hidden></div>
       <details class="card">
         <summary>Forecast details</summary>
         <div class="card-body"><div id="heat-forecast" class="forecast"></div></div>
       </details>
-      <p class="muted tiny">Heat index from the Google Weather API forecast at the city centre.
-        Not a measured temperature at any specific spot. Actual conditions vary significantly
-        within an urban area due to land cover, shade and building density.</p>
+      <p class="muted tiny">Heat index from the Google Weather API forecast, at one point. Not a
+        measured temperature at any specific spot. Conditions vary a lot inside a city with land
+        cover, shade and building density &mdash; turn on the <b>Heat index</b> layer to see the
+        shape of it across the map, and how it moves over the next day.</p>
     </div>
   </section>
 
@@ -283,25 +294,35 @@
   <section id="pane-air" class="tabpane scroll" role="tabpanel" aria-labelledby="tab-air" hidden>
     <div class="pane-pad">
       <h2 class="pane-title">Air quality</h2>
+      <div id="air-scope" class="scopeline" hidden></div>
       <div id="air-current" class="air-current"></div>
       <div id="air-chart" class="air-chart" hidden></div>
       <div id="air-pollutants" class="air-pollutants" hidden></div>
       <div id="air-health" class="air-health" hidden></div>
-      <p class="muted tiny">AQI and pollutant concentrations from the Google Air Quality API at the
-        city centre. Values are the provider's, shown as published. Air quality is a regional
-        reading — it does not vary at building level. This product does not predict health effects
-        for any individual.</p>
+      <p class="muted tiny">AQI and pollutant concentrations from the Google Air Quality API, at one
+        point. Values are the provider's, shown as published. Air quality is a regional reading
+        &mdash; it does not vary at street or building level, so drawing a box will rarely change
+        it. This product does not predict health effects for any individual.</p>
     </div>
   </section>
 
   <!-- ===== News ===== -->
   <section id="pane-news" class="tabpane" role="tabpanel" aria-labelledby="tab-news" hidden>
-    <div class="news-feed">
-      <h2 class="pane-title">In the news <span class="muted">in this city</span></h2>
-      <div id="news-topics" class="chips news-topics" role="group" aria-label="News topic"></div>
-      <p class="muted tiny">Recent reports from the GDELT news index, for context. Nothing here changes
-        the numbers on the map.</p>
-      <div id="news-body"><p class="muted small">Opens when you visit this tab.</p></div>
+    <!-- The headline feed folds into its own title bar. It is context, and the conversation under
+         it is the part people use; a reader who has started asking should not have to scroll past
+         eight links to see their own question. -->
+    <div class="news-feed" id="news-feed">
+      <button type="button" id="news-fold" class="news-fold" aria-expanded="true" aria-controls="news-feed-body">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z"/></svg>
+        <span class="pane-title">In the news <span class="muted">in this city</span></span>
+        <span class="news-count muted" id="news-count"></span>
+      </button>
+      <div id="news-feed-body">
+        <div id="news-topics" class="chips news-topics" role="group" aria-label="News topic"></div>
+        <p class="muted tiny">Recent reports from the GDELT news index, for context. Nothing here changes
+          the numbers on the map.</p>
+        <div id="news-body"><p class="muted small">Opens when you visit this tab.</p></div>
+      </div>
     </div>
     <div id="news-chat" class="chat news-chat" role="log" aria-live="polite" aria-label="Conversation about the news"></div>
     <form id="news-composer" class="composer" autocomplete="off">

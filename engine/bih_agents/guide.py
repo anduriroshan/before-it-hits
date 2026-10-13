@@ -41,8 +41,15 @@ THE PARTS OF THE SCREEN
 - The Details tab holds the findings behind an answer.
 - The News tab lists recent news reports about the city, and lets you ask questions about them. News
   is context only: it is never stored and it changes no figure on the map.
-- The Layers button on the map toolbar toggles data layers: Traffic, Population density, Humidity,
-  Heat index, and Air quality. Each layer has an opacity slider.
+- The Layers button on the map toolbar stacks data layers over the map, each with its own opacity:
+  Heat index, Temperature, Humidity, Rain per hour, Wind speed, People per km2, Air quality and
+  Traffic. The weather ones are drawn as a smooth colour field interpolated between sixteen
+  forecast points across the city; the colour between those points is interpolation, not a reading,
+  and the scale on the right of the map says what each colour is worth.
+- The bar at the bottom of the map is the one clock. It runs the forecast forward - press play or
+  drag it - and everything time-shaped follows it: the weather fields move hour by hour, and the
+  road playback lights roads at the rainfall that has fallen by that hour. Scrubbing it never
+  re-runs the engine; it moves through one result that was already computed.
 
 HOW TO READ WHAT IT SHOWS
 - A "low spot" or "pooling spot" is a hollow in the terrain where rain runoff collects.
@@ -63,8 +70,15 @@ HOW TO READ WHAT IT SHOWS
   Beside it, a before-and-after view shows the best case: how many worst spots, people and road
   stretches would be left if every listed measure fully worked. It is an upper bound on what the plan
   could do, not a forecast, because a pump or an unblocked drain reduces a problem and rarely ends it.
+  The plan can also come back as "nothing to buy": on light rain or less by the India Meteorological
+  Department's own daily classes, or when the rain reaches no spot worth spending against, it says so
+  and spends nothing. Low spots take water on any wet day, so water in a low spot is not on its own
+  a reason to spend.
 - The live rainfall forecast comes from the Google Weather API. It is a model prediction for one
   point at the centre of the area, not a measurement. Singapore also has live rain gauges.
+- Heat and air quality are read at one point too: the centre of the box when one is drawn, otherwise
+  the centre of the whole city. The Heat and Air tabs say which, at the top, because a neighbourhood
+  and a city are different claims. Air quality is regional and barely varies within a city.
 
 WHAT IT DELIBERATELY DOES NOT CLAIM
 - No water depth in metres. At this terrain resolution the error is as large as the depth, so spots

@@ -124,6 +124,42 @@ def area_km2(bbox) -> float:
     return abs(e - w) * abs(n - s) * 111.32**2 * math.cos(math.radians((s + n) / 2))
 
 
+_density_cache: dict[tuple, dict] = {}
+
+
+def parse_bbox(raw: str | None) -> tuple | None:
+    """A 'w,s,e,n' query string, or None. Invalid input is None, not an error: these are the
+    conditions tabs, and falling back to the whole city beats failing the panel."""
+    if not raw:
+        return None
+    try:
+        w, s, e, n = (float(x) for x in raw.split(","))
+    except ValueError:
+        return None
+    return (w, s, e, n) if w < e and s < n else None
+
+
+def scope_for(r: Region, raw_bbox: str | None) -> tuple[tuple, dict]:
+    """Which patch of ground a conditions answer is about, and how to say so.
+
+    The weather and air-quality providers answer at a point. Without a drawn box that point is the
+    middle of the whole staged city, which is a materially different claim from the box someone
+    just drew - so the answer carries which one it is rather than leaving it to be assumed.
+    """
+    box = parse_bbox(raw_bbox)
+    if box and r.covers(box):
+        w, s, e, n = box
+        return box, {"of": "box", "label": "the box you drew",
+                     "note": "Taken at the centre of the box you drew. The provider answers at a "
+                             "point, so this is one reading for the box, not a map of it.",
+                     "km2": round(area_km2(box), 1)}
+    w, s, e, n = r.bounds
+    return r.bounds, {"of": "city", "label": r.manifest.get("title") or r.name,
+                      "note": "Taken at the centre of the whole staged city, because no box is "
+                              "drawn. Draw a box to ask about one neighbourhood instead.",
+                      "km2": round(area_km2(r.bounds), 1)}
+
+
 @app.on_event("startup")
 def warm_the_news() -> None:
     """Fetch each city's news in the background so the first visit to the News tab is instant."""
@@ -139,6 +175,26 @@ def warm_the_news() -> None:
                                                                r.manifest.get("news_place"))))
              for t in news_agent.TOPICS if t != "flood" for r in regions().values()]
     news.warm(flood + other, gap_s=news.MIN_GAP_S)
+
+
+@app.on_event("startup")
+def warm_the_density() -> None:
+    """Build each city's population raster in the background.
+
+    It is the one layer that has to read every staged building footprint, which is seconds on a
+    city, and a layer toggle that takes seconds reads as broken. The footprints never change, so
+    building it once at startup costs nothing later."""
+    if os.environ.get("BIH_NO_DENSITY_WARM"):
+        return
+
+    def build() -> None:
+        for name in list(regions()):
+            try:
+                population_density(name)
+            except Exception:                 # noqa: BLE001 - a warm failure is not an outage
+                pass
+
+    threading.Thread(target=build, daemon=True).start()
 
 
 @app.get("/api/health")
@@ -252,7 +308,7 @@ def preparations_for_box(req: PreparationsRequest) -> dict:
                        return_period=rp)
     res.pop("debug", None)
     res.pop("debug_excluded", None)
-    plan = prep.rank(res, r.preparations)
+    plan = prep.rank(res, r.preparations, rainfall_mm=req.rainfall_mm)
     if plan.get("available") and plan.get("items"):
         # F10: the same box again, with the spots the plan acts on taken out of the exposed set.
         ids = prep.treated_spot_ids(plan)
@@ -371,57 +427,68 @@ def rainfall_now(region: str | None = None, bbox: str | None = None) -> dict:
 
 
 @app.get("/api/heat")
-def heat_forecast(region: str | None = None) -> dict:
-    """Heat conditions forecast for the region centre: current + 48h ahead.
+def heat_forecast(region: str | None = None, bbox: str | None = None) -> dict:
+    """Heat conditions for the drawn box, or for the whole city when none is drawn.
 
-    For the Heat tab. Uses the same Weather API as the rainfall forecast but
-    extracts temperature, humidity, heat index and wind conditions."""
+    For the Heat tab. Uses the same Weather API as the rainfall forecast but extracts temperature,
+    humidity, heat index and wind. Which patch of ground it is about comes back with it."""
     from bih_engine import heat
     r = region_or_404(region)
+    box, scope = scope_for(r, bbox)
     try:
-        result = heat.for_bbox(r.bounds)
-        return result.as_dict()
+        out = heat.for_bbox(box).as_dict()
     except heat.HeatUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
+    out["scope"] = scope
+    out["caveats"] = [scope["note"], *out.get("caveats", [])]
+    return out
 
 
 @app.get("/api/weather-grid")
-def weather_grid(region: str | None = None, type: str = "heat") -> dict:
-    """Current temperature, humidity and heat index on a sparse grid across the region.
+def weather_grid(region: str | None = None, type: str = "heat",
+                 bbox: str | None = None, hours: int = 24) -> dict:
+    """One weather variable across the region, at every forecast hour: the animated map field.
 
-    For the layer overlay. Uses the same Weather API as the forecast but extracts conditions
-    instead of precipitation. `type` is 'heat' or 'humidity'."""
+    Returns the grid points with a value per hour, plus the clock and the colour bounds, so the
+    browser can interpolate between points to draw the field and between hours to move it. The
+    whole window comes down at once - scrubbing the time slider must not cost a request."""
     from bih_engine import weather_grid as wg
     r = region_or_404(region)
+    box = parse_bbox(bbox)
+    area = box if (box and r.covers(box)) else r.bounds
     try:
-        data = wg.grid(r.bounds, grid_size=3)
+        return wg.field(wg.grid(area, grid_size=4, hours=max(1, min(int(hours), 48))), type)
     except wg.WeatherUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
-    key = "heat_index_c" if type == "heat" else "humidity_pct"
-    fallback_key = "temperature_c" if type == "heat" else "humidity_pct"
-    points = []
-    for pt in data.get("points", []):
-        val = pt.get(key) or pt.get(fallback_key)
-        if val is not None:
-            points.append({"lat": pt["lat"], "lng": pt["lng"], "value": val})
-    return {"points": points, "source": data.get("source", ""), "time": data.get("time")}
 
 
 @app.get("/api/population-density")
-def population_density(region: str | None = None) -> dict:
-    """Population density grid for the layer overlay."""
+def population_density(region: str | None = None, bbox: str | None = None) -> dict:
+    """People per km2 as a raster, over the drawn box or the whole city.
+
+    A box gets a finer grid than a city does, because the cells are sized to the area asked about
+    rather than fixed: the method is the same, the picture is simply drawn at a useful scale."""
     from bih_engine import density
-    from bih_engine.terrain import utm_crs_for
     r = region_or_404(region)
     pop = r.manifest.get("population")
     if not pop:
-        return {"available": False, "reason": "no population data for this region"}
-    osm = r.read_osm(r.bounds)
+        return {"available": False, "reason": "no population figure is staged for this city"}
+    box = parse_bbox(bbox)
+    area = box if (box and r.covers(box)) else r.bounds
+    key = (r.name, tuple(round(v, 5) for v in area))
+    hit = _density_cache.get(key)
+    if hit is not None:
+        return hit
+    osm = r.read_osm(area)
     if not osm.buildings:
-        return {"available": False, "reason": "no buildings staged for this region"}
-    w, s, e, n = r.bounds
-    crs = utm_crs_for((w + e) / 2, (s + n) / 2)
-    return density.grid(r.bounds, pop, osm.buildings, crs)
+        return {"available": False, "reason": "no buildings are staged for this area"}
+    out = density.raster(area, pop, osm.buildings)
+    out["scope"] = "box" if area is box else "city"
+    # The footprints are staged and never change, so this is worth keeping for the session. A
+    # city-wide grid is the slow one and the one most likely to be asked for twice.
+    if len(_density_cache) < 64:
+        _density_cache[key] = out
+    return out
 
 
 @app.get("/api/air-quality")
@@ -437,18 +504,30 @@ def air_quality(region: str | None = None) -> dict:
 
 
 @app.get("/api/air-quality-current")
-def air_quality_current(region: str | None = None) -> dict:
-    """Current AQI, dominant pollutant, forecast, and health recommendations."""
+def air_quality_current(region: str | None = None, bbox: str | None = None) -> dict:
+    """Current AQI, dominant pollutant, forecast and health recommendations.
+
+    At the centre of the drawn box when there is one, otherwise at the centre of the city. Which
+    it was comes back with the reading - though at this provider's resolution the two will often
+    agree, and the caveat says that rather than implying a box-level measurement."""
     from bih_engine import air_quality as aq
     r = region_or_404(region)
-    w, s, e, n = r.bounds
-    lat, lon = (s + n) / 2, (w + e) / 2
+    box, scope = scope_for(r, bbox)
+    w, s, e, n = box
     try:
-        return aq.for_region(lat, lon)
+        out = aq.for_region((s + n) / 2, (w + e) / 2)
     except aq.AirQualityUnavailable as exc:
-        return {"aqi": None, "category": "Unavailable", "error": str(exc),
+        return {"aqi": None, "category": "Unavailable", "error": str(exc), "scope": scope,
                 "source": "Google Air Quality API",
                 "caveats": ["Air quality data is not available — the API may not be enabled."]}
+    out["scope"] = scope
+    out["caveats"] = [
+        scope["note"],
+        "Air quality is a regional reading. Asking about a box rarely changes it, and it does not "
+        "vary at street or building level.",
+        *out.get("caveats", []),
+    ]
+    return out
 
 
 @app.get("/api/config")

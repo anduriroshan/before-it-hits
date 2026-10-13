@@ -256,8 +256,9 @@ def add_heat(bundle: dict, heat_data: dict) -> None:
         "peak_heat_index_c": tidy(peak.get("heat_index_c") or peak.get("temperature_c")),
         "peak_level": peak_level.get("label", "Normal"),
         "source": heat_data.get("source", "Google Weather API"),
-        "note": "Heat index from the weather forecast at the city centre. Not a measured "
-                "temperature at any specific spot.",
+        "note": "A forecast at one point in the middle of this box, not a measurement and not a "
+                "map of it. Heat is a separate hazard from the pooling above and the two are not "
+                "combined into one ranking.",
     }
 
 
@@ -268,8 +269,9 @@ def add_air_quality(bundle: dict, aq_data: dict) -> None:
         "category": aq_data.get("category", "Unknown"),
         "dominant_pollutant": aq_data.get("dominant_pollutant"),
         "source": aq_data.get("source", "Google Air Quality API"),
-        "note": "AQI is a regional reading from the provider, shown as published. It does not "
-                "vary at building level.",
+        "note": "A regional reading from the provider, shown as published. It does not vary at "
+                "street or building level, so it describes the air over this box rather than "
+                "anything about the box itself, and it is a separate hazard from the pooling.",
     }
     polls = aq_data.get("pollutants", [])
     if polls:

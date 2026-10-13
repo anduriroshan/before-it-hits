@@ -1,80 +1,110 @@
-"""Population density grid for the layer overlay.
+"""How many people per square kilometre, by area, as a raster the map can draw as a field.
 
-Divides the region bbox into cells and counts building footprint area in each,
-then converts to people/km2 using the same self-consistent ratio as exposure.py.
-Returns a GeoJSON FeatureCollection of grid cells with a `density` property.
+There is no per-street population figure for either staged city, and there is not going to be one:
+what exists is a published total for the city and a near-complete set of building footprints. So the
+density here is that total spread across footprint area - the same self-consistent ratio exposure.py
+uses - and it is an approximation *by area*, never a claim about a street or a home.
+
+It is returned as a raster rather than as polygons because a hard-edged cell grid reads as a
+measurement at the cell boundary, which this is not. A smooth field is both the honest picture and
+the legible one: it says "more people around here", which is exactly as much as the method supports.
+
+Two approximations are taken deliberately, because at this cell size neither is visible and the
+exact versions turn a layer toggle into a half-minute wait:
+  - A building is counted in the cell its centre falls in, rather than split across the cells it
+    straddles. A footprint is metres across and a cell is hundreds, so the error is a rounding at
+    the edges of a picture whose whole point is the broad shape.
+  - Footprint area comes from the local metres-per-degree at the building's own latitude rather
+    than from a projection. Over a city that is a fraction of a percent.
 """
 from __future__ import annotations
 
-import json
+import math
 
 import numpy as np
-from pyproj import CRS, Transformer
-from shapely import transform as shp_transform
-from shapely.geometry import box, mapping
+import shapely
+
+# A cell smaller than this is drawing detail the method does not have: the footprint ratio is a city
+# average, and below a few blocks the error in it swamps the difference between neighbours. It binds
+# before anything else - a small box gets few cells, not fine ones, and a box smaller than one cell
+# honestly gets a single number.
+MIN_CELL_M = 150.0
+# The ceiling on how finely a whole city is drawn. More cells than this is detail nobody can read at
+# city zoom, on a method that does not support it anyway.
+TARGET_CELLS = 44
+
+M_PER_DEG_LAT = 110574.0
+M_PER_DEG_LON = 111320.0
 
 
-def grid(bbox: tuple, population: dict, buildings, crs,
-         cell_deg: float = 0.005) -> dict:
-    """Build a density grid over the bbox.
+def _side_m(bbox: tuple) -> float:
+    w, s, e, n = bbox
+    mid = math.radians((s + n) / 2)
+    return max(abs(e - w) * M_PER_DEG_LON * math.cos(mid), abs(n - s) * M_PER_DEG_LAT)
 
-    Returns {geojson: FeatureCollection, max_density: float, source: str}.
+
+def _cells_for(bbox: tuple) -> int:
+    """How many cells a side. Never finer than the method supports, never slower than one request."""
+    return max(1, min(TARGET_CELLS, int(_side_m(bbox) // MIN_CELL_M)))
+
+
+def raster(bbox: tuple, population: dict, buildings, cells: int | None = None) -> dict:
+    """People per km2 on a regular grid over the bbox.
+
+    Returns {available, rows, cols, bbox, values (row-major, south row first), max, p95, source}.
+    `values` is a flat list with null where a cell holds no building at all, so the browser can
+    leave genuinely empty ground uncoloured instead of painting it the bottom of the ramp.
     """
     people = population.get("people", 0)
     region_fp = population.get("built_footprint_m2", 0)
-    if not people or not region_fp or not buildings:
-        return {"available": False, "reason": "population or buildings not staged"}
+    if not people or not region_fp or buildings is None or len(buildings) == 0:
+        return {"available": False, "reason": "population or buildings not staged for this region"}
 
     w, s, e, n = bbox
-    tr = Transformer.from_crs(4326, crs, always_xy=True)
-    to_m = lambda g: shp_transform(g, lambda c: np.column_stack(tr.transform(c[:, 0], c[:, 1])))  # noqa: E731
+    k = int(cells) if cells else _cells_for(bbox)
+    cell_w, cell_h = (e - w) / k, (n - s) / k
 
-    b_m = [to_m(b) for b in buildings]
-    scale = people / region_fp
+    geoms = np.asarray(buildings, dtype=object)
+    centres = shapely.centroid(geoms)
+    cx = shapely.get_x(centres)
+    cy = shapely.get_y(centres)
+    # Footprint area from the local metres-per-degree at each building's own latitude.
+    area_m2 = shapely.area(geoms) * M_PER_DEG_LAT * M_PER_DEG_LON * np.cos(np.radians(cy))
 
-    cols = max(1, int((e - w) / cell_deg))
-    rows = max(1, int((n - s) / cell_deg))
-    cell_w = (e - w) / cols
-    cell_h = (n - s) / rows
+    col = np.floor((cx - w) / cell_w).astype(np.int64)
+    row = np.floor((cy - s) / cell_h).astype(np.int64)
+    inside = (col >= 0) & (col < k) & (row >= 0) & (row < k) & np.isfinite(area_m2)
+    if not inside.any():
+        return {"available": False, "reason": "no buildings fall inside this area"}
 
-    import shapely
-    tree = shapely.STRtree(b_m)
+    roof = np.zeros((k, k), dtype=float)
+    np.add.at(roof, (row[inside], col[inside]), area_m2[inside])
 
-    features = []
-    max_density = 0.0
+    # Cell area varies with latitude, so it is worked out per row rather than once for the box.
+    lat_centres = s + (np.arange(k) + 0.5) * cell_h
+    cell_km2 = (cell_h * M_PER_DEG_LAT) * (cell_w * M_PER_DEG_LON
+                                           * np.cos(np.radians(lat_centres))) / 1e6
+    dens = roof * (people / region_fp) / cell_km2[:, None]
 
-    for r in range(rows):
-        for c in range(cols):
-            cw = w + c * cell_w
-            cs = s + r * cell_h
-            ce = cw + cell_w
-            cn = cs + cell_h
-            cell_geo = box(cw, cs, ce, cn)
-            cell_m = to_m(cell_geo)
-            cell_area_km2 = cell_m.area / 1e6
-            if cell_area_km2 < 1e-6:
-                continue
+    filled = dens[roof > 0]
+    if not filled.size:
+        return {"available": False, "reason": "no buildings fall inside this area"}
 
-            fp_area = 0.0
-            for i in tree.query(cell_m, predicate="intersects"):
-                inter = b_m[int(i)].intersection(cell_m).area
-                fp_area += inter
-
-            density = (fp_area * scale) / cell_area_km2
-            if density < 1:
-                continue
-
-            max_density = max(max_density, density)
-            features.append({
-                "type": "Feature",
-                "geometry": mapping(cell_geo),
-                "properties": {"density": round(density, 1)},
-            })
-
-    geojson = {"type": "FeatureCollection", "features": features}
+    values = [None if r <= 0 else round(float(d))
+              for r, d in zip(roof.ravel(), dens.ravel())]
+    # The ramp is cut at the 95th percentile, not the maximum: one dense block otherwise sets the
+    # top of the scale and flattens the whole rest of the city into the same colour.
     return {
         "available": True,
-        "geojson": geojson,
-        "max_density": round(max_density, 1),
+        "rows": k, "cols": k,
+        "bbox": [w, s, e, n],
+        "cell_m": round(_side_m(bbox) / k),
+        "values": values,
+        "max": round(float(filled.max())),
+        "p95": round(float(np.percentile(filled, 95))),
+        "people_total": people,
         "source": population.get("source", ""),
+        "method": "The city's published population spread across OpenStreetMap building footprints "
+                  "by area. An approximation by area, never a count of any street or home.",
+        "extent": population.get("extent", ""),
     }
