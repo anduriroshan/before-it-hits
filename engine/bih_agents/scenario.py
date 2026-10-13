@@ -48,6 +48,13 @@ SCHEMA = {
                    "description": "analyse = a prediction or finding for an area; explain = what a "
                                   "term means, how this works, how far to trust it, or why the "
                                   "last answer said what it said."},
+        "topic": {"type": "STRING",
+                  "enum": ["flood", "population", "heat", "air_quality", "overview"],
+                  "description": "What the question is about. 'flood' = pooling, roads, drainage, "
+                                 "water. 'population' = how many people, density. 'heat' = "
+                                 "temperature, heat index, humidity. 'air_quality' = pollution, "
+                                 "AQI, air. 'overview' = general analysis, multiple things at "
+                                 "once, or 'analyse this area'."},
         "scope": {"type": "STRING", "enum": ["area", "city"],
                   "description": "city = the message asks about the whole selected city or region "
                                  "(by its name, or 'the whole city', 'this city', or generally). "
@@ -66,7 +73,7 @@ SCHEMA = {
                                          "question to ask back. Otherwise empty."},
     },
     "required": ["reading", "mode", "rainfall_mm", "rainfall_stated_as", "duration_h",
-                 "return_period_years", "focus", "scope", "intent", "place",
+                 "return_period_years", "focus", "scope", "intent", "topic", "place",
                  "same_rainfall_as_before", "audience", "needs_clarification", "question_back"],
 }
 
@@ -83,9 +90,15 @@ Rules:
   city", "this city", or asks generally about what is expected across the city without naming a
   specific neighbourhood. If the only place they name IS the selected city, that is scope "city"
   and place should be empty - do not treat the city name as a place to look up. "area" otherwise.
-- intent "analyse" when they want a prediction or finding for an area: the selected one, or a place
-  they name. intent "explain" when they ask what a term means, how this works, how far to trust it,
-  or why the last answer said what it said - anything answerable without analysing an area afresh.
+- intent "analyse" when they want a data value or finding for an area: how many people live here,
+  what is the heat index, what is the air quality, which spots fill first. Anything that needs fresh
+  data from the selected area or a named place. intent "explain" ONLY when they ask what a term
+  means, how the product works, how far to trust it, or why the last answer said what it said -
+  things answerable from the reference without fetching new data.
+- topic: what data the question is really about. "population" for how many people, density, who
+  lives here. "heat" for temperature, heat index, how hot. "air_quality" for AQI, pollution, air.
+  "flood" for pooling, water, roads, drainage. "overview" when the question is general ("analyse
+  this area"), covers multiple things, or is primarily about flood risk.
 - place: only a place the message itself names that is not the selected area AND not the selected
   city itself, exactly as written. Never take one from the history. Empty otherwise.
 - Never invent a rainfall figure. If the asker gave one in THIS message, copy it and the words it
@@ -226,11 +239,15 @@ def settle(spec: dict, *, question: str, slider_mm: float,
     rp = spec.get("return_period_years", -1)
     rp = int(rp) if isinstance(rp, (int, float)) and int(rp) in periods else None
 
+    TOPICS = ("flood", "population", "heat", "air_quality", "overview")
+    topic = spec.get("topic") if spec.get("topic") in TOPICS else "overview"
+
     return {
         "reading": (spec.get("reading") or "").strip(),
         "focus": (spec.get("focus") or "").strip(),
         "scope": "city" if spec.get("scope") == "city" else "area",
         "intent": "explain" if spec.get("intent") == "explain" else "analyse",
+        "topic": topic,
         "place": _clean_place(spec, question),
         "reused_previous_rainfall": reuse,
         "audience": spec.get("audience") if spec.get("audience") in ("officer", "resident")

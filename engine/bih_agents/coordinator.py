@@ -102,7 +102,8 @@ def _default_spec(slider_mm: float, return_period: int | None, question: str) ->
         "rainfall_mm": float(slider_mm), "rainfall_source": "the rainfall already set on screen",
         "duration_h": None, "return_period_years": return_period, "ignored_figure": False,
         "needs_clarification": False, "question_back": "",
-        "scope": "area", "intent": "analyse", "place": "", "reused_previous_rainfall": False,
+        "scope": "area", "intent": "analyse", "topic": "overview",
+        "place": "", "reused_previous_rainfall": False,
     }
 
 
@@ -260,6 +261,135 @@ def _add_supplementary_hazards(bundle: dict, region, bbox, trace: Trace) -> None
         trace.add("Air quality", "unavailable", 0, str(exc)[:120])
 
 
+def _run_topic(question, spec, topic, bbox, region, trace) -> dict:
+    """Answer a question about one specific data layer — population, heat, or air quality — without
+    running the full terrain engine. The engine is the costly part (~8 s) and answers about flooding,
+    which is not what was asked. The bundle carries only the requested data, so the Narrator writes
+    about that and nothing else."""
+    w, s, e, n = bbox if bbox else (region.bounds if region else (0, 0, 0, 0))
+    lat, lon = (s + n) / 2, (w + e) / 2
+    region_title = region.manifest.get("title") if region else None
+    area_km2 = round(abs(e - w) * abs(n - s) * 110.574 * 111.320
+                     * abs(__import__("math").cos(__import__("math").radians(lat))), 2)
+
+    bundle: dict = {
+        "question": question,
+        "topic": topic,
+        "area": {
+            "what_these_findings_cover": "one box drawn on the map",
+            "box_km2": round(area_km2, 2),
+            "the_box_is_inside": region_title,
+        },
+        "limits": [],
+    }
+
+    if topic == "population":
+        try:
+            from bih_engine import density
+            t0 = time.perf_counter()
+            pop = region.manifest.get("population", 0) if region else 0
+            if not pop:
+                raise ValueError("no population figure is staged for this city")
+            osm = region.read_osm((w, s, e, n)) if region else None
+            buildings = osm.buildings if osm else []
+            if not buildings:
+                raise ValueError("no buildings are staged for this area")
+            r = density.raster((w, s, e, n), pop, buildings)
+            ms = int((time.perf_counter() - t0) * 1000)
+            bundle["people"] = {
+                "roughly_in_the_whole_box": r.get("people_total"),
+                "density_max_per_km2": r.get("max"),
+                "density_p95_per_km2": r.get("p95"),
+                "source": r.get("source", "unknown"),
+                "method": r.get("method", "footprint area ratio"),
+                "note": "Population spread across building footprints by area — an approximation "
+                        "by area only, never a claim about a street or a home.",
+            }
+            trace.add("Population", "ok", ms,
+                      f"~{r.get('people_total', '?')} people in {area_km2} km².")
+        except Exception as exc:
+            trace.add("Population", "failed", 0, str(exc)[:120])
+
+    elif topic == "heat":
+        try:
+            from bih_engine import heat as heat_mod
+            t0 = time.perf_counter()
+            hf = heat_mod.fetch(lat, lon, hours=48)
+            hdata = hf.as_dict()
+            facts.add_heat(bundle, hdata)
+            trace.add("Heat", "ok", int((time.perf_counter() - t0) * 1000),
+                      f"Heat index {hdata['current'].get('heat_index_c')}°C, "
+                      f"level: {hdata['current_level'].get('label')}.")
+        except Exception as exc:
+            trace.add("Heat", "unavailable", 0, str(exc)[:120])
+
+    elif topic == "air_quality":
+        try:
+            from bih_engine import air_quality as aq_mod
+            t0 = time.perf_counter()
+            aqdata = aq_mod.for_region(lat, lon)
+            facts.add_air_quality(bundle, aqdata)
+            trace.add("Air quality", "ok", int((time.perf_counter() - t0) * 1000),
+                      f"AQI {aqdata.get('aqi')}, {aqdata.get('category')}.")
+        except Exception as exc:
+            trace.add("Air quality", "unavailable", 0, str(exc)[:120])
+
+    out = _reply(question, spec, trace, kind="analysis", facts=bundle, result=None)
+
+    # Narrator + Verifier: the same two-trip loop as the full pipeline, just with a smaller bundle.
+    briefing = None
+    try:
+        reply = narrator.draft(bundle, focus=spec["focus"])
+        briefing = narrator.clean(reply.data or {})
+        trace.add("A6 Narrator", "ok", reply.ms, briefing["headline"], model=reply.model)
+    except llm.LlmUnavailable as exc:
+        trace.add("A6 Narrator", "failed", 0, str(exc))
+        out["withheld"] = f"The briefing was not written: {exc}"
+        return out
+
+    for attempt in range(verifier.MAX_REVISIONS + 1):
+        t0 = time.perf_counter()
+        try:
+            problems = verifier.verify(bundle, briefing)
+        except llm.LlmUnavailable as exc:
+            trace.add("A7 Verifier", "failed", int((time.perf_counter() - t0) * 1000), str(exc))
+            out["withheld"] = WITHHELD_UNCHECKED
+            return out
+        ms = int((time.perf_counter() - t0) * 1000)
+        if not problems:
+            trace.add("A7 Verifier", "ok", ms, "Every figure traced to the results; no "
+                                               "unsupported claim found.")
+            break
+        note = "; ".join(f"{p['part']}: {p['problem']}" for p in problems)
+        if attempt == verifier.MAX_REVISIONS:
+            trace.add("A7 Verifier", "rejected", ms, note, problems=problems)
+            break
+        trace.add("A7 Verifier", "sent back", ms, note, problems=problems)
+        try:
+            reply = narrator.revise(bundle, focus=spec["focus"], previous=briefing,
+                                    problems=[f"{p['part']}: {p['problem']}" for p in problems])
+            briefing = narrator.clean(reply.data or {})
+            trace.add("A6 Narrator", "revised", reply.ms, briefing["headline"], model=reply.model)
+        except llm.LlmUnavailable as exc:
+            trace.add("A6 Narrator", "failed", 0, str(exc))
+            out["withheld"] = WITHHELD_UNCHECKED
+            return out
+
+    if problems:
+        kept, removed = verifier.enforce(briefing, problems)
+        out["removed"] = removed
+        if kept is None:
+            trace.add("A7 Verifier", "withheld", 0, WITHHELD_FAILED)
+            out["withheld"] = WITHHELD_FAILED
+            return out
+        briefing = kept
+        trace.add("A7 Verifier", "trimmed", 0,
+                  f"{len(removed)} claim(s) removed; the rest held.")
+
+    out["briefing"] = briefing
+    return out
+
+
 def run(*, question: str, bbox, region, slider_mm: float = 100.0,
         return_period: int | None = 50, res_m: float = 10.0, emit=None,
         history=None, area_label: str | None = None, place_resolved: str | None = None) -> dict:
@@ -287,7 +417,7 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
                                published_return_periods=list(periods),
                                forecast_peak_mm=None, history=history)
         trace.add("A2 Scenario", "ok", reply.ms, spec["reading"], model=reply.model,
-                  detail={k: spec[k] for k in ("scope", "intent", "mode", "rainfall_mm",
+                  detail={k: spec[k] for k in ("scope", "intent", "topic", "mode", "rainfall_mm",
                                                "rainfall_source", "return_period_years",
                                                "audience")})
         if spec["ignored_figure"]:
@@ -322,6 +452,11 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
 
     if bbox is None:
         return _reply(question, spec, trace, kind="needs_area", answer=NEEDS_AREA)
+
+    # --- topic-specific fast path: skip the engine when the question is not about flooding ----
+    topic = spec.get("topic", "overview")
+    if topic in ("population", "heat", "air_quality"):
+        return _run_topic(question, spec, topic, bbox, region, trace)
 
     # --- A3 Forecast: a tool, not a model, until we have bulletins worth reading -----------
     rain_profile = None     # the forecast's real hourly shape, when forecast mode succeeds

@@ -51,12 +51,19 @@ Hard rules, each of which is checked afterwards by a separate agent:
 7. Give the unit with every figure you take from the "official" block. If "units_are_inferred"
    is true there, say once - in one short clause, not after every figure - that the authority
    never stated the unit and it is inferred.
-8. The caveat must say that this is a terrain screening at the stated grid size, and that
-   stormwater drains are not in the data.
+8. If the JSON has pooling/flood data, the caveat must say that this is a terrain screening at the
+   stated grid size, and that stormwater drains are not in the data. If the JSON is about a single
+   topic (population, heat, or air quality) and has no pooling data, say what the data's limits
+   are instead - for population, that it is spread by building area; for heat, that it is a point
+   forecast; for air quality, that it is a regional reading.
 
 The JSON may include heat and air quality data alongside the flood findings. If they are present
 and relevant to the question, mention them briefly - but keep the hazards separate, never blend
 them into the flood ranking. Heat index and AQI are the provider's figures, attributed.
+
+If the JSON has a "topic" field set to "population", "heat", or "air_quality", the question is
+about that one thing only. Answer about that topic. Do not mention floods, pooling, or drainage -
+the engine was not run and there is no flood data in the JSON.
 
 Answer the question in the JSON. At most {MAX_BULLETS} bullets, one claim each, plainest English,
 no adjectives doing work the figures should do.

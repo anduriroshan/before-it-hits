@@ -67,8 +67,9 @@ SCHEMA = {
     "required": ["findings"],
 }
 
-SYSTEM = """You check a draft flood briefing against the findings it was written from. You are the
-last thing between a wrong sentence and a city officer acting on it. You do not rewrite anything
+SYSTEM = """You check a draft briefing against the findings it was written from. The findings may
+be about flooding, population density, heat, air quality, or a combination. You are the last
+thing between a wrong sentence and a city officer acting on it. You do not rewrite anything
 and you do not praise anything: you list what is wrong, and nothing else.
 
 Report a part only if it breaks one of these rules:
@@ -119,13 +120,19 @@ def check_numbers(briefing: dict, allowed: set[float]) -> list[dict]:
     return problems
 
 
-def check_caveat(briefing: dict) -> list[dict]:
-    """The one thing the briefing must always say, so it is checked rather than hoped for."""
+def check_caveat(briefing: dict, bundle: dict | None = None) -> list[dict]:
+    """The one thing the briefing must always say, so it is checked rather than hoped for.
+
+    When the bundle is a flood analysis (has pooling data or no explicit topic), the caveat must
+    mention stormwater drains. For topic-specific bundles (population, heat, air_quality) the drain
+    requirement does not apply — the engine was not run and there are no flood results to caveat."""
     caveat = (briefing.get("caveat") or "").lower()
     if not caveat:
         return [{"part": "caveat", "rule": "unsupported", "found_by": "arithmetic",
                  "problem": "the briefing has no caveat", "text": ""}]
-    if "drain" not in caveat:
+    topic = (bundle or {}).get("topic") if bundle else None
+    needs_drain_caveat = topic in (None, "flood", "overview")
+    if needs_drain_caveat and "drain" not in caveat:
         return [{"part": "caveat", "rule": "unsupported", "found_by": "arithmetic",
                  "problem": "the caveat does not say that stormwater drains are missing from the "
                             "data, which is this product's largest known bias",
@@ -201,6 +208,6 @@ def enforce(briefing: dict, problems: list[dict]) -> tuple[dict | None, list[dic
 def verify(bundle: dict, briefing: dict, *, model: str = llm.CAREFUL_MODEL) -> list[dict]:
     """Every problem with this draft. Arithmetic first, so a wrong figure is never argued about."""
     allowed = facts.allowed_numbers(bundle)
-    return (check_numbers(briefing, allowed) + check_caveat(briefing)
+    return (check_numbers(briefing, allowed) + check_caveat(briefing, bundle)
             + check_official_units(bundle, briefing)
             + check_claims(bundle, briefing, model=model))

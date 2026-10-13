@@ -72,30 +72,15 @@
     <div class="muted small" id="legend-note"></div>
   </div>
 
-  <!-- The one clock on the map, bottom centre. Everything time-shaped follows it: the weather
-       fields morph between forecast hours, and the road playback lights its roads at the rainfall
-       that has fallen by the same moment. Play runs it; dragging pauses it. It appears when there
-       is something to animate and goes when there is not. -->
+  <!-- The one clock on the map, bottom centre, and nothing but the time: play, the line, the moment
+       it is showing. Everything time-shaped follows it - the weather fields morph between forecast
+       hours, and the road playback lights its roads at the rainfall that has fallen by the same
+       moment. What the numbers on it mean lives in the panel and with the agent, not over the map.
+       It appears when there is something to animate and goes when there is not. -->
   <div id="tl-float" hidden>
-    <div class="tl-head">
-      <button type="button" id="tb-play" title="Play the forecast" aria-label="Play the forecast">▶</button>
-      <span class="tb-when" id="tb-when"></span>
-      <span class="tl-src" id="tl-src"></span>
-    </div>
-    <div class="tl-bars" id="tl-bars" hidden></div>
-    <input type="range" id="tl-step" min="0" max="6" step="1" value="6" aria-label="Hour of the forecast">
-    <div class="tl-axis" id="tl-axis" hidden><span></span><span></span></div>
-    <div class="tl-floatrow">
-      <span class="tl-floatread" id="tl-read"></span>
-      <label class="tl-dur" title="Storm length"><span>over</span>
-        <select id="tl-duration">
-          <option value="3">3 h</option>
-          <option value="6" selected>6 h</option>
-          <option value="12">12 h</option>
-          <option value="24">24 h</option>
-        </select>
-      </label>
-    </div>
+    <button type="button" id="tb-play" title="Play the forecast" aria-label="Play the forecast"></button>
+    <input type="range" id="tl-step" min="0" max="6" step="0.02" value="6" aria-label="Time of the forecast">
+    <span class="tb-when" id="tb-when"></span>
   </div>
 
   <!-- What every colour on a field layer is worth. One bar per field that is on, drawn from the
@@ -203,6 +188,19 @@
         <summary>Roads that go under first <span class="tag-modelled">modelled</span></summary>
         <div class="card-body">
           <p class="muted small" id="timeline-sub"></p>
+          <!-- What the bar on the map is doing, which used to be printed over the map itself. -->
+          <p class="tl-src" id="tl-src"></p>
+          <div class="tl-bars" id="tl-bars" hidden></div>
+          <div class="tl-axis" id="tl-axis" hidden><span></span><span></span></div>
+          <p class="tl-read" id="tl-read"></p>
+          <label class="tl-dur" title="Storm length"><span>A what-if storm lasting</span>
+            <select id="tl-duration">
+              <option value="3">3 h</option>
+              <option value="6" selected>6 h</option>
+              <option value="12">12 h</option>
+              <option value="24">24 h</option>
+            </select>
+          </label>
           <ol id="tl-roads" class="tl-roads"></ol>
           <div id="road-outlook" class="road-outlook" hidden></div>
           <p class="muted tiny" id="tl-note"></p>

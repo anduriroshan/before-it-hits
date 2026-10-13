@@ -849,12 +849,35 @@ function updateTimebar() {
   syncFieldOffsets();
   $('tl-step').max = String(Math.max(1, clock.steps));
   if (clock.hour > clock.steps) clock.hour = clock.steps;
-  $('tl-step').value = String(clock.hour);
   $('tl-duration').parentElement.style.display = (hasRoads && !state.tl.real) ? '' : 'none';
   $('tb-play').hidden = clock.steps < 2;
-  bar.classList.toggle('fields-only', !hasRoads);
   renderTimebarSource(hasRoads, fields);
+  renderPlaybackStrip(state.tl.profile || []);   // once per change, not once per animation frame
   stepTo(clock.hour, clock.frac);
+}
+
+/* The line on the bar, filled up to the moment on show. It moves smoothly while the clock plays -
+   the fields are interpolated between forecast hours, so a thumb that jumped hourly would look
+   like the picture was stuttering when it is not. The fill is offset by half a thumb so it ends
+   under the thumb's centre rather than a few pixels short of it at either end. */
+function setLine(pos) {
+  const el = $('tl-step');
+  el.value = String(pos);
+  const f = Math.max(0, Math.min(1, pos / Math.max(1, clock.steps)));
+  el.style.setProperty('--p', `calc(${f.toFixed(4)} * (100% - 13px) + 6.5px)`);
+}
+
+const ICON_PLAY = '<svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">'
+  + '<path d="M3.2 1.6v8.8L10.4 6z" fill="currentColor"/></svg>';
+const ICON_PAUSE = '<svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">'
+  + '<path d="M3 1.8h2.2v8.4H3zM6.8 1.8H9v8.4H6.8z" fill="currentColor"/></svg>';
+
+function setPlayIcon(playing) {
+  const b = $('tb-play');
+  if (!b) return;
+  b.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
+  b.title = playing ? 'Pause' : 'Play the forecast';
+  b.setAttribute('aria-label', b.title);
 }
 
 /* Where the numbers on this bar come from, in plain sight. Two different things can be on it at
@@ -891,7 +914,6 @@ function clockTick(now) {
   clock.last = now;
   let pos = clock.hour + clock.frac + dt * CLOCK_SPEED;
   if (pos >= clock.steps + 0.999) pos = 0;               // loop, like every weather map does
-  $('tl-step').value = String(Math.floor(pos));
   stepTo(Math.floor(pos), pos % 1);
   clock.raf = requestAnimationFrame(clockTick);
 }
@@ -900,8 +922,7 @@ function clockPlay() {
   if (clock.playing || clock.steps < 2) return;
   clock.playing = true;
   clock.last = performance.now();
-  $('tb-play').textContent = '⏸';
-  $('tb-play').title = 'Pause';
+  setPlayIcon(true);
   clock.raf = requestAnimationFrame(clockTick);
 }
 
@@ -909,8 +930,7 @@ function clockPause() {
   clock.playing = false;
   if (clock.raf) cancelAnimationFrame(clock.raf);
   clock.raf = null;
-  const b = $('tb-play');
-  if (b) { b.textContent = '▶'; b.title = 'Play the forecast'; }
+  setPlayIcon(false);
 }
 
 function clockToggle() { if (clock.playing) clockPause(); else clockPlay(); }
@@ -1352,7 +1372,7 @@ function renderTimeline(res, driver) {
   const dry = state.tl.real && state.tl.total < floods;
   $('timeline-sub').textContent = dry
     ? 'In this forecast the rain stays below what any road here needs to go under, so nothing is '
-      + 'marked. Use “Try a heavier stormâ€ to see what a bigger one would do.'
+      + 'marked. Use “Try a heavier storm” to see what a bigger one would do.'
     : `${feats.length} road stretches run through the low spots. Play or drag the bar on the map to `
       + 'watch them go under as the rain builds, the most vulnerable first.';
   $('tl-note').innerHTML =
@@ -1406,9 +1426,8 @@ function cumAt(step) {
    picture a given sentence is about. */
 function stepTo(step, frac = 0) {
   state.tl.step = step;
-  $('tl-step').value = String(step);
   clockSet(step, frac);
-  renderPlaybackStrip(state.tl.profile || []);
+  setLine(clock.hour + clock.frac);
   [...$('tl-bars').children].forEach((b, i) => b.classList.toggle('past', i < step));
 
   const hasRoads = Boolean(state.roadLayer && state.tl.feats.length);
@@ -1441,7 +1460,21 @@ function stepTo(step, frac = 0) {
 }
 
 function wireTimeline() {
-  $('tl-step').oninput = (e) => { clockPause(); stepTo(Number(e.target.value), 0); };
+  setPlayIcon(false);
+  $('tl-step').oninput = (e) => {
+    const pos = Number(e.target.value);
+    clockPause();
+    stepTo(Math.floor(pos), pos - Math.floor(pos));
+  };
+  // The line is fine-grained so the fields can be dragged smoothly, which would leave an arrow key
+  // moving it by a sliver; a key press moves an hour, which is what anyone pressing it means.
+  $('tl-step').onkeydown = (e) => {
+    const d = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
+    if (!d) return;
+    e.preventDefault();
+    clockPause();
+    stepTo(Math.max(0, Math.min(clock.steps, Math.round(clock.hour + clock.frac) + d)), 0);
+  };
   $('tb-play').onclick = clockToggle;
   $('tl-duration').onchange = () => {
     state.tl.dur = Number($('tl-duration').value);
@@ -1502,7 +1535,7 @@ function renderBeforeAfter(ba) {
     + rows.join('')
     + (share ? `<p class="small muted ba-share">At best, the plan acts on about <b>${share}%</b> of the people in the worst spots.</p>` : '')
     + `<button type="button" id="prep-ba-toggle" class="btn-sm ba-btn" aria-pressed="false">See it on the map</button>`
-    + `<details class="fine"><summary>Why “best caseâ€?</summary>`
+    + `<details class="fine"><summary>Why “best case”?</summary>`
     + `<ul>${ba.limits.map((l) => `<li>${esc(l)}</li>`).join('')}</ul></details>`;
   el.hidden = false;
   $('prep-ba-toggle').onclick = () => setAfterView(!state.afterView);
@@ -2131,7 +2164,7 @@ function renderNewsAnswer(b, ev) {
   if (ev.removed && ev.removed.length) {
     const d = mk('details', 'a-removed');
     d.innerHTML = `<summary>${ev.removed.length} statement${ev.removed.length > 1 ? 's' : ''} removed by the check</summary>`
-      + `<ul>${ev.removed.map((r) => `<li>${esc(r.why)}.<div class="cut">“${esc(r.text)}â€</div></li>`).join('')}</ul>`;
+      + `<ul>${ev.removed.map((r) => `<li>${esc(r.why)}.<div class="cut">“${esc(r.text)}”</div></li>`).join('')}</ul>`;
     b.appendChild(d);
   }
   if (ev.headlines_read) {
@@ -2661,20 +2694,27 @@ function stopTurn(turn) {
   turn.answer.replaceChildren(mk('p', 'muted small', 'Stopped before an answer was written.'), retryButton(turn));
 }
 
-/* Facts shown as chips come straight from the engine's output, not from anything a model wrote. */
+/* Facts shown as chips come straight from the engine's output, not from anything a model wrote.
+   When the agent answered a topic-specific question (population, heat, air quality) there is no
+   engine result and no rainfall — showing "What-if · 0 mm" would be noise about a question nobody
+   asked. */
 function factChips(ev) {
   const sc = ev.scenario || {};
   const r = ev.result || {};
+  const topic = sc.topic || 'overview';
   const out = [];
-  if (sc.rainfall_mm != null) {
-    out.push(`<b>${sc.mode === 'forecast' ? 'Live forecast' : 'What-if'}</b> · ${fmtMm(sc.rainfall_mm)} mm`
-      + (sc.duration_h ? ` over ${Math.round(sc.duration_h)} h` : ''));
-  }
-  const n = r.screening && r.screening.depressions ? r.screening.depressions.length : null;
-  if (n != null) out.push(`<b>${n.toLocaleString()}</b> ${n === 1 ? 'place collects' : 'places collect'} water`);
-  const ex = r.exposure;
-  if (ex && ex.available && ex.people_in_worst_spots) {
-    out.push(`~<b>${ex.people_in_worst_spots.toLocaleString()}</b> people in the worst spots that fill`);
+  /* Rainfall and pooling chips only when the engine actually ran (flood or overview topic). */
+  if (r.screening && (topic === 'flood' || topic === 'overview')) {
+    if (sc.rainfall_mm != null) {
+      out.push(`<b>${sc.mode === 'forecast' ? 'Live forecast' : 'What-if'}</b> · ${fmtMm(sc.rainfall_mm)} mm`
+        + (sc.duration_h ? ` over ${Math.round(sc.duration_h)} h` : ''));
+    }
+    const n = r.screening.depressions ? r.screening.depressions.length : null;
+    if (n != null) out.push(`<b>${n.toLocaleString()}</b> ${n === 1 ? 'place collects' : 'places collect'} water`);
+    const ex = r.exposure;
+    if (ex && ex.available && ex.people_in_worst_spots) {
+      out.push(`~<b>${ex.people_in_worst_spots.toLocaleString()}</b> people in the worst spots that fill`);
+    }
   }
   return out;
 }
@@ -3000,7 +3040,7 @@ async function continueWithPlace(turn, q, place, alreadyResolved) {
   if (!hit) {
     const cities = state.regions.map((r) => r.title).join(' and ');
     finishText(turn, 'Could not find that place',
-      `I could not find “${place}â€ inside the areas I have data for (${cities}). `
+      `I could not find “${place}” inside the areas I have data for (${cities}). `
       + 'Draw a box on the map or pick one of these:', { areas: true });
     return;
   }

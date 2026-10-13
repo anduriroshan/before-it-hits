@@ -48,7 +48,9 @@ THE PARTS OF THE SCREEN
   and the scale on the right of the map says what each colour is worth.
 - The bar at the bottom of the map is the one clock. It runs the forecast forward - press play or
   drag it - and everything time-shaped follows it: the weather fields move hour by hour, and the
-  road playback lights roads at the rainfall that has fallen by that hour. Scrubbing it never
+  road playback lights roads at the rainfall that has fallen by that hour. It shows only the time;
+  how much rain has fallen by then, how many road stretches are under, and where the rain figures
+  come from are in the "Roads that go under first" card on the Details tab. Scrubbing it never
   re-runs the engine; it moves through one result that was already computed.
 
 HOW TO READ WHAT IT SHOWS

@@ -218,9 +218,9 @@ select#rp {
 /* ---- the colour scale, right edge of the map -------------------------------------------------
    One bar per field that is on, built from the same ramp the field is painted with. */
 #fieldscale {
-  position: absolute; right: 12px; bottom: 96px; z-index: 6;
+  position: absolute; right: 12px; bottom: 64px; z-index: 6;
   display: flex; flex-direction: column; gap: 8px; pointer-events: none;
-  max-height: calc(100% - 190px); overflow: hidden;
+  max-height: calc(100% - 160px); overflow: hidden;
 }
 .fs-item {
   background: rgba(255,255,255,.95); border: 1px solid var(--line); border-radius: 10px;
@@ -324,13 +324,7 @@ details.block > :not(summary) { margin: 2px 0 8px; }
   font-size: 10px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600;
   color: var(--warn); background: #fdf2e3; border-radius: 999px; padding: 2px 7px; vertical-align: middle;
 }
-.tl-controls { display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; }
-#tl-play {
-  flex: 0 0 auto; width: 34px; height: 34px; padding: 0; border-radius: 50%;
-  background: var(--accent); color: #fff; border-color: var(--accent); font-size: 12px; line-height: 1;
-}
-#tl-step { flex: 1 1 auto; accent-color: var(--warn); margin: 0; }
-.tl-dur { flex: 0 0 auto; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+.tl-dur { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
 .tl-dur select { width: auto; padding: 4px 6px; font-size: 12px; }
 .tl-read { font-size: 12.5px; margin: 4px 0 8px; }
 .tl-read b { color: var(--warn); }
@@ -345,33 +339,53 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 .road-outlook p { font-size: 13px; line-height: 1.5; margin: 0 0 6px; }
 
 /* ---- the map's one clock, centre bottom ------------------------------------------------------
-   Play, the moment it is showing, and what is moving - then the hourly rain it is stepping
-   through, the bar itself, and the readout. */
+   One line and only the time, the way a weather map keeps it: play, a thin line to drag along, and
+   the moment it is showing. No card - the map is the subject, and a tinted strip with white marks
+   stays readable over a pale basemap and over any colour a field can be. */
 #tl-float {
-  position: absolute; z-index: 6; left: 50%; bottom: 20px; transform: translateX(-50%);
-  width: 460px; max-width: calc(100% - 32px);
-  background: rgba(255, 255, 255, 0.97); border: 1px solid var(--line); border-radius: 12px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22); padding: 8px 13px 10px;
+  position: absolute; z-index: 6; left: 50%; bottom: 16px; transform: translateX(-50%);
+  width: 560px; max-width: calc(100% - 32px);
+  display: flex; align-items: center; gap: 12px; padding: 4px 16px 4px 5px;
+  background: rgba(14, 20, 28, 0.34); border-radius: 999px;
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
-.tl-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 #tb-play {
-  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line);
-  background: var(--card); color: var(--ink); cursor: pointer; font-size: 11px; line-height: 1;
-  display: flex; align-items: center; justify-content: center; padding: 0;
+  flex: 0 0 auto; width: 26px; height: 26px; padding: 0; border-radius: 50%; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.7); background: rgba(255, 255, 255, 0.14); color: #fff;
 }
-#tb-play:hover { background: var(--bg); border-color: var(--accent); color: var(--accent); }
+#tb-play:hover { background: rgba(255, 255, 255, 0.34); }
+#tb-play svg { display: block; }
 .tb-when {
-  flex: 0 0 auto; font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums;
-  min-width: 92px;
+  flex: 0 0 auto; width: 92px; text-align: right; white-space: nowrap;
+  font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .01em;
 }
-.tl-head .tl-src { margin: 0; flex: 1 1 auto; text-align: right; line-height: 1.3; }
-#tl-float #tl-step { display: block; width: 100%; margin: 0 0 5px; accent-color: var(--warn); }
-#tl-float.fields-only #tl-step { accent-color: var(--accent); }
-.tl-floatrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.tl-floatread { font-size: 11.5px; color: var(--ink); line-height: 1.3; }
-.tl-floatread b { color: var(--warn); }
-#tl-float .tl-dur { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
-#tl-float .tl-dur select { width: auto; padding: 2px 5px; font-size: 11px; }
+/* The line. Filled to the moment on show (--p is set from the script), empty beyond it. */
+#tl-step {
+  --p: 100%;
+  flex: 1 1 auto; min-width: 0; height: 18px; margin: 0; cursor: pointer;
+  -webkit-appearance: none; appearance: none; background: transparent;
+}
+#tl-step:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.8); outline-offset: 3px; border-radius: 4px; }
+#tl-step::-webkit-slider-runnable-track {
+  height: 3px; border-radius: 2px;
+  background: linear-gradient(90deg, #fff var(--p), rgba(255, 255, 255, 0.4) var(--p));
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.18);
+}
+#tl-step::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 13px; height: 13px; margin-top: -5px; border: 0; border-radius: 50%;
+  background: #fff; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.28), 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+#tl-step::-moz-range-track { height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.4); }
+#tl-step::-moz-range-progress { height: 3px; border-radius: 2px; background: #fff; }
+#tl-step::-moz-range-thumb {
+  width: 13px; height: 13px; border: 0; border-radius: 50%;
+  background: #fff; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.28), 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+/* The what-if storm length, now a line in the roads card rather than a control over the map. */
+.tl-dur { margin: 2px 0 8px; }
+.tl-read:empty, .tl-src:empty { display: none; }
 
 /* The field canvases. Non-interactive: the map underneath has to stay draggable and the box tool
    has to keep working through them. */
