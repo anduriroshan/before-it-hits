@@ -534,6 +534,8 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 .news-topics { margin: 0 0 8px; }
 .news-topics .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 .news-chat { flex: 1 1 0; min-height: 140px; }
+.news-list-wrap { margin: 0 0 6px; }
+.news-list-wrap > summary { cursor: pointer; color: var(--accent); font-size: 12.5px; padding: 2px 0; }
 .news-claims { margin: 0 0 8px; }
 .src-chip {
   display: inline-block; margin: 0 3px 2px 0; padding: 0 7px; font-size: 10.5px; line-height: 17px;

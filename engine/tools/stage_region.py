@@ -144,7 +144,7 @@ def main(name: str, with_buildings: bool, manifest_only: bool = False) -> None:
     # News query and documented preparedness budget come from the region definition; carry them
     # through, and fall back to whatever region.json already holds so a restage never drops a block
     # that was added by hand.
-    for key in ("news_query", "preparations", "live_rainfall", "timezone"):
+    for key in ("news_query", "news_place", "preparations", "live_rainfall", "timezone"):
         if spec.get(key) is not None:
             manifest[key] = spec[key]
         elif existing.get(key) is not None:

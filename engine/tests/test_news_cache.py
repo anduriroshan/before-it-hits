@@ -116,6 +116,17 @@ def test_peek_returns_headlines_without_waiting(monkeypatch):
     assert news.peek("kochi", "Kochi, Kerala")[0]["title"].endswith("floods")
 
 
+def test_fetch_options_reach_the_index_call(monkeypatch):
+    seen = {}
+
+    def fake(title, query=None, **kw):
+        seen.update(kw, query=query)
+        return {"articles": [], "digest": None, "note": "n"}
+    monkeypatch.setattr(news, "for_region", fake)
+    news.get("kochi:flood:past", "Kochi, Kerala", query="q", fetch_kw={"timespan": "12w", "sort": "HybridRel"})
+    assert seen == {"timespan": "12w", "sort": "HybridRel", "query": "q"}
+
+
 def test_warming_fills_each_city_once(monkeypatch):
     calls = []
     monkeypatch.setattr(news, "for_region", fake_region_news(calls))

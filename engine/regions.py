@@ -24,6 +24,9 @@ REGIONS: dict[str, dict] = {
         "timezone": "Asia/Kolkata",
         # Disambiguates from Kochi/Kochi, Japan in the global news index — "Kerala" as an AND term.
         "news_query": '(Kochi OR Ernakulam) Kerala (flood OR flooding OR waterlogging OR rain)',
+        # The same place expression without the flood terms, so the other news topics (heat, traffic,
+        # air) are searched for the same city the same way.
+        "news_place": '(Kochi OR Ernakulam) Kerala',
         # For F7 exposure: a published population and the total mapped building footprint it is
         # spread across. `built_footprint_m2` is measured from the staged buildings.fgb (sum of
         # footprint areas in metres), so the ratio is self-consistent - the same partial OSM
@@ -60,6 +63,7 @@ REGIONS: dict[str, dict] = {
         "timezone": "Asia/Singapore",
         # Singapore is unambiguous in the global news index, so no disambiguating AND term is needed.
         "news_query": 'Singapore (flood OR flooding OR "flash flood" OR "heavy rain" OR ponding OR waterlogging)',
+        "news_place": 'Singapore',
         # A live, keyless rain-gauge network — ~90 NEA gauges at 5-minute cadence (data.gov.sg).
         # No other staged city has an open feed like this; surfaced as observed rain, not forecast.
         "live_rainfall": {"source": "nea_sg", "label": "NEA rain gauges (data.gov.sg)",

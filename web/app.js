@@ -1018,9 +1018,12 @@ function renderNews(d) {
     `<li><a href="${esc(safeUrl(a.url))}" target="_blank" rel="noopener noreferrer">${esc(a.title)}</a>
       <span class="src">${esc(a.domain)}${a.seen ? ' \u00b7 ' + esc(a.seen.slice(0, 10)) : ''}</span></li>`).join('');
   const age = d.age_s != null && d.age_s >= 90 ? ` Updated ${Math.round(d.age_s / 60)} min ago.` : '';
+  const n = (d.articles || []).length;
+  const list = `<ul class="newslist">${arts || '<li class="muted small">No recent reports found.</li>'}</ul>`;
+  // With the chat on, the list folds away so the conversation gets the room; without it the list is the tab.
   $('news-body').innerHTML = `
     ${d.digest ? `<p class="digest">${esc(d.digest)}</p>` : ''}
-    <ul class="newslist">${arts || '<li class="muted small">No recent reports found.</li>'}</ul>
+    ${n ? `<details class="news-list-wrap"${state.agents ? '' : ' open'}><summary>${n} headline${n > 1 ? 's' : ''}</summary>${list}</details>` : list}
     <p class="muted tiny">${esc(d.note)}${age}</p>`;
 }
 

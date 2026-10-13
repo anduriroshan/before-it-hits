@@ -204,6 +204,7 @@
     "note": "The staged box is greater Kochi and is not an exact match for the UA boundary, so the count is an order of magnitude, not a precise total."
   },
   "news_query": "(Kochi OR Ernakulam) Kerala (flood OR flooding OR waterlogging OR rain)",
+  "news_place": "(Kochi OR Ernakulam) Kerala",
   "preparations": {
     "budget_total_inr": 50000000,
     "budget_line": "Kochi Corporation seasonal preparedness line (about \u20b95 crore), under Kerala SDRF 2026 budget rules",

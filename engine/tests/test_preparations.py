@@ -124,7 +124,8 @@ def test_only_measures_that_act_on_the_water_are_counted_as_reducing_exposure():
 def test_before_after_reports_the_difference_between_two_runs():
     plan = prep.rank(_result(_deps()), CAPS)
     before = _analysis(["d_01", "d_02", "d_03", "d_04"], 2400, 4200)
-    after = _analysis(["d_04"], 600, 900)
+    # The re-run keeps every spot on the map (they still fill); only people and roads move.
+    after = _analysis(["d_01", "d_02", "d_03", "d_04"], 600, 900)
     ba = prep.before_after(before, after, plan)
     assert ba["available"] and ba["best_case"] is True
     assert ba["worst_spots_that_fill"] == {"before": 4, "after": 1}      # dry and low-rank spots ignored

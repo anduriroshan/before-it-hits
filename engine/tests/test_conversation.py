@@ -269,6 +269,15 @@ def test_the_reference_states_the_limits_the_product_keeps():
         assert must in guide.REFERENCE, must
 
 
+def test_the_product_describes_itself_from_the_hazard_list_not_from_rain():
+    """The intro must not be about one hazard: it reads whatever the engine can screen today."""
+    from bih_agents import hazards
+    assert hazards.labels() in guide.REFERENCE
+    assert "flood-screening tool" not in guide.REFERENCE
+    assert all(h["id"] and h["label"] and h["what"] for h in hazards.live())
+    assert "not available yet" in guide.REFERENCE          # a hazard that is not built is never described
+
+
 # ---- city overview: scope "city" analyses every preset instead of one box ------------------
 
 class RegionWithPresets:

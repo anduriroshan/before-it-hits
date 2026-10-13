@@ -143,11 +143,22 @@ of buildings cancels to first order. It is reported *by area, never per building
 counts (footprint stands in for floor area), rounded hard, and shown with its caveats every time.
 A modelled distribution, not a roll call.
 
-**News (A13).** A collapsible panel pulls live headlines about the city from GDELT's open index,
-de-duplicates them, and — when a model is available — writes a two-line grounded digest. It is
-**display-only by contract**: never stored, never scored, and it changes no number on the page. It
-loads only when opened (GDELT rate-limits hard) and is prompt-injection resistant — a planted
-"ignore previous instructions" headline is ignored.
+**News (A13).** The News tab pulls live headlines about the city from GDELT's open index,
+de-duplicates them, and — when a model is available — writes a two-line grounded digest. Under the
+headlines is a **chat**: ask what is happening, or what happened weeks ago, across flooding, heat,
+traffic and air quality. The agent picks topics from a list we own (it never writes a search query),
+answers only from the headlines it was shown, and every claim cites them. Code deletes a claim that
+cites nothing or carries a figure no headline contains, and shows the deletion. It reports and never
+advises. It is **display-only by contract**: never stored, never scored, and it changes no number on
+the page. It is prompt-injection resistant — a planted "ignore previous instructions" headline cannot
+become a claim, because a claim needs a citation and a traceable figure to survive.
+
+**Before / after (F10).** Under the preparation plan, the same box is run twice: as it is, and with the
+spots the plan acts on taken out of the exposed set. The difference in worst spots, people and road
+through them is computed by the engine, not estimated. It is labelled a **best case** every time: it
+assumes each pump or cleared drain fully takes its spot out of the flood, and barricades are not
+counted because they keep traffic out rather than reduce what the water reaches. "See it on the map"
+outlines the treated spots so the box can be read with and without the plan.
 
 ## What this will not claim
 
@@ -248,7 +259,7 @@ KEYS
 Without `GEMINI_API_KEY` the agent layer reports itself unavailable and the ask box does not
 appear. Everything else works unchanged.
 
-Tests: `./.venv/Scripts/python.exe -m pytest engine` — 186 tests, all offline, no network, no
+Tests: `./.venv/Scripts/python.exe -m pytest engine` — 215 tests, all offline, no network, no
 staged data and no model. The agent tests stub both models out on purpose: what is worth testing
 there is the part that holds when the model is wrong, and that part is deterministic by design.
 
@@ -262,7 +273,7 @@ engine/bih_engine/   terrain, hydrology, osm, routes, official, store  — no I/
 engine/bih_agents/   scenario, narrator, verifier, coordinator, news, and the facts bundle
 engine/bih_engine/   ...terrain, hydrology, osm, routes, official, exposure, preparations, replay, store
 engine/tools/        staging jobs: the only code that talks to Overpass or a data portal
-engine/tests/        186 tests on synthetic terrain where the answer is known
+engine/tests/        215 tests on synthetic terrain where the answer is known
 service/             FastAPI: bbox + rainfall in, screening + official layer out
 web/                 map, modal tool palette, and the right-hand panel: Agent (chat with memory), Rain, Details, News
 plan/                the design written before building
@@ -272,6 +283,7 @@ PROGRESS.md          what is done and what is not
 ## Status
 
 The engine, both tiers, the map, the agent layer, population and exposure, the news-grounded road
-outlook, preparations within the city's budget, and the 28 May 2024 replay work end to end. Not yet
-built: before/after exposure (F10) and the seeded synthetic harness. `PROGRESS.md` tracks all of it
+outlook, preparations within the city's budget with a best-case before/after, the news agent, and the
+28 May 2024 replay work end to end. Not yet built: the seeded synthetic harness, and the further
+hazards (heat, air quality) that `plan/MULTI_HAZARD.md` schedules. `PROGRESS.md` tracks all of it
 honestly.

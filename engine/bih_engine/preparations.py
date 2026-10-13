@@ -84,7 +84,10 @@ def before_after(baseline: dict, after: dict, plan: dict) -> dict:
         return {"available": False,
                 "reason": "the plan lists only barricades, which keep traffic out of a low stretch "
                           "but do not reduce what the water reaches, so there is no before and after"}
-    spots_b, spots_a = len(_top_filling(baseline)), len(_top_filling(after))
+    # The treated spots still exist and still fill on the map; what changes is whether they count as
+    # exposed. So "after" is the baseline set minus the spots the plan acts on, not a fresh count.
+    top_b = _top_filling(baseline)
+    spots_b, spots_a = len(top_b), len(top_b - set(ids))
     out = {
         "available": True,
         "best_case": True,

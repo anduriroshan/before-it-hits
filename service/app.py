@@ -129,9 +129,16 @@ def warm_the_news() -> None:
     """Fetch each city's news in the background so the first visit to the News tab is instant."""
     if os.environ.get("BIH_NO_NEWS_WARM"):
         return
-    from bih_agents import news
-    news.warm([(r.name, r.manifest.get("title") or r.name, r.manifest.get("news_query"))
-               for r in regions().values()], gap_s=news.MIN_GAP_S)
+    from bih_agents import news, news_agent
+    flood = [(r.name, r.manifest.get("title") or r.name, r.manifest.get("news_query"))
+             for r in regions().values()]
+    # Flooding first, because the News tab opens on it; then the other topics the news agent can be
+    # asked about, so a question that spans topics does not wait on a cold index.
+    other = [(news_agent.cache_key(r.name, t), r.manifest.get("title") or r.name,
+              news_agent.topic_query(t, news_agent.place_scope(r.manifest.get("title") or r.name,
+                                                               r.manifest.get("news_place"))))
+             for t in news_agent.TOPICS if t != "flood" for r in regions().values()]
+    news.warm(flood + other, gap_s=news.MIN_GAP_S)
 
 
 @app.get("/api/health")
@@ -274,7 +281,8 @@ def news_for_region(region: str | None = None, topic: str = "flood") -> dict:
         raise HTTPException(422, f"unknown topic {topic!r}; choose one of: {', '.join(news_agent.TOPICS)}")
     r = region_or_404(region)
     title = r.manifest.get("title") or r.name
-    query = news_agent.topic_query(topic, title.split(",")[0].strip(), r.manifest.get("news_query"))
+    query = news_agent.topic_query(topic, news_agent.place_scope(title, r.manifest.get("news_place")),
+                                   r.manifest.get("news_query"))
     got = news.get(news_agent.cache_key(r.name, topic), title, query=query)
     if got["status"] == "ok":
         return {**got["data"], "age_s": got["age_s"], "stale": got["stale"], "topic": topic}
@@ -314,6 +322,7 @@ def news_ask(req: NewsAskRequest) -> StreamingResponse:
         try:
             out = news_agent.run(req.question, region=r.name, title=r.manifest.get("title") or r.name,
                                  place_query=r.manifest.get("news_query"),
+                                 news_place=r.manifest.get("news_place"),
                                  history=[t.model_dump() for t in req.history],
                                  emit=lambda step: events.put({"event": "step", **step}))
             events.put({"event": "done", **out})
