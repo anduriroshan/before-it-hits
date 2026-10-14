@@ -167,6 +167,27 @@ across, so it shows a few blocks at best and never a roof. Before building on it
 vegetation: Spearman −0.33 (Kochi) and −0.32 (Singapore), and the most-vegetated quarter of pixels is
 1.6 °C and 3.3 °C cooler, which is what a real surface-temperature signal should show.
 
+**Who is exposed to heat, and whose threshold decides.** Ask how many people a heat spell covers and the
+answer is measured against a threshold *the city's own weather authority publishes*, never one we
+invented, and the briefing names that authority every time. The two cities do not use the same index,
+and that is the point rather than an inconsistency:
+
+- **Kochi** is judged against the **India Meteorological Department's** heat-wave criterion, which is on
+  the day's maximum air temperature. IMD also require the day to run well above that station's long-run
+  normal. No normal is staged, so **this product never declares a heat wave** — it reports whether the
+  temperature half is met and says the other half is unchecked.
+- **Singapore's** authority, the **NEA**, rates heat stress on the **wet-bulb globe temperature**, which
+  folds in humidity, wind and solar radiation. The hourly forecast carries no solar radiation, so a WBGT
+  can never be computed from it. Rather than convert one index into another under the authority's name,
+  the forecast is read on the **US National Weather Service** heat-index scale — named as such — and
+  NEA's **own live station readings** (30 stations, 15-minute averages, data.gov.sg) are shown beside it
+  as measured. Kochi has no such network, so its trace simply has no measured-heat step. That asymmetry
+  is a real difference in what each city can know about itself.
+
+The people figure is everyone the population grid places in the area: how many people live where that
+forecast applies. It is **never a count of who will fall ill** — there is no health data here, and asked
+point-blank how many will fall sick or die, the agent answers that it cannot say and why.
+
 **Wind** comes from the same hourly forecast: speed, gusts and direction, now and over the next two days.
 The agent says which way it blows *from* (as a weather report does) and which way the air is *going*, in
 words, because the two are easily swapped and a 180 degree mistake is the one way this goes badly wrong
@@ -348,7 +369,7 @@ KEYS
 Without `GEMINI_API_KEY` the agent layer reports itself unavailable and the ask box does not
 appear. Everything else works unchanged.
 
-Tests: `./.venv/Scripts/python.exe -m pytest engine` — 332 tests, all offline, no network, no
+Tests: `./.venv/Scripts/python.exe -m pytest engine` — 360 tests, all offline, no network, no
 staged data and no model. The agent tests stub both models out on purpose: what is worth testing
 there is the part that holds when the model is wrong, and that part is deterministic by design.
 
@@ -362,7 +383,7 @@ engine/bih_engine/   deterministic, no model: terrain, hydrology, osm, routes, o
                      preparations, heat, surface_heat, popgrid, density, air_quality, weather_grid, replay, store
 engine/bih_agents/   scenario, narrator, verifier, guide, planner, news and news_agent, coordinator, facts
 engine/tools/        staging jobs: the only code that talks to Overpass, Earth Engine or a data portal
-engine/tests/        332 tests, mostly on synthetic data where the answer is known
+engine/tests/        360 tests, mostly on synthetic data where the answer is known
 service/             FastAPI: every /api route, and the static web files
 web/                 map, layers and one clock, and the right-hand panel: Agent (chat with memory),
                      Rain, Details, Heat, Air, News

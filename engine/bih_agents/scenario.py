@@ -65,6 +65,14 @@ SCHEMA = {
                   "description": "A place the asker names that is not the selected area AND not "
                                  "the selected city itself, exactly as written in THIS message. "
                                  "Empty if none, and empty when the named place IS the city."},
+        "heat_c": {"type": "NUMBER",
+                   "description": "Only if the asker stated a temperature or heat-index figure to "
+                                  "test ('what if it hits 41', 'if it reaches 45 degrees'). "
+                                  "Otherwise -1. Never estimate one yourself."},
+        "heat_stated_as": {"type": "STRING",
+                           "description": "The exact words from the question that carry the "
+                                          "temperature figure, copied character for character. "
+                                          "Empty if no figure was stated."},
         "earlier_area": {"type": "STRING",
                          "description": "Only when the message points back at an area an earlier "
                                         "answer named, without naming it ('the most populated area', "
@@ -82,6 +90,7 @@ SCHEMA = {
     },
     "required": ["reading", "mode", "rainfall_mm", "rainfall_stated_as", "duration_h",
                  "return_period_years", "focus", "scope", "intent", "topic", "place", "earlier_area",
+                 "heat_c", "heat_stated_as",
                  "same_rainfall_as_before", "audience", "needs_clarification", "question_back"],
 }
 
@@ -106,8 +115,14 @@ Rules:
 - topic: what data the question is really about. "population" for how many people, density, who
   lives here. "heat" for temperature, heat index, how hot, and which parts of an area are hotter
   or cooler than others, urban heat, hot spots. "air_quality" for AQI, pollution, air. "wind" for
-  wind speed, gusts, which way the wind blows, breeze. "flood" for pooling, water, roads, drainage. "overview" when the question is general ("analyse
-  this area"), covers multiple things, or is primarily about flood risk.
+  wind speed, gusts, which way the wind blows, breeze. "flood" for pooling, water, roads, drainage.
+  "overview" when the question is general ("analyse this area"), covers more than one HAZARD, or is
+  primarily about flood risk.
+- A question that pairs ONE hazard with how many people ("how hot does it get here and how many
+  people live here", "who is exposed to this heat", "how many people live where the air is worst")
+  is that hazard's topic, NOT "population" and NOT "overview". Each hazard already carries who lives
+  in the area, so naming the hazard is enough. Choose "population" only when people are the whole
+  question and no hazard is named.
 - place: only a place the message itself names that is not the selected area AND not the selected
   city itself, exactly as written. Never take one from the history. Empty otherwise.
 - earlier_area: only when the message points back at an area an earlier answer named but does not
@@ -115,6 +130,10 @@ Rules:
   Copy that area's name exactly as the earlier answer wrote it. It is a different thing from `place`:
   leave it empty when the message names the place itself, and when it only means the area already
   selected ("and the roads?"). Such a message is about that one area, so its scope is "area".
+- heat_c: the same rule as rainfall, for heat. Only when the asker names a temperature or heat-index
+  figure to test ("what if it hits 41", "if it reaches 45 degrees"). Copy the exact words into
+  heat_stated_as. "If it gets hotter" or "a heat wave" names no figure: leave it at -1 and the real
+  forecast is used. Never work out what a heat wave means for this city - an authority decides that.
 - Never invent a rainfall figure. If the asker gave one in THIS message, copy it and the words it
   came from. If they said something vague like "heavy rain" or "a storm", set rainfall_mm to -1.
   If they ask to reuse the last storm ("the same rainfall", "same storm", "as before"), set
@@ -179,12 +198,18 @@ def _history_block(history: list[dict]) -> str:
 _NUM = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 
 
-def _figure_is_the_askers(spec: dict, question: str) -> bool:
-    """Did the rainfall figure really come out of the asker's own words?"""
-    quoted = (spec.get("rainfall_stated_as") or "").strip()
+def _figure_is_the_askers(spec: dict, question: str, *, value: str = "rainfall_mm",
+                          words: str = "rainfall_stated_as") -> bool:
+    """Did this figure really come out of the asker's own words?
+
+    Used for every number a question may carry - a rainfall, a temperature - because the rule is the
+    same for all of them: the model must quote the words the figure came from, those words must be in
+    the message, and the number must be in those words. A figure the model invented cannot pass.
+    """
+    quoted = (spec.get(words) or "").strip()
     if not quoted or quoted.lower() not in question.lower():
         return False
-    return any(abs(float(m.group().replace(",", "")) - spec["rainfall_mm"]) < 1e-6
+    return any(abs(float(m.group().replace(",", "")) - spec[value]) < 1e-6
                for m in _NUM.finditer(quoted))
 
 
@@ -262,6 +287,11 @@ def settle(spec: dict, *, question: str, slider_mm: float,
     rp = spec.get("return_period_years", -1)
     rp = int(rp) if isinstance(rp, (int, float)) and int(rp) in periods else None
 
+    # A temperature to test instead of the forecast, and only ever the asker's own.
+    stated_heat = spec.get("heat_c", NOT_STATED)
+    heat_ok = (stated_heat is not None and float(stated_heat) > 0
+               and _figure_is_the_askers(spec, question, value="heat_c", words="heat_stated_as"))
+
     TOPICS = ("flood", "population", "heat", "air_quality", "wind", "overview")
     topic = spec.get("topic") if spec.get("topic") in TOPICS else "overview"
 
@@ -273,6 +303,7 @@ def settle(spec: dict, *, question: str, slider_mm: float,
         "topic": topic,
         "place": _clean_place(spec, question),
         "earlier_area": _earlier_area(spec, history, preset_labels or []),
+        "heat_c": float(stated_heat) if heat_ok else None,
         "reused_previous_rainfall": reuse,
         "audience": spec.get("audience") if spec.get("audience") in ("officer", "resident")
                     else "officer",

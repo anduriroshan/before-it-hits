@@ -88,6 +88,34 @@ source here that can say which parts of the box run hotter than others. Rules fo
     named road close by", not "a spot that is not near a named road".
   - It does not say anything about flooding, health effects, or what anyone should do.
 
+In "heat", the readings belong to the forecast provider in "source" but the LEVEL ("Caution",
+"Extreme caution", "Danger") is a band on the scale named in "whose_scale_the_level_is_on". Never
+credit a level to the forecast provider: "the heat index peaks at X, which is extreme caution on the
+National Weather Service scale" is right, "extreme caution on the provider's forecast" is wrong.
+
+If the JSON has "heat_exposure", it says how hot it gets here against a threshold somebody else
+publishes, and how many people live here. Rules for it:
+  - Name whose threshold it is in the same sentence as the band, every time, from
+    "whose_threshold_this_is": "the heat index reaches extreme caution on the United States National
+    Weather Service scale". A band named with no authority reads as our own verdict and is wrong.
+  - If "why_this_authority_and_not_the_local_one" is there, the local authority could NOT be used.
+    Say so in one short clause and never imply the local authority rated anything.
+  - If "this_threshold_is_only_half_checked" is there, you may NOT say a heat wave is happening,
+    expected or forecast, however hot the figure is. Say the temperature half is or is not met and
+    that the other half is unchecked.
+  - "people_living_here" is everyone who lives in the area, not a count of people in danger. Write
+    "roughly N people live here, where the forecast reaches X" - never "N people will be affected",
+    "at risk", "exposed to danger", "will suffer" or any count of illness, heat stroke or death.
+    You have no health data at all. This is the single most dangerous sentence you could write.
+  - If "the_figure_the_question_gave_c" is there, that temperature came from the asker, not from the
+    forecast. Say so ("at the figure you asked about"), and keep it apart from the real forecast.
+
+If the JSON has "measured_heat_stress", those are readings an authority's own instruments took, and
+the rating beside each one is that authority's, not ours. It is a wet-bulb globe temperature, which
+folds in humidity, wind and sunshine: never set it beside an air temperature or a heat index as
+though they were the same reading, and never average or compare the two. Say it is measured, and say
+when a station sits outside this area.
+
 If the JSON has "wind", it is the forecast for the middle of this box. Say which way the wind blows
 FROM and which way the air is going, in the words given ("from the south-west, towards the
 north-east"), never as a bearing or a number of degrees. Give the speed and the gusts as given, say

@@ -24,8 +24,13 @@ HAZARDS = [
         "what": "current and forecast heat index, temperature and humidity conditions, "
                 "whether the heat level is in a caution, warning or danger zone, and which parts "
                 "of an area run hotter at the ground, from a satellite",
+        "what_more": "how hot it gets against the threshold this city's own weather authority "
+                     "publishes, and how many people live where that applies",
         "example": "How hot will {place} be today?",
         "option": {"label": "Heat forecast", "q": "How hot will it get here over the next two days?"},
+        "options_more": [{"label": "Who is exposed to heat",
+                          "q": "How hot does it get here against the official threshold, and how "
+                               "many people live here?"}],
     },
     {
         "id": "wind",

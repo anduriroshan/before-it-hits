@@ -256,10 +256,76 @@ def add_heat(bundle: dict, heat_data: dict) -> None:
         "level": cur_level.get("label", "Normal"),
         "peak_heat_index_c": tidy(peak.get("heat_index_c") or peak.get("temperature_c")),
         "peak_level": peak_level.get("label", "Normal"),
+        # Two different owners in one block, so each is named. The readings are the provider's; the
+        # band a reading falls in belongs to the scale, and crediting the band to the provider
+        # reports an American scale as though the weather service had issued it.
         "source": heat_data.get("source", "Google Weather API"),
+        "whose_scale_the_level_is_on": "the United States National Weather Service heat-index scale, "
+                                       "not the forecast provider and not ours",
         "note": "A forecast at one point in the middle of this box, not a measurement and not a "
                 "map of it. Heat is a separate hazard from the pooling above and the two are not "
                 "combined into one ranking.",
+    }
+
+
+def add_heat_exposure(bundle: dict, ex: dict) -> None:
+    """Append who is exposed to heat, measured against a named authority's published threshold.
+
+    The whole value of this block is that the threshold is someone else's and the briefing has to say
+    whose. So `judged_against` is carried as a sentence the Narrator can copy, and where the local
+    authority could not be used, the reason travels with it rather than being dropped - a briefing
+    that quietly judged Singapore by an American scale without saying so would be the failure mode.
+    """
+    if not ex or not ex.get("available"):
+        return
+    block = {
+        "whose_threshold_this_is": ex["judged_against"],
+        "what_is_being_read": ex["which_reading"],
+        "the_bands": [{"band": b["label"], "starts_at_c": tidy(b["at_or_above_c"])}
+                      for b in ex.get("bands", [])],
+        "source": ex.get("source", "unknown"),
+        "note": ex.get("what_this_count_is", ""),
+    }
+    for key, into in (("why_not_the_local_authority", "why_this_authority_and_not_the_local_one"),
+                      ("only_half_checked", "this_threshold_is_only_half_checked")):
+        if ex.get(key):
+            block[into] = ex[key]
+    if "highest_forecast_c" in ex:
+        block["highest_forecast_c"] = tidy(ex["highest_forecast_c"])
+        block["highest_is_hours_from_now"] = tidy(ex["highest_is_hours_from_now"])
+        block["band_the_forecast_reaches"] = ex["band_the_forecast_reaches"]
+        block["hours_of_forecast_read"] = tidy(ex["hours_of_forecast_read"])
+        block["hours_in_each_band"] = [{"band": b["label"], "hours": tidy(b["hours"])}
+                                       for b in ex.get("hours_in_each_band", [])]
+    if "asked_about_c" in ex:
+        block["the_figure_the_question_gave_c"] = tidy(ex["asked_about_c"])
+        block["band_that_figure_reaches"] = ex["band_the_asked_figure_reaches"]
+        block["where_that_figure_came_from"] = ex["where_the_asked_figure_came_from"]
+    if "people_living_here" in ex:
+        block["people_living_here"] = tidy(ex["people_living_here"])
+        block["people_source"] = ex.get("people_source", "unknown")
+    elif ex.get("people_unavailable"):
+        block["people_unavailable"] = ex["people_unavailable"]
+    bundle["heat_exposure"] = block
+
+
+def add_measured_heat(bundle: dict, obs: dict) -> None:
+    """Append the authority's own measured heat-stress readings, where a city has a station network.
+
+    Kept apart from the forecast block on purpose: this is a reading someone took, the forecast is a
+    model, and the index here is not an air temperature. Collapsing the three into one sentence is
+    the mistake this separation exists to prevent."""
+    if not obs or not obs.get("available"):
+        return
+    bundle["measured_heat_stress"] = {
+        "nearest_stations": [{"station": r["name"], "wbgt_c": tidy(r["wbgt_c"]),
+                              "the_authority_rates_this": r.get("rated"),
+                              "km_from_here": tidy(r["km"]), "inside_this_area": r["in_box"]}
+                             for r in obs.get("nearest", [])],
+        "hottest_nearby_station": obs["hottest_nearby"]["name"],
+        "stations_reporting": tidy(obs.get("stations_reporting")),
+        "source": obs.get("source", "unknown"),
+        "note": obs.get("note", ""),
     }
 
 

@@ -29,6 +29,24 @@ city centre, plus a forecast over the next 48 hours. Heat index combines air tem
 to show how hot it feels. A heat level (Normal, Caution, Extreme caution, Danger, Extreme danger) is
 shown based on the heat index value. This is a forecast, not a measurement at any specific spot.
 
+WHO IS EXPOSED TO HEAT, AND WHOSE THRESHOLD DECIDES
+Asked how many people are exposed to heat somewhere, the agent answers against a threshold the city's
+own weather authority publishes, never one this product invented, and it names that authority in the
+answer. The two staged cities do not use the same index, and that is a real difference rather than an
+inconsistency. Kochi is judged against the India Meteorological Department's heat-wave criterion,
+which is on the day's maximum air temperature. IMD also require the day to run well above that
+station's long-run normal, and no normal is staged here, so this product never declares a heat wave:
+it says whether the temperature half of the criterion is met and that the other half is unchecked.
+Singapore's authority, the National Environment Agency, rates heat stress on the wet-bulb globe
+temperature, which folds in humidity, wind and solar radiation. The hourly forecast carries no solar
+radiation, so a WBGT can never be computed from it; instead NEA's own live station readings are shown
+as measured, and the forecast is read on the US National Weather Service heat-index scale, named as
+such. Singapore has that station network and Kochi has none, which is itself one of the things one
+city can know about itself that the other cannot.
+The people figure is everyone the population grid places in the area, which is how many people live
+where that forecast applies. It is never a count of who will fall ill: this product holds no health
+data and will not estimate harm to anybody.
+
 For air quality, the Air tab shows the current Air Quality Index (AQI), the dominant pollutant and
 its concentration, plus an hourly AQI forecast. All values are the Google Air Quality API's own
 numbers, shown as published. AQI is a regional reading — it does not vary at building level. This

@@ -105,6 +105,28 @@
     "cadence": "5-minute totals"
   },
   "timezone": "Asia/Singapore",
+  "heat_standard": {
+    "authority": "the National Environment Agency",
+    "measure": "wbgt_c",
+    "measure_label": "the wet-bulb globe temperature",
+    "bands": [
+      {
+        "label": "high heat stress",
+        "min_c": 33
+      },
+      {
+        "label": "moderate heat stress",
+        "min_c": 31
+      }
+    ],
+    "source": "https://www.mse.gov.sg/latest-news/press-release-heat-stress-advisory",
+    "incomplete": "The wet-bulb globe temperature needs solar radiation, which the hourly forecast does not carry. This product never converts a forecast into it. Where a WBGT figure appears it is a reading NEA took, not our estimate.",
+    "observed": {
+      "source": "nea_wbgt",
+      "label": "NEA WBGT stations (data.gov.sg)",
+      "cadence": "fifteen-minute averages"
+    }
+  },
   "surface_heat": {
     "file": "lst.tif",
     "source": "Landsat 8 and 9 Collection 2 Level 2 surface temperature (USGS), via Earth Engine",

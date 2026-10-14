@@ -101,6 +101,7 @@ def _default_spec(slider_mm: float, return_period: int | None, question: str) ->
     return {
         "reading": "Read from the controls on screen, not from the question: "
                    "the scenario agent could not be reached.",
+        "heat_c": None, "earlier_area": "",
         "focus": question, "audience": "officer", "mode": "whatif",
         "rainfall_mm": float(slider_mm), "rainfall_source": "the rainfall already set on screen",
         "duration_h": None, "return_period_years": return_period, "ignored_figure": False,
@@ -251,6 +252,40 @@ def _add_surface_heat(bundle: dict, region, bbox, trace: Trace) -> None:
                   f"surface" + (f"; hottest place {hot['surface_c']}°C." if hot else "."))
     except Exception as exc:
         trace.add("Surface heat", "unavailable", 0, str(exc)[:120])
+
+
+def _add_heat_exposure(bundle: dict, region, box, hours: list, spec: dict, trace: Trace) -> None:
+    """Who is exposed to heat here, against the city's own authority's threshold, plus that
+    authority's live readings where it runs a station network. Best-effort: a heat answer without
+    the exposure block is still a heat answer, but one with a figure nobody published is not."""
+    if region is None:
+        return
+    from bih_engine import heat_exposure, heat_obs
+    try:
+        t0 = time.perf_counter()
+        ex = heat_exposure.assess(region, box, hours, stated_c=spec.get("heat_c"))
+        facts.add_heat_exposure(bundle, ex)
+        if ex.get("available"):
+            who = f"~{ex['people_living_here']} people here; " if "people_living_here" in ex else ""
+            trace.add("Heat exposure", "ok", int((time.perf_counter() - t0) * 1000),
+                      f"{who}judged against {ex['judged_against']}"
+                      + (f", which reaches {ex['band_the_forecast_reaches']}."
+                         if "band_the_forecast_reaches" in ex else "."))
+    except Exception as exc:
+        trace.add("Heat exposure", "unavailable", 0, str(exc)[:120])
+
+    if not heat_obs.available(region):
+        return
+    try:
+        t0 = time.perf_counter()
+        obs = heat_obs.near(tuple(box))
+        facts.add_measured_heat(bundle, obs)
+        near = obs["nearest"][0]
+        trace.add("Measured heat stress", "ok", int((time.perf_counter() - t0) * 1000),
+                  f"{near['name']} station reads {near['wbgt_c']} and the authority rates it "
+                  f"{near['rated']}.")
+    except Exception as exc:
+        trace.add("Measured heat stress", "unavailable", 0, str(exc)[:120])
 
 
 def _add_wind(bundle: dict, lat: float, lon: float, trace: Trace) -> None:
@@ -419,7 +454,9 @@ def _run_topic(question, spec, topic, bbox, region, trace, city=False) -> dict:
                       f"Heat index {hdata['current'].get('heat_index_c')}°C, "
                       f"level: {hdata['current_level'].get('label')}.")
         except Exception as exc:
+            hdata = {}
             trace.add("Heat", "unavailable", 0, str(exc)[:120])
+        _add_heat_exposure(bundle, region, (w, s, e, n), hdata.get("hours") or [], spec, trace)
         # The forecast says how hot the air is at one point; the satellite says which parts of the
         # box run hotter than others, so a heat question gets both, and the briefing keeps them apart.
         _add_surface_heat(bundle, region, (w, s, e, n), trace)

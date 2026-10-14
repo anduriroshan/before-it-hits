@@ -340,3 +340,17 @@ def test_a_whole_number_is_written_whole_not_as_a_float():
     assert b["rainfall"]["mm"] == 100 and b["rainfall"]["over_hours"] == 1
     assert b["area"]["analysis_grid_m"] == 10        # not 10.0
     assert b["area"]["box_km2"] == 7.1               # a real fraction keeps its decimals
+
+
+def test_a_heat_level_is_credited_to_its_scale_and_not_to_the_forecast_provider():
+    """The readings are the provider's; the band they fall in belongs to the National Weather
+    Service. A briefing that credits the band to the provider reports an American scale as though
+    the weather service had issued it, which the live model did before the block said so."""
+    from bih_agents import facts
+    bundle = {}
+    facts.add_heat(bundle, {"current": {"heat_index_c": 33}, "current_level": {"label": "Caution"},
+                            "peak": {"heat_index_c": 38}, "peak_level": {"label": "Extreme caution"},
+                            "source": "Google Maps Platform Weather API (hourly forecast)"})
+    assert "National Weather Service" in bundle["heat"]["whose_scale_the_level_is_on"]
+    assert "Google" in bundle["heat"]["source"]
+    assert "Google" not in bundle["heat"]["whose_scale_the_level_is_on"]

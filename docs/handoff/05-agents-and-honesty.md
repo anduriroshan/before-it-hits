@@ -52,7 +52,16 @@ decoration; this one shows a forecast outage, a model that could not be reached,
 The Narrator writes from the bundle and nothing else, and the Verifier's hard check is simply: **a number may
 appear in the briefing only if it appears in the bundle.** Sections: `area`, `rainfall`, `pooling`,
 `roads_through_the_worst_spots`, `confidence`, `limits`, `official`, `people`, `agreement`, `heat`,
-`surface_heat`, `air_quality`. Topic bundles (population, heat, air quality) carry only what was fetched.
+`heat_exposure`, `measured_heat_stress`, `surface_heat`, `air_quality`. Topic bundles (population, heat,
+air quality) carry only what was fetched.
+
+`heat_exposure` is the one block whose whole value is an attribution: the threshold belongs to the city's
+own weather authority (`whose_threshold_this_is`), and where that authority's index cannot be read from a
+forecast the reason travels with it (`why_this_authority_and_not_the_local_one`) so a briefing can never
+imply the local authority rated anything. Where the criterion can only be half checked
+(`this_threshold_is_only_half_checked`) the Narrator may not declare the hazard at all. `people_living_here`
+is who lives in the area, never who is harmed — the Verifier's `unsupported` rule names health claims
+explicitly, because that is the most dangerous sentence the model could write.
 
 ### Things kept out of the bundle, on purpose
 

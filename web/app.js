@@ -3032,6 +3032,9 @@ function areaOptions(topic) {
     if (!h.option) continue;
     add(h.id, h.option.label, () => (h.id === 'flood'
       ? sendQuestion(DEFAULT_PREDICT_Q, { auto: true }) : sendQuestion(h.option.q)));
+    // A hazard may offer more than one question about itself; they share its id, so once that
+    // hazard has been answered the whole group drops out of the row together.
+    for (const more of h.options_more || []) add(h.id, more.label, () => sendQuestion(more.q));
   }
   add('people', 'Who lives here', () => sendQuestion('Roughly how many people live here?'));
   const ask = mk('button', 'chip');

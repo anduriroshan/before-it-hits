@@ -37,7 +37,8 @@ RULES = {
     "unsupported": "says something the findings do not contain",
     "own_depth": "gives a depth for one of our own spots, or attaches the authority's depth to "
                  "one of our spots",
-    "unattributed": "quotes the authority's layer without saying whose it is, or without its unit",
+    "unattributed": "quotes the authority's layer without saying whose it is, or without its unit, "
+                    "or names a heat band without saying whose scale it is",
     "scope": "describes findings about the one drawn box as if they covered the whole city",
     "timing": "says when water arrives or how long it stays",
     "dispatch": "tells anyone to evacuate, move or be dispatched",
@@ -75,12 +76,20 @@ and you do not praise anything: you list what is wrong, and nothing else.
 
 Report a part only if it breaks one of these rules:
 
-- unsupported: says something the findings do not contain.
+- unsupported: says something the findings do not contain. This covers any claim about health:
+  the findings never contain one. A population count under "heat_exposure" is how many people LIVE
+  somewhere, so writing that they are "at risk", "in danger", "affected", "will suffer", or any
+  count of illness or death is unsupported, and so is declaring a heat wave when the findings say
+  the threshold is only half checked. Naming a band is fine; naming a consequence is not.
 - own_depth: gives a depth for one of our own pooling spots, or attaches a depth from the
   "official" block to one of our spots. Our spots are ranked against each other and have no depth.
   The official figures are a separate authority's and describe their own flood layer.
 - unattributed: uses a figure from the "official" block without naming whose layer it is, or
-  quotes one of their values without the unit given in that block.
+  quotes one of their values without the unit given in that block. The same applies to
+  "heat_exposure": the band comes from the authority named in "whose_threshold_this_is", and a
+  draft that names a band without naming that authority reports it as though it were our own
+  verdict. Where "why_this_authority_and_not_the_local_one" is present, a draft that credits the
+  band to the city's own authority is wrong.
 - scope: writes about the findings as if they covered the city, a district, or anywhere wider than
   the one drawn box. The box is named in the findings under "area" and it is usually a single
   neighbourhood. "111 spots across Kochi" is wrong when the 111 spots are all inside one box;

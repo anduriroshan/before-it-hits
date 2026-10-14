@@ -240,6 +240,27 @@
     "source": "Kerala SDRF 2026 budget rules; Operation Breakthrough canal-desilting orders; Kochi Corporation and Ernakulam DDMA (documented figures, not a live feed)"
   },
   "timezone": "Asia/Kolkata",
+  "heat_standard": {
+    "authority": "the India Meteorological Department",
+    "measure": "temperature_c",
+    "measure_label": "the highest air temperature forecast",
+    "bands": [
+      {
+        "label": "IMD's severe heat-wave temperature",
+        "min_c": 47
+      },
+      {
+        "label": "IMD's heat-wave temperature",
+        "min_c": 45
+      },
+      {
+        "label": "the temperature IMD requires at a coastal station",
+        "min_c": 37
+      }
+    ],
+    "source": "https://mausam.imd.gov.in/ (heat-wave criteria)",
+    "incomplete": "At a coastal station IMD needs two things together: the day at or above the temperature named here, AND that day running well above the station's own long-run normal. No normal is staged for this city, so this product never declares a heat wave. It reports only whether the temperature half of the criterion is met, and says the other half is unchecked."
+  },
   "surface_heat": {
     "file": "lst.tif",
     "source": "Landsat 8 and 9 Collection 2 Level 2 surface temperature (USGS), via Earth Engine",

@@ -46,6 +46,25 @@ REGIONS: dict[str, dict] = {
             "note": "The staged box is greater Kochi and is not an exact match for the UA boundary, "
                     "so the count is an order of magnitude, not a precise total.",
         },
+        # Whose heat threshold this city is judged against. Never ours: the authority that actually
+        # issues heat warnings here. IMD's criterion is on the day's maximum AIR temperature, not on
+        # a heat index, and `incomplete` is the half of it we cannot check - see heat_exposure.py.
+        "heat_standard": {
+            "authority": "the India Meteorological Department",
+            "measure": "temperature_c",
+            "measure_label": "the highest air temperature forecast",
+            "bands": [
+                {"label": "IMD's severe heat-wave temperature", "min_c": 47},
+                {"label": "IMD's heat-wave temperature", "min_c": 45},
+                {"label": "the temperature IMD requires at a coastal station", "min_c": 37},
+            ],
+            "source": "https://mausam.imd.gov.in/ (heat-wave criteria)",
+            "incomplete": "At a coastal station IMD needs two things together: the day at or above "
+                          "the temperature named here, AND that day running well above the station's "
+                          "own long-run normal. No normal is staged for this city, so this product "
+                          "never declares a heat wave. It reports only whether the temperature half "
+                          "of the criterion is met, and says the other half is unchecked.",
+        },
         # Localities named in the 28 May 2024 cloudburst reporting.
         "presets": [
             {"label": "Edappally", "bbox": [76.295, 10.010, 76.325, 10.040]},
@@ -93,6 +112,26 @@ REGIONS: dict[str, dict] = {
             "note": "Total population placed by a modelled grid. The census check is of residents "
                     "only, so the dormitory workers in the published total are spread like residents. "
                     "An order of magnitude for who is exposed, by area.",
+        },
+        # NEA rates heat stress on the wet-bulb globe temperature, which folds in humidity, wind and
+        # solar radiation. The hourly forecast carries no solar radiation, so WBGT can never be
+        # computed from it: `measure` names a field the forecast does not have, and heat_exposure
+        # falls back to a named forecast scale rather than converting one index into the other.
+        # `observed` is the other half - NEA measure WBGT live, which is what the fallback is beside.
+        "heat_standard": {
+            "authority": "the National Environment Agency",
+            "measure": "wbgt_c",
+            "measure_label": "the wet-bulb globe temperature",
+            "bands": [
+                {"label": "high heat stress", "min_c": 33},
+                {"label": "moderate heat stress", "min_c": 31},
+            ],
+            "source": "https://www.mse.gov.sg/latest-news/press-release-heat-stress-advisory",
+            "incomplete": "The wet-bulb globe temperature needs solar radiation, which the hourly "
+                          "forecast does not carry. This product never converts a forecast into it. "
+                          "Where a WBGT figure appears it is a reading NEA took, not our estimate.",
+            "observed": {"source": "nea_wbgt", "label": "NEA WBGT stations (data.gov.sg)",
+                         "cadence": "fifteen-minute averages"},
         },
         # Places with a documented flash-flood history.
         "presets": [

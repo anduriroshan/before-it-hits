@@ -292,6 +292,20 @@ class RegionWithPresets:
         return True
 
 
+class RegionWithHeatStandard(RegionWithPresets):
+    """A city whose own weather authority rates heat on something a forecast actually carries."""
+
+    def __init__(self):
+        self.manifest = dict(RegionWithPresets.manifest, heat_standard={
+            "authority": "the India Meteorological Department",
+            "measure": "temperature_c",
+            "measure_label": "the highest air temperature forecast",
+            "bands": [{"label": "the temperature IMD wants", "min_c": 37}],
+            "source": "https://mausam.imd.gov.in/",
+            "incomplete": "The departure from normal is unchecked, so no heat wave is ever declared.",
+        })
+
+
 def test_scope_city_runs_city_overview(monkeypatch):
     read_returns(monkeypatch, scope="city", mode="whatif")
     monkeypatch.setattr(coordinator, "analyse_area", lambda *a, **k: result_fixture())
@@ -497,3 +511,81 @@ def test_the_area_already_selected_is_not_looked_up_again(monkeypatch):
     out = coordinator.run(question="the most populated area again", bbox=BOX,
                           region=RegionWithRealNames(), history=SAID_IT, area_label="Geylang / Kallang")
     assert out["kind"] == "analysis"
+
+
+# ---- a temperature the asker named, guarded exactly like a rainfall --------------------------
+
+def heat_spec(**over):
+    return spec(**{"heat_c": -1, "heat_stated_as": "", **over})
+
+
+def test_a_temperature_in_the_askers_own_words_is_kept():
+    s = scenario.settle(heat_spec(heat_c=41, heat_stated_as="hits 41"),
+                        question="what if it hits 41 here?", slider_mm=50)
+    assert s["heat_c"] == 41.0
+
+
+def test_a_temperature_the_model_invented_is_dropped():
+    """The words it claims to quote are not in the message, so the figure cannot be the asker's."""
+    s = scenario.settle(heat_spec(heat_c=45, heat_stated_as="reaches 45"),
+                        question="what if there is a heat wave here?", slider_mm=50)
+    assert s["heat_c"] is None
+
+
+def test_a_temperature_whose_quoted_words_do_not_carry_it_is_dropped():
+    s = scenario.settle(heat_spec(heat_c=45, heat_stated_as="hits 41"),
+                        question="what if it hits 41 here?", slider_mm=50)
+    assert s["heat_c"] is None
+
+
+def test_no_temperature_stated_leaves_the_forecast_to_decide():
+    s = scenario.settle(heat_spec(), question="how hot will it get?", slider_mm=50)
+    assert s["heat_c"] is None
+
+
+def test_a_rainfall_and_a_temperature_do_not_contaminate_each_other():
+    s = scenario.settle(heat_spec(rainfall_mm=120, rainfall_stated_as="120 mm", heat_c=41,
+                                  heat_stated_as="hits 41"),
+                        question="if 120 mm falls and it hits 41, what happens?", slider_mm=50)
+    assert s["rainfall_mm"] == 120.0 and s["heat_c"] == 41.0
+
+
+# ---- a heat question carries who is exposed, and against whose threshold ----------------------
+
+def test_a_heat_question_carries_the_exposure_block_and_names_the_authority(monkeypatch):
+    seen = city_topic(monkeypatch, "heat")
+    monkeypatch.setattr(coordinator, "_add_surface_heat", lambda *a, **k: None)
+    from bih_engine import heat as heat_mod, popgrid
+    monkeypatch.setattr(heat_mod, "fetch", lambda lat, lon, hours=48: type("H", (), {
+        "as_dict": lambda self: {"current": {"heat_index_c": 33}, "current_level": {"label": "x"},
+                                 "hours": [{"temperature_c": 38, "heat_index_c": 42}]}})())
+    monkeypatch.setattr(popgrid, "density_for", lambda region, bbox, cells=None: {
+        "available": True, "people_in_area": 73000, "source": "a grid"})
+    coordinator.run(question="how many people are exposed to heat here?", bbox=BOX,
+                    region=RegionWithHeatStandard())
+    ex = seen["heat_exposure"]
+    assert ex["whose_threshold_this_is"] == "the India Meteorological Department"
+    assert ex["people_living_here"] == 73000
+    assert ex["band_the_forecast_reaches"] == "the temperature IMD wants"
+    # the model is told, in the findings, that this count is not a count of harm
+    assert "never a count of anyone who will fall ill" in ex["note"]
+
+
+def test_a_city_whose_authority_cannot_be_read_from_a_forecast_says_so_in_the_findings(monkeypatch):
+    seen = city_topic(monkeypatch, "heat")
+    monkeypatch.setattr(coordinator, "_add_surface_heat", lambda *a, **k: None)
+    from bih_engine import heat as heat_mod, popgrid
+    monkeypatch.setattr(heat_mod, "fetch", lambda lat, lon, hours=48: type("H", (), {
+        "as_dict": lambda self: {"current": {}, "current_level": {},
+                                 "hours": [{"temperature_c": 31, "heat_index_c": 35}]}})())
+    monkeypatch.setattr(popgrid, "density_for", lambda *a, **k: {"available": False, "reason": "none"})
+    region = RegionWithHeatStandard()
+    region.manifest["heat_standard"] = {
+        "authority": "the National Environment Agency", "measure": "wbgt_c",
+        "measure_label": "the wet-bulb globe temperature", "bands": [{"label": "high", "min_c": 33}],
+        "source": "s", "incomplete": "WBGT needs solar radiation the forecast does not carry."}
+    coordinator.run(question="how hot is it here?", bbox=BOX, region=region)
+    ex = seen["heat_exposure"]
+    assert ex["whose_threshold_this_is"] != "the National Environment Agency"
+    assert "solar radiation" in ex["why_this_authority_and_not_the_local_one"]
+    assert ex["people_unavailable"] == "none"
