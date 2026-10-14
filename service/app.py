@@ -462,6 +462,28 @@ def weather_grid(region: str | None = None, type: str = "heat",
         raise HTTPException(503, str(exc)) from exc
 
 
+@app.get("/api/surface-heat")
+def surface_heat_map(region: str | None = None, bbox: str | None = None) -> dict:
+    """Where the ground runs hot, from the staged Landsat composite: the one heat layer that can say
+    which block is hotter than the next, because the satellite sees patches about 100 m across where
+    a forecast model sees kilometres. Over the drawn box when there is one, with its hottest and
+    coolest places named by the road beside them; over the whole city otherwise, where there is no
+    ranking to give.
+
+    A typical dry-season mid-morning, not a forecast and not today, and the surface rather than the
+    air. Both of those travel with the answer."""
+    from bih_engine import surface_heat
+    r = region_or_404(region)
+    box, scope = scope_for(r, bbox)
+    scope["note"] = ("The ground inside the box you drew, in patches about 100 m across."
+                     if scope["of"] == "box"
+                     else "The whole staged city, because no box is drawn. Draw a box to see which "
+                          "parts of one neighbourhood run hottest.")
+    out = surface_heat.read(r, box, places=scope["of"] == "box")
+    out["scope"] = scope
+    return out
+
+
 @app.get("/api/population-density")
 def population_density(region: str | None = None, bbox: str | None = None) -> dict:
     """People per km2 as a raster, over the drawn box or the whole city.

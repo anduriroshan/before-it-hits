@@ -239,5 +239,59 @@
     ],
     "source": "Kerala SDRF 2026 budget rules; Operation Breakthrough canal-desilting orders; Kochi Corporation and Ernakulam DDMA (documented figures, not a live feed)"
   },
-  "timezone": "Asia/Kolkata"
+  "timezone": "Asia/Kolkata",
+  "surface_heat": {
+    "file": "lst.tif",
+    "source": "Landsat 8 and 9 Collection 2 Level 2 surface temperature (USGS), via Earth Engine",
+    "collections": [
+      "LANDSAT/LC08/C02/T1_L2",
+      "LANDSAT/LC09/C02/T1_L2"
+    ],
+    "band": "ST_B10",
+    "licence": "USGS Landsat data are public domain",
+    "season": "January to April, the dry months before the monsoon",
+    "months": [
+      1,
+      4
+    ],
+    "dates": [
+      "2022-01-01",
+      "2026-04-30"
+    ],
+    "scenes": 55,
+    "max_scene_cloud_pct": 40,
+    "min_views_per_pixel": 5,
+    "views_per_pixel": {
+      "median": 40,
+      "max": 53
+    },
+    "passes_about_local_hour": 10.7,
+    "composite": "median of every clear view; cloud, cirrus, shadow and water masked",
+    "native_res_m": 100,
+    "resolution": "the thermal sensor resolves patches about 100 m across; USGS delivers it resampled to a 30 m grid, and this is on the terrain's 1 arcsec grid",
+    "grid": "the staged terrain's own 1 arcsec grid, nearest neighbour from Landsat's 30 m",
+    "unit": "degrees C of the SURFACE, not the air",
+    "land_share": 0.763,
+    "p2_c": 31.3,
+    "median_c": 35.1,
+    "p98_c": 40.3,
+    "bbox_wsen": [
+      76.19986111111109,
+      9.849861111111101,
+      76.45013888888887,
+      10.100138888888878
+    ],
+    "shape": [
+      901,
+      901
+    ],
+    "fetched": "2026-10-14",
+    "caveats": [
+      "A typical-season picture, not a forecast and not today.",
+      "Surface temperature, the skin of roofs, roads and leaves. In sun it runs well above air temperature and is not comparable with a forecast figure.",
+      "Landsat passes at mid-morning. Afternoon surfaces run hotter and spread further apart.",
+      "The thermal sensor sees patches about 100 m across, so this shows a few blocks at best and never a single building or roof.",
+      "Water is masked: this is a picture of land."
+    ]
+  }
 }

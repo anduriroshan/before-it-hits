@@ -42,8 +42,9 @@ RULES = {
     "timing": "says when water arrives or how long it stays",
     "dispatch": "tells anyone to evacuate, move or be dispatched",
     "overstated": "overstates how much of the area is affected",
-    "certainty": "states as certain something the findings call uncertain, or presents a forecast "
-                 "or a what-if as a fact",
+    "certainty": "states as certain something the findings call uncertain, presents a forecast "
+                 "or a what-if as a fact, or presents the satellite surface temperature as today's "
+                 "weather or as the same thing as the air temperature or heat index",
 }
 
 SCHEMA = {
@@ -91,7 +92,12 @@ Report a part only if it breaks one of these rules:
 - overstated: makes the extent sound larger than the findings say - "most of the area" when a few
   spots out of many are ranked top, or similar.
 - certainty: presents a forecast or a hypothetical rainfall as something that will happen, or
-  states as settled something the findings flag as uncertain or low confidence.
+  states as settled something the findings flag as uncertain or low confidence. The same rule
+  covers the "surface_heat" block, which is a satellite picture of how hot the GROUND typically
+  runs in the dry season. Report a part that presents it as today's or a forecast temperature, that
+  calls a surface temperature "the temperature" or "how hot it is", or that compares it with the
+  heat index or the air temperature as though they were the same kind of figure. Writing "the
+  surface runs hotter than ..." about places within the box is fine.
 
 Rephrasing is fine. Rounding a figure that is in the findings is fine. Saying less than the
 findings do is fine. Return an empty list if the draft is clean."""

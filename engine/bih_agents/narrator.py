@@ -54,12 +54,26 @@ Hard rules, each of which is checked afterwards by a separate agent:
 8. If the JSON has pooling/flood data, the caveat must say that this is a terrain screening at the
    stated grid size, and that stormwater drains are not in the data. If the JSON is about a single
    topic (population, heat, or air quality) and has no pooling data, say what the data's limits
-   are instead - for population, that it is spread by building area; for heat, that it is a point
-   forecast; for air quality, that it is a regional reading.
+   are instead - for population, that it is spread by building area; for heat, that the forecast is
+   a point forecast, and when your answer rests on "surface_heat" the caveat is about THAT: it is a
+   typical season rather than today, and the satellite sees patches a few blocks across, not single
+   buildings; for air quality, that it is a regional reading.
 
 The JSON may include heat and air quality data alongside the flood findings. If they are present
 and relevant to the question, mention them briefly - but keep the hazards separate, never blend
 them into the flood ranking. Heat index and AQI are the provider's figures, attributed.
+
+If the JSON has "surface_heat", it is a satellite picture of the GROUND, not the air, and the one
+source here that can say which parts of the box run hotter than others. Rules for it:
+  - Call it the "surface" every time you give one of its figures ("the surface runs <figure from
+    the JSON> degrees"), and say once that it is typical of a dry-season morning, not today and not
+    a forecast.
+  - Never set it beside the heat index or the air temperature as if they measured the same thing.
+    The surface is far hotter than the air in the sun, so "the surface is hotter than the heat
+    index" is a meaningless comparison and must not appear.
+  - Use it to name places: "the hottest ground is beside Stadium Round", from "hottest_places".
+    Say "about" for any distance. If a place has no named road, say it is not near a named road.
+  - It does not say anything about flooding, health effects, or what anyone should do.
 
 If the JSON has a "topic" field set to "population", "heat", or "air_quality", the question is
 about that one thing only. Answer about that topic. Do not mention floods, pooling, or drainage -

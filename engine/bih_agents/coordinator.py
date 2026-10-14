@@ -226,6 +226,30 @@ def _build_city_answer(spec, preset_results, region_title):
     return "\n".join(lines)
 
 
+def _add_surface_heat(bundle: dict, region, bbox, trace: Trace) -> None:
+    """Best-effort: the satellite picture of which parts of the box run hot, from the staged
+    composite. Needs no network and no model, so it costs almost nothing; it is simply absent for a
+    city where nothing is staged, and the trace says so rather than leaving the gap unexplained."""
+    if region is None:
+        return
+    from bih_engine import surface_heat
+    if not surface_heat.available(region):
+        return
+    t0 = time.perf_counter()
+    try:
+        sh = surface_heat.read(region, tuple(bbox) if bbox else None, places=bool(bbox))
+        if not sh.get("available"):
+            trace.add("Surface heat", "unavailable", 0, sh.get("reason", "")[:120])
+            return
+        facts.add_surface_heat(bundle, sh)
+        hot = (sh.get("hottest") or [None])[0]
+        trace.add("Surface heat", "ok", int((time.perf_counter() - t0) * 1000),
+                  f"Ground in this box runs {sh['typical_low_c']} to {sh['typical_high_c']}°C at the "
+                  f"surface" + (f"; hottest place {hot['surface_c']}°C." if hot else "."))
+    except Exception as exc:
+        trace.add("Surface heat", "unavailable", 0, str(exc)[:120])
+
+
 def _add_supplementary_hazards(bundle: dict, region, bbox, trace: Trace) -> None:
     """Best-effort: heat and air quality for the same box the screening ran on, into the bundle.
 
@@ -249,6 +273,8 @@ def _add_supplementary_hazards(bundle: dict, region, bbox, trace: Trace) -> None
                   f"level: {hdata['current_level'].get('label')}.")
     except Exception as exc:
         trace.add("Heat", "unavailable", 0, str(exc)[:120])
+
+    _add_surface_heat(bundle, region, bbox, trace)
 
     try:
         from bih_engine import air_quality as aq_mod
@@ -322,6 +348,9 @@ def _run_topic(question, spec, topic, bbox, region, trace) -> dict:
                       f"level: {hdata['current_level'].get('label')}.")
         except Exception as exc:
             trace.add("Heat", "unavailable", 0, str(exc)[:120])
+        # The forecast says how hot the air is at one point; the satellite says which parts of the
+        # box run hotter than others, so a heat question gets both, and the briefing keeps them apart.
+        _add_surface_heat(bundle, region, (w, s, e, n), trace)
 
     elif topic == "air_quality":
         try:

@@ -262,6 +262,59 @@ def add_heat(bundle: dict, heat_data: dict) -> None:
     }
 
 
+def add_surface_heat(bundle: dict, sh: dict) -> None:
+    """Append the satellite picture of how hot the ground itself runs inside the box.
+
+    This is the one heat source here that can say which parts of a box are hotter than others, so
+    it is what lets a heat answer name a place instead of repeating one number for the whole area.
+    The text says what it is NOT before it says what it is, because it is the thing most easily
+    misread: it is a typical season rather than a forecast, and the surface rather than the air, so
+    it must never be set beside the heat index as if the two measured the same thing. Written
+    without digits for the same reason the dates are kept out of the bundle: each one would smuggle
+    a small integer into the set of figures a briefing is allowed to quote.
+    """
+    if not sh or not sh.get("available"):
+        return
+
+    def where(p: dict) -> str:
+        road = p.get("nearest_road")
+        return f"{road['name']}, about {road['distance_m']} m away" if road else "no named road close by"
+
+    delta = sh["vs_city_median_c"]
+    block = {
+        "what_this_is": "A satellite picture of how hot the GROUND itself typically runs inside this "
+                        "box on a dry-season mid-morning: the surface of roofs, roads, bare ground and "
+                        "leaves, not the air. It is a typical season, not today and not a forecast, "
+                        "and it can never be compared with the heat index or the air temperature, "
+                        "which are different things. Afternoon surfaces run hotter and further apart. "
+                        "The sensor sees patches a few blocks across, so it never describes a single "
+                        "building or roof, and finer detail than that is smoothing.",
+        "most_of_the_ground_here_runs_from_c": tidy(sh["typical_low_c"]),
+        "most_of_the_ground_here_runs_to_c": tidy(sh["typical_high_c"]),
+        "typical_surface_in_the_box_c": tidy(sh["median_c"]),
+        "typical_surface_across_the_whole_city_c": tidy(sh["city_median_c"]),
+        "season": sh.get("season"),
+        "source": "Landsat satellites (USGS), thermal band, at the scale of a city block",
+        "note": "Surface temperature, typical of the season, shown as measured. Always call it the "
+                "surface and never the air.",
+    }
+    if delta > 0:
+        block["this_box_runs_hotter_than_the_whole_city_by_c"] = tidy(delta)
+    elif delta < 0:
+        block["this_box_runs_cooler_than_the_whole_city_by_c"] = tidy(abs(delta))
+    if sh.get("hottest"):
+        block["hottest_places"] = [
+            {"near": where(p), "surface_c": tidy(p["surface_c"]),
+             "hotter_than_the_box_typical_by_c": tidy(p["vs_box_median_c"])}
+            for p in sh["hottest"]]
+    if sh.get("coolest"):
+        block["coolest_places"] = [
+            {"near": where(p), "surface_c": tidy(p["surface_c"]),
+             "cooler_than_the_box_typical_by_c": tidy(abs(p["vs_box_median_c"]))}
+            for p in sh["coolest"]]
+    bundle["surface_heat"] = block
+
+
 def add_air_quality(bundle: dict, aq_data: dict) -> None:
     """Append air quality conditions to a facts bundle."""
     bundle["air_quality"] = {

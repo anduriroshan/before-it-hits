@@ -49,6 +49,15 @@ THE PARTS OF THE SCREEN
   scale on the right of the map says what each colour is worth. A forecast model does not resolve
   streets or roofs, so inside a small box the field shows gentle shading rather than block-by-block
   detail; the layer's note under its name gives the box's own figure for how much it varies.
+- "Surface heat (satellite)" is the layer that does show block-by-block detail. It is not a
+  forecast. It is a thermal satellite picture (Landsat) of how hot the GROUND itself typically runs,
+  the median of every clear view over several dry seasons, taken at mid-morning. The sensor sees
+  patches about 100 m across, so it shows a few blocks at best and never a single building or roof.
+  Roofs, roads and bare ground show hot; trees, wet ground and water margins show cool; water is left
+  blank. It is the surface, not the air: in the sun the surface runs far above the air temperature,
+  so it must never be read against the forecast heat index or the temperature. It is not today's
+  weather, and afternoon surfaces run hotter and further apart than the mid-morning picture. With a
+  box drawn, the Heat tab names the hottest and coolest places in it by the road beside them.
 - The bar at the bottom of the map is the one clock. It runs the forecast forward - press play or
   drag it - and everything time-shaped follows it: the weather fields move hour by hour, and the
   road playback lights roads at the rainfall that has fallen by that hour. It shows only the time;

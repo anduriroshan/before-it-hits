@@ -277,14 +277,17 @@
       <div id="heat-scope" class="scopeline" hidden></div>
       <div id="heat-current" class="heat-current"></div>
       <div id="heat-chart" class="heat-chart" hidden></div>
+      <!-- Which parts of the box run hotter: a satellite picture of the ground, not a forecast. -->
+      <div id="heat-surface" class="heat-surface" hidden></div>
       <details class="card">
         <summary>Forecast details</summary>
         <div class="card-body"><div id="heat-forecast" class="forecast"></div></div>
       </details>
-      <p class="muted tiny">Heat index from the Google Weather API forecast, at one point. Not a
-        measured temperature at any specific spot. Conditions vary a lot inside a city with land
-        cover, shade and building density &mdash; turn on the <b>Heat index</b> layer to see the
-        shape of it across the map, and how it moves over the next day.</p>
+      <p class="muted tiny">The figures at the top are the Google Weather API forecast for the air, at
+        one point: not a measured temperature at any specific spot. A forecast has no streets, so for
+        <i>which parts</i> of an area run hotter, use the satellite picture above, or turn on the
+        <b>Surface heat</b> layer. The <b>Heat index</b> layer shows the forecast's own shape across
+        the map and how it moves over the next day.</p>
     </div>
   </section>
 

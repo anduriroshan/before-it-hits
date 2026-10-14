@@ -52,7 +52,8 @@ SCHEMA = {
                   "enum": ["flood", "population", "heat", "air_quality", "overview"],
                   "description": "What the question is about. 'flood' = pooling, roads, drainage, "
                                  "water. 'population' = how many people, density. 'heat' = "
-                                 "temperature, heat index, humidity. 'air_quality' = pollution, "
+                                 "temperature, heat index, humidity, which parts are hotter or "
+                                 "cooler, urban heat, hot spots. 'air_quality' = pollution, "
                                  "AQI, air. 'overview' = general analysis, multiple things at "
                                  "once, or 'analyse this area'."},
         "scope": {"type": "STRING", "enum": ["area", "city"],
@@ -96,7 +97,8 @@ Rules:
   means, how the product works, how far to trust it, or why the last answer said what it said -
   things answerable from the reference without fetching new data.
 - topic: what data the question is really about. "population" for how many people, density, who
-  lives here. "heat" for temperature, heat index, how hot. "air_quality" for AQI, pollution, air.
+  lives here. "heat" for temperature, heat index, how hot, and which parts of an area are hotter
+  or cooler than others, urban heat, hot spots. "air_quality" for AQI, pollution, air.
   "flood" for pooling, water, roads, drainage. "overview" when the question is general ("analyse
   this area"), covers multiple things, or is primarily about flood risk.
 - place: only a place the message itself names that is not the selected area AND not the selected

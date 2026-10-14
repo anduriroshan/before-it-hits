@@ -22,6 +22,11 @@ REGIONS: dict[str, dict] = {
         ),
         "official": "ksdma",
         "timezone": "Asia/Kolkata",
+        # Which Landsat scenes make the surface-heat composite. The monsoon blankets Kochi in cloud
+        # from June to November, so the composite is the dry pre-monsoon months, where there are
+        # enough clear views to take a median of.
+        "surface_heat": {"months": [1, 4], "from": "2022-01-01", "to": "2026-04-30",
+                         "season": "January to April, the dry months before the monsoon"},
         # Disambiguates from Kochi/Kochi, Japan in the global news index — "Kerala" as an AND term.
         "news_query": '(Kochi OR Ernakulam) Kerala (flood OR flooding OR waterlogging OR rain)',
         # The same place expression without the flood terms, so the other news topics (heat, traffic,
@@ -61,6 +66,9 @@ REGIONS: dict[str, dict] = {
         ),
         "official": None,  # no public depth-valued hazard raster found; the UI must say so
         "timezone": "Asia/Singapore",
+        # No dry season to pick: it rains and clouds over all year, so every month contributes.
+        "surface_heat": {"months": [1, 12], "from": "2022-01-01", "to": "2026-04-30",
+                         "season": "all months of the year, as Singapore has no dry season"},
         # Singapore is unambiguous in the global news index, so no disambiguating AND term is needed.
         "news_query": 'Singapore (flood OR flooding OR "flash flood" OR "heavy rain" OR ponding OR waterlogging)',
         "news_place": 'Singapore',

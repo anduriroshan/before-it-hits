@@ -285,7 +285,8 @@ function wireToolbar() {
    the same field be redrawn sixty times a second while the clock runs. */
 
 const LAYER_DEFS = [
-  { id: 'heat', label: 'Heat index', kind: 'weather', field: 'heat', opacity: 0.65 },
+  { id: 'heat', label: 'Heat index (forecast)', kind: 'weather', field: 'heat', opacity: 0.65 },
+  { id: 'surface', label: 'Surface heat (satellite)', kind: 'surface', opacity: 0.7 },
   { id: 'temperature', label: 'Temperature', kind: 'weather', field: 'temperature', opacity: 0.65 },
   { id: 'humidity', label: 'Humidity', kind: 'weather', field: 'humidity', opacity: 0.6 },
   { id: 'rain', label: 'Rain, per hour', kind: 'weather', field: 'rain', opacity: 0.7 },
@@ -303,6 +304,10 @@ const RAMPS = {
   heat: [[0, '#3b6fb5'], [0.18, '#56a8d4'], [0.34, '#8fd3a8'], [0.5, '#f0e05e'],
     [0.64, '#f4a63a'], [0.8, '#e2512a'], [1, '#8b1414']],
   temperature: [[0, '#3b6fb5'], [0.18, '#56a8d4'], [0.34, '#8fd3a8'], [0.5, '#f0e05e'],
+    [0.64, '#f4a63a'], [0.8, '#e2512a'], [1, '#8b1414']],
+  // The same blue-to-red as the heat index: red means hot on both. The scale beside the map says
+  // which of the two it is, and that this one is the ground rather than the air.
+  surface: [[0, '#3b6fb5'], [0.18, '#56a8d4'], [0.34, '#8fd3a8'], [0.5, '#f0e05e'],
     [0.64, '#f4a63a'], [0.8, '#e2512a'], [1, '#8b1414']],
   humidity: [[0, '#f7f3e4'], [0.3, '#bfe4cd'], [0.55, '#64c3c8'], [0.78, '#2d7cb8'], [1, '#14306b']],
   rain: [[0, '#eaf6ff'], [0.22, '#86cff0'], [0.45, '#2f84d4'], [0.7, '#2a3da0'], [1, '#6b2a9c']],
@@ -409,6 +414,7 @@ function createLayer(id) {
   if (l.def.kind === 'tiles') { createAirTiles(id); return; }
   if (l.def.kind === 'weather') { loadWeatherField(id); return; }
   if (l.def.kind === 'density') { loadDensityField(id); return; }
+  if (l.def.kind === 'surface') { loadSurfaceField(id); return; }
 }
 
 function destroyLayer(id) {
@@ -436,7 +442,7 @@ function clearDataLayers() {
    or two across a box, so the field is drawn there at a finer spacing. It is gentle shading, not
    block-by-block detail, and the layer's note says so with the box's own figure. */
 function layerArea(kind) {
-  if ((kind === 'density' || kind === 'weather') && state.lastBbox) return state.lastBbox;
+  if (['density', 'weather', 'surface'].includes(kind) && state.lastBbox) return state.lastBbox;
   return null;
 }
 
@@ -452,6 +458,9 @@ async function refreshAreaLayers() {
     createLayer(l.def.id);
   }
   renderFieldScales();
+  for (const l of Object.values(dataLayers)) {
+    if (l.def.kind === 'surface' && l.visible) loadSurfaceField(l.def.id);   // staged: no queue needed
+  }
   for (const l of Object.values(dataLayers)) {
     if (l.def.kind === 'weather' && l.visible) await loadWeatherField(l.def.id);
   }
@@ -532,6 +541,48 @@ async function loadDensityField(id) {
   }
 }
 
+/* The satellite's picture of how hot the ground runs. Unlike the forecast fields this is not
+   interpolated between a few points: it is measured at about 30 m, so a box shows real block-scale
+   detail, and it is drawn on the CITY's colour scale however small the box, so a flat neighbourhood
+   looks flat. The new picture is swapped in once it arrives, so the old one does not blink off. */
+async function loadSurfaceField(id) {
+  const l = dataLayers[id];
+  const my = ++l.token;
+  l.loading = true;
+  if (!l.instance) layerNote(id, 'reading the satellite picture…');
+  try {
+    const box = layerArea('surface');
+    const url = `/api/surface-heat?region=${encodeURIComponent(state.region.name)}`
+      + (box ? `&bbox=${box.map((v) => v.toFixed(5)).join(',')}` : '');
+    const d = await fetch(url).then((r) => { if (!r.ok) throw new Error('no surface heat'); return r.json(); });
+    if (my !== l.token || !l.visible) return;
+    if (l.instance && l.instance.setMap) l.instance.setMap(null);
+    if (!d.available) {
+      l.instance = null; l.src = null;
+      layerNote(id, d.reason || 'Not available for this city.', 'warn');
+      renderFieldScales();
+      return;
+    }
+    l.src = rasterSource(d, RAMPS.surface, { min: d.min, max: d.max, label: 'Surface temperature', unit: '°C' });
+    l.instance = new FieldOverlay(l);
+    l.instance.setMap(state.map);
+    const season = String(d.season || '').split(',')[0];
+    layerNote(id, (box
+      ? 'The box you drew. Most of the ground here runs '
+        + `${d.typical_low_c}–${d.typical_high_c}°C at the surface.`
+      : 'The whole city. Draw a box to zoom in on one neighbourhood.')
+      + ` Landsat satellite, a typical mid-morning (${season}): not a forecast, not today, and the `
+      + `ground’s surface rather than the air. It sees patches about ${d.native_res_m || 100} m across, `
+      + 'so finer detail than that is smoothing, not measurement.');
+    renderFieldScales();
+  } catch {
+    if (my !== l.token) return;
+    layerNote(id, 'The satellite picture could not be read for this area.', 'warn');
+  } finally {
+    if (my === l.token) l.loading = false;
+  }
+}
+
 /* Google's own air-quality heatmap tiles. Not a field we interpolate: it is their picture, shown
    as published, which is why it is the one layer here with no scale of ours beside it. */
 function createAirTiles(id) {
@@ -575,10 +626,13 @@ function scatterSource(d, ramp) {
   };
 }
 
-function rasterSource(d, ramp) {
+/* A grid of cells drawn as a field. People per km² by default; anything else says its own bounds and
+   label, so the same renderer carries the satellite surface temperature. */
+function rasterSource(d, ramp, opts = {}) {
   return {
     kind: 'raster', bbox: d.bbox, ramp, times: [],
-    min: 0, max: Math.max(1, d.p95), label: 'People per km²', unit: '', note: d.method,
+    min: opts.min ?? 0, max: opts.max ?? Math.max(1, d.p95),
+    label: opts.label ?? 'People per km²', unit: opts.unit ?? '', note: d.method,
     source: d.source, values: d.values, rw: d.cols, rh: d.rows, cellM: d.cell_m, peak: d.max,
   };
 }
@@ -1766,6 +1820,7 @@ function loadHeat() {
   $('heat-current').innerHTML = '<p class="muted small">Loading heat conditions…</p>';
   $('heat-chart').hidden = true;
   $('heat-forecast').innerHTML = '';
+  loadSurfaceHeat(key);
   fetch(`/api/heat?region=${encodeURIComponent(state.region.name)}${bboxParam()}`)
     .then(r => { if (!r.ok) throw new Error('heat data unavailable'); return r.json(); })
     .then(data => { if (conditionsFor.heat === key) draw(() => renderHeat(data), 'heat-current'); })
@@ -1773,6 +1828,107 @@ function loadHeat() {
       if (conditionsFor.heat === key)
         $('heat-current').innerHTML = '<p class="muted small">Heat conditions are not available right now.</p>';
     });
+}
+
+/* Which parts of the area run hotter, from the satellite. The forecast above is one number for the
+   whole box; this is the part that can say "the ground beside Stadium Round runs 4 degrees hotter
+   than the rest of the box". It carries what it is not in plain words, because a surface
+   temperature set beside an air temperature reads as the ground being absurdly hot. */
+function loadSurfaceHeat(key) {
+  const el = $('heat-surface');
+  el.hidden = true;
+  fetch(`/api/surface-heat?region=${encodeURIComponent(state.region.name)}${bboxParam()}`)
+    .then((r) => { if (!r.ok) throw new Error('surface heat unavailable'); return r.json(); })
+    .then((d) => { if (conditionsFor.heat === key) draw(() => renderSurfaceHeat(d), 'heat-surface'); })
+    .catch(() => { if (conditionsFor.heat === key) el.hidden = true; });
+}
+
+const fmtHour = (h) => `${Math.floor(h)}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
+
+function renderSurfaceHeat(d) {
+  const el = $('heat-surface');
+  el.hidden = false;
+  if (!d.available) {
+    el.innerHTML = `<div class="card-title">Where the ground runs hotter</div>`
+      + `<p class="muted small">${esc(d.reason || 'Not available for this city.')}</p>`;
+    return;
+  }
+  const box = d.scope && d.scope.of === 'box';
+  const delta = d.vs_city_median_c;
+  const vs = Math.abs(delta) < 0.05 ? 'about the same as the whole city'
+    : `${Math.abs(delta)}°C ${delta > 0 ? 'hotter' : 'cooler'} than the whole city’s typical ${d.city_median_c}°C`;
+  const row = (p, hot) => {
+    const road = p.nearest_road
+      ? `beside <b>${esc(p.nearest_road.name)}</b> <span class="muted">(about ${p.nearest_road.distance_m} m)</span>`
+      : '<span class="muted">not near a named road</span>';
+    const gap = Math.abs(p.vs_box_median_c);
+    return `<li><span class="sh-temp ${hot ? 'hot' : 'cool'}">${p.surface_c}°C</span>`
+      + `<span class="sh-where">${road}<span class="muted tiny"> · ${gap}°C ${hot ? 'above' : 'below'} `
+      + 'the box’s typical</span></span>'
+      + `<button type="button" class="linkbtn" data-lat="${p.lat}" data-lon="${p.lon}" `
+      + `data-kind="${hot ? 'hot' : 'cool'}">Show</button></li>`;
+  };
+  const list = (title, items, hot) => (items && items.length
+    ? `<div class="sh-sub">${title}</div><ul class="sh-places">${items.map((p) => row(p, hot)).join('')}</ul>` : '');
+  const places = box
+    ? (list('Hottest ground', d.hottest, true) + list('Coolest ground', d.coolest, false)
+      + (!(d.hottest || []).length && !(d.coolest || []).length
+        ? '<p class="muted small">The ground here runs much the same everywhere, so there is no '
+          + 'standout hot or cool place to name.</p>' : ''))
+    : '<p class="muted small">Draw a box to see which parts of one neighbourhood run hottest, '
+      + 'named by the road beside them.</p>';
+
+  el.innerHTML = `
+    <div class="card-title">Where the ground runs hotter <span class="tag-modelled">satellite</span></div>
+    <div id="heat-surface-scope" class="scopeline"></div>
+    <p class="sh-range">Most of the ground ${box ? 'in this box' : 'in the city'} runs
+      <b>${d.typical_low_c}–${d.typical_high_c}°C</b> at the surface, typically <b>${d.median_c}°C</b>
+      ${box ? `— ${vs}.` : '.'}</p>
+    ${places}
+    <details class="fine"><summary>What is this, and what it is not</summary>
+      <ul>
+        <li>The heat of the <b>ground itself</b> (roofs, roads, bare soil, leaves) as the Landsat
+          satellites measure it, not the air a thermometer reads. In the sun the surface runs well
+          above the air, so do not set it beside the forecast above.</li>
+        <li>The sensor sees patches about ${d.native_res_m || 100} m across. That shows a few blocks
+          at best, never a single building or roof; detail finer than that is smoothing.</li>
+        <li>A <b>typical</b> mid-morning (about ${fmtHour(d.passes_about_local_hour)}), the median of
+          ${d.scenes} satellite passes, in ${esc(d.season)}.
+          It is where the ground usually runs hotter than its neighbours, <b>not a forecast and not
+          today</b>.</li>
+        <li>Afternoons run hotter and spread further apart than this mid-morning picture. Water is left
+          blank: this is a picture of land.</li>
+        <li>It says nothing about flooding, health effects or what anyone should do.</li>
+      </ul>
+      <p class="muted tiny">${esc(d.source)}</p></details>`;
+  renderScope('heat-surface-scope', d.scope);       // after the markup, which is what creates it
+  el.querySelectorAll('button[data-lat]').forEach((b) => {
+    b.onclick = () => showHeatPlace(Number(b.dataset.lat), Number(b.dataset.lon), b.dataset.kind);
+  });
+}
+
+/* Take someone to a place the Heat tab named: the satellite layer on so the ground is visible, the
+   map moved to it, and a ring drawn round it for a few seconds so it can be found on a busy map. */
+let placeRing = null;
+function showHeatPlace(lat, lon, kind) {
+  if (!state.mapReady) return;
+  const layer = dataLayers.surface;
+  if (layer && !layer.visible) {
+    const cb = layer.row.querySelector('input[type="checkbox"]');
+    if (cb) cb.checked = true;
+    setLayerVisible('surface', true);
+  }
+  const at = new google.maps.LatLng(lat, lon);
+  state.map.panTo(at);
+  if (state.map.getZoom() < 16) state.map.setZoom(16);
+  if (placeRing) placeRing.setMap(null);
+  placeRing = new google.maps.Circle({
+    map: state.map, center: at, radius: 110, clickable: false, zIndex: 80,
+    strokeColor: '#ffffff', strokeWeight: 3, strokeOpacity: 0.95,
+    fillColor: kind === 'hot' ? '#8b1414' : '#3b6fb5', fillOpacity: 0.12,
+  });
+  const ring = placeRing;
+  setTimeout(() => { if (placeRing === ring) { ring.setMap(null); placeRing = null; } }, 7000);
 }
 
 /* A bug in our own drawing is not the provider being down, and must never be reported as one -

@@ -149,9 +149,10 @@ def main(name: str, with_buildings: bool, manifest_only: bool = False) -> None:
             manifest[key] = spec[key]
         elif existing.get(key) is not None:
             manifest[key] = existing[key]
-    # stage_official.py writes this key; restaging the vectors must not wipe it.
-    if existing.get("official"):
-        manifest["official"] = existing["official"]
+    # stage_official.py and fetch_lst.py write these keys; restaging the vectors must not wipe them.
+    for key in ("official", "surface_heat"):
+        if existing.get(key):
+            manifest[key] = existing[key]
     (out / "region.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     print(f"\nstaged {name} -> {out}")
 
