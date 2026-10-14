@@ -65,6 +65,12 @@ SCHEMA = {
                   "description": "A place the asker names that is not the selected area AND not "
                                  "the selected city itself, exactly as written in THIS message. "
                                  "Empty if none, and empty when the named place IS the city."},
+        "earlier_area": {"type": "STRING",
+                         "description": "Only when the message points back at an area an earlier "
+                                        "answer named, without naming it ('the most populated area', "
+                                        "'the one you just said', 'that area'): that area's name "
+                                        "copied exactly as the earlier answer wrote it. Otherwise "
+                                        "empty."},
         "same_rainfall_as_before": {"type": "BOOLEAN",
                                     "description": "True only if they ask to reuse the previous "
                                                    "answer's storm ('the same rainfall')."},
@@ -75,7 +81,7 @@ SCHEMA = {
                                          "question to ask back. Otherwise empty."},
     },
     "required": ["reading", "mode", "rainfall_mm", "rainfall_stated_as", "duration_h",
-                 "return_period_years", "focus", "scope", "intent", "topic", "place",
+                 "return_period_years", "focus", "scope", "intent", "topic", "place", "earlier_area",
                  "same_rainfall_as_before", "audience", "needs_clarification", "question_back"],
 }
 
@@ -104,6 +110,11 @@ Rules:
   this area"), covers multiple things, or is primarily about flood risk.
 - place: only a place the message itself names that is not the selected area AND not the selected
   city itself, exactly as written. Never take one from the history. Empty otherwise.
+- earlier_area: only when the message points back at an area an earlier answer named but does not
+  name it itself - "the most populated area", "the one you just said", "that area", "the hottest one".
+  Copy that area's name exactly as the earlier answer wrote it. It is a different thing from `place`:
+  leave it empty when the message names the place itself, and when it only means the area already
+  selected ("and the roads?"). Such a message is about that one area, so its scope is "area".
 - Never invent a rainfall figure. If the asker gave one in THIS message, copy it and the words it
   came from. If they said something vague like "heavy rain" or "a storm", set rainfall_mm to -1.
   If they ask to reuse the last storm ("the same rainfall", "same storm", "as before"), set
@@ -200,10 +211,19 @@ def _clean_place(spec: dict, question: str) -> str:
     return place if _place_is_in_the_message(place, question) else ""
 
 
+def _earlier_area(spec: dict, history: list[dict], labels: list[str]) -> str:
+    """An area the message points back at ("the most populated one"). The model only reads the
+    reference; code decides it is real: it has to be one of the city's own preset areas, and the
+    conversation has to have said it. What comes back is the preset's own spelling, never the model's."""
+    named = " ".join(str(spec.get("earlier_area") or "").split()).lower()
+    said = " ".join(str(t.get(k) or "") for t in history for k in ("q", "area", "headline")).lower()
+    return next((lb for lb in labels if lb.lower() == named and named in said), "")
+
+
 def settle(spec: dict, *, question: str, slider_mm: float,
            published_return_periods: list | None = None,
            forecast_peak_mm: float | None = None,
-           history: list | None = None) -> dict:
+           history: list | None = None, preset_labels: list | None = None) -> dict:
     """Turn the model's reading into parameters, keeping where each one came from.
 
     Nothing here trusts the model with a number. Either the figure is in the asker's own words, or
@@ -252,6 +272,7 @@ def settle(spec: dict, *, question: str, slider_mm: float,
         "intent": "explain" if spec.get("intent") == "explain" else "analyse",
         "topic": topic,
         "place": _clean_place(spec, question),
+        "earlier_area": _earlier_area(spec, history, preset_labels or []),
         "reused_previous_rainfall": reuse,
         "audience": spec.get("audience") if spec.get("audience") in ("officer", "resident")
                     else "officer",

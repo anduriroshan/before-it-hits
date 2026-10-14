@@ -14,6 +14,7 @@ each claim the Verifier removed, because those are the moments the design is act
 """
 from __future__ import annotations
 
+import math
 import time
 from datetime import datetime, timezone
 
@@ -28,6 +29,8 @@ WITHHELD_UNCHECKED = ("The briefing was withheld: the checking agent could not b
 WITHHELD_FAILED = ("The briefing was withheld: its main claim was not supported by the results.")
 NEEDS_AREA = ("I answer about a specific place, so I need one first. Draw a box on the map, pick "
               "an area below, or name a place and I will find it.")
+# Topics answered from their own data, without the terrain engine or the rain forecast.
+TOPIC_ONLY = ("population", "heat", "air_quality", "wind")
 
 # What a message with no analysis to show carries, so every kind of reply has the same shape.
 def _reply(question, spec, trace, **kw) -> dict:
@@ -244,7 +247,7 @@ def _add_surface_heat(bundle: dict, region, bbox, trace: Trace) -> None:
         facts.add_surface_heat(bundle, sh)
         hot = (sh.get("hottest") or [None])[0]
         trace.add("Surface heat", "ok", int((time.perf_counter() - t0) * 1000),
-                  f"Ground in this box runs {sh['typical_low_c']} to {sh['typical_high_c']}°C at the "
+                  f"Ground here runs {sh['typical_low_c']} to {sh['typical_high_c']}°C at the "
                   f"surface" + (f"; hottest place {hot['surface_c']}°C." if hot else "."))
     except Exception as exc:
         trace.add("Surface heat", "unavailable", 0, str(exc)[:120])
@@ -304,29 +307,85 @@ def _add_supplementary_hazards(bundle: dict, region, bbox, trace: Trace) -> None
         trace.add("Air quality", "unavailable", 0, str(exc)[:120])
 
 
-def _run_topic(question, spec, topic, bbox, region, trace) -> dict:
+def _box_km2(bbox) -> float:
+    w, s, e, n = bbox
+    return round(abs(e - w) * abs(n - s) * 110.574 * 111.320 * abs(math.cos(math.radians((s + n) / 2))), 2)
+
+
+def _sig2(x: float) -> int:
+    return int(float(f"{x:.2g}"))
+
+
+def _people_by_preset(region, trace) -> dict:
+    """People in each of the city's preset areas, most people first. A city question about who lives
+    where cannot be answered from one box, and the whole city's total says nothing about which part
+    holds most of it, so the areas this product already knows are compared side by side."""
+    from bih_engine import popgrid
+    rows, last = [], {}
+    for p in region.presets:
+        t0 = time.perf_counter()
+        r = popgrid.density_for(region, tuple(p["bbox"]))
+        if not r.get("available"):
+            trace.add("Population", "unavailable", 0, f"{p['label']}: {r.get('reason', '')}"[:120])
+            continue
+        last = r
+        people = r["people_in_area"]
+        rows.append({"area": p["label"], "roughly_people": people,
+                     "roughly_per_km2": _sig2(people / _box_km2(p["bbox"]))})
+        trace.add("Population", "ok", int((time.perf_counter() - t0) * 1000),
+                  f"{p['label']}: ~{people} people.")
+    if not rows:
+        raise ValueError("no population estimate for any area of this city")
+    rows.sort(key=lambda x: -x["roughly_people"])
+    return {
+        "areas_compared": len(rows),
+        "by_area_most_people_first": rows,
+        "area_with_most_people": rows[0]["area"],
+        "area_with_the_highest_density": max(rows, key=lambda x: x["roughly_per_km2"])["area"],
+        "source": last.get("source", "unknown"), "method": last.get("method", ""),
+        "note": "A modelled estimate by area only, never a claim about a street or a home. Only the "
+                "areas listed were measured, so a more populated part of the city may lie outside them.",
+    }
+
+
+CITY_COVER = ("the whole city. Each reading is taken once, at the middle of the city, so where a "
+              "note says 'this box' it means the whole city.")
+
+
+def _run_topic(question, spec, topic, bbox, region, trace, city=False) -> dict:
     """Answer a question about one specific data layer — population, heat, air quality or wind — without
     running the full terrain engine. The engine is the costly part (~8 s) and answers about flooding,
     which is not what was asked. The bundle carries only the requested data, so the Narrator writes
-    about that and nothing else."""
+    about that and nothing else.
+
+    `city` means the question was about the whole city, not a box: the readings are the city's, and
+    the bundle says so, because a neighbourhood and a city are different claims."""
     w, s, e, n = bbox if bbox else (region.bounds if region else (0, 0, 0, 0))
     lat, lon = (s + n) / 2, (w + e) / 2
     region_title = region.manifest.get("title") if region else None
-    area_km2 = round(abs(e - w) * abs(n - s) * 110.574 * 111.320
-                     * abs(__import__("math").cos(__import__("math").radians(lat))), 2)
+    area_km2 = _box_km2((w, s, e, n))
 
     bundle: dict = {
         "question": question,
         "topic": topic,
-        "area": {
+        "area": ({"what_these_findings_cover": CITY_COVER, "the_city": region_title} if city else {
             "what_these_findings_cover": "one box drawn on the map",
             "box_km2": round(area_km2, 2),
             "the_box_is_inside": region_title,
-        },
+        }),
         "limits": [],
     }
 
-    if topic == "population":
+    if topic == "population" and city:
+        try:
+            bundle["people"] = _people_by_preset(region, trace)
+            bundle["area"]["what_these_findings_cover"] = (
+                "the areas this product has set up for the city, compared side by side. They are "
+                "not every neighbourhood in it.")
+        except Exception as exc:
+            trace.add("Population", "failed", 0, str(exc)[:120])
+
+    elif topic == "population":
         try:
             from bih_engine import popgrid
             t0 = time.perf_counter()
@@ -364,6 +423,10 @@ def _run_topic(question, spec, topic, bbox, region, trace) -> dict:
         # The forecast says how hot the air is at one point; the satellite says which parts of the
         # box run hotter than others, so a heat question gets both, and the briefing keeps them apart.
         _add_surface_heat(bundle, region, (w, s, e, n), trace)
+        if city:    # the whole city set against the whole city says nothing
+            for k in ("this_box_runs_hotter_than_the_whole_city_by_c",
+                      "this_box_runs_cooler_than_the_whole_city_by_c"):
+                bundle.get("surface_heat", {}).pop(k, None)
 
     elif topic == "air_quality":
         try:
@@ -460,7 +523,8 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
         raw = reply.data or {}
         spec = scenario.settle(raw, question=question, slider_mm=slider_mm,
                                published_return_periods=list(periods),
-                               forecast_peak_mm=None, history=history)
+                               forecast_peak_mm=None, history=history,
+                               preset_labels=[p["label"] for p in getattr(region, "presets", [])])
         trace.add("A2 Scenario", "ok", reply.ms, spec["reading"], model=reply.model,
                   detail={k: spec[k] for k in ("scope", "intent", "topic", "mode", "rainfall_mm",
                                                "rainfall_source", "return_period_years",
@@ -476,8 +540,18 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
     if spec["return_period_years"] is None:
         spec["return_period_years"] = return_period
 
+    # "Draw a box on the most populated area": an earlier answer named it, so it is opened like any
+    # named place. The browser finds a preset by its label, instantly, and asks again with its box.
+    earlier = spec.get("earlier_area")
+    if earlier and not spec["place"] and earlier != area_label:
+        spec["place"], spec["scope"] = earlier, "area"
+
     # --- city-wide question: analyse each preset instead of one box -------------------------
     if spec.get("scope") == "city" and spec["intent"] == "analyse":
+        # Only a flood or general question gets the rain overview; asking who lives in the city, or
+        # how hot or windy it is, is answered from that data and never from the rain forecast.
+        if spec.get("topic") in TOPIC_ONLY:
+            return _run_topic(question, spec, spec["topic"], None, region, trace, city=True)
         return _run_city_overview(question, spec, region, trace, return_period)
 
     # --- a message about the product, not about an area: answered from the reference ---------
@@ -500,7 +574,7 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
 
     # --- topic-specific fast path: skip the engine when the question is not about flooding ----
     topic = spec.get("topic", "overview")
-    if topic in ("population", "heat", "air_quality", "wind"):
+    if topic in TOPIC_ONLY:
         return _run_topic(question, spec, topic, bbox, region, trace)
 
     # --- A3 Forecast: a tool, not a model, until we have bulletins worth reading -----------

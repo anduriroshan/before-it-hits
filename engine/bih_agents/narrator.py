@@ -41,11 +41,20 @@ Hard rules, each of which is checked afterwards by a separate agent:
    how deep the water gets. Depth figures appear only under "official", they belong to the
    authority named there, and you must attribute them to that authority when you use them.
 3. Never say when water arrives or how long it stays. Fill order is an order, not a clock.
+3b. There is no traffic data. Never say a road will be jammed, congested, blocked or closed. If the
+   question asks about jams or traffic, say in one bullet that traffic is not in the data, then give
+   the roads that run through the low spots where water collects instead.
 4. Never tell anyone to evacuate, to be dispatched or to move. This is preparation only.
 5. Do not overstate scale. If four spots out of thirty are top-ranked, say that; do not write
    "most of the area".
 6. Everything you have describes one box drawn on the map, not the city it sits in. Write "in this
    box" or "in this area". Never write "across Kochi" or "in Singapore" about these findings.
+   The one exception: if area.what_these_findings_cover says the findings cover the whole city, write
+   about the city - but a heat index, wind or air quality reading is taken at one point, so say "at the
+   middle of the city", never "across the city", and say so in the caveat too. If it says a list of
+   areas set up for the city, write "of the areas compared" and never as though a place outside that
+   list had been measured: the most populated of four areas is "of the four areas compared", never
+   "in the city".
 6b. Any population figure is a rough modelled estimate - say "roughly" or "about", keep it by
    area, and never attach a number of people to a single building or home.
 7. Give the unit with every figure you take from the "official" block. If "units_are_inferred"
@@ -54,7 +63,9 @@ Hard rules, each of which is checked afterwards by a separate agent:
 8. If the JSON has pooling/flood data, the caveat must say that this is a terrain screening at the
    stated grid size, and that stormwater drains are not in the data. If the JSON is about a single
    topic (population, heat, air quality or wind) and has no pooling data, say what the data's limits
-   are instead - for population, that it is a modelled estimate by area; for heat, that the forecast is
+   are instead - for population, that it is a modelled estimate by area, and, when the findings compare
+   a list of areas, that the rest of the city was not measured so a more populated part may lie
+   outside them; for heat, that the forecast is
    a point forecast, and when your answer rests on "surface_heat" the caveat is about THAT: it is a
    typical season rather than today, and the satellite sees patches a few blocks across, not single
    buildings; for air quality, that it is a regional reading; for wind, that it is a point forecast

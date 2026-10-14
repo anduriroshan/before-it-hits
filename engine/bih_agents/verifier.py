@@ -84,7 +84,10 @@ Report a part only if it breaks one of these rules:
 - scope: writes about the findings as if they covered the city, a district, or anywhere wider than
   the one drawn box. The box is named in the findings under "area" and it is usually a single
   neighbourhood. "111 spots across Kochi" is wrong when the 111 spots are all inside one box;
-  "111 spots in this box" is right.
+  "111 spots in this box" is right. If "area" says the findings cover the whole city, or a list of
+  areas set up for it, then writing about exactly that is right, and writing about anywhere wider
+  is wrong: "the most populated place in the city" when only four areas were compared is a scope
+  error, "the most populated of the four areas compared" is right.
 - timing: says when water arrives, how fast it rises or how long it stays. Fill order is an order,
   not a clock.
 - dispatch: tells anyone to evacuate, to move, or to be dispatched. This product is preparation

@@ -71,7 +71,10 @@ discriminating return period: the KSDMA agreement above, 1.25–3.26×. The repl
 ## Ask it in plain language — and watch something check the answer
 
 Ask about a whole city ("what's the rainfall in Kochi tomorrow?") and the agent runs the engine on
-every preset area and ranks them by risk — no box needed. Name a place ("will Edappally flood
+every preset area and ranks them by risk — no box needed. Ask the city something else ("what is the most
+populated area in Singapore?", "how hot is it?", "which way is the wind blowing?") and it answers from that
+data, not from the rain: people are compared across the city's preset areas, and the answer says they are not
+every neighbourhood. Name a place ("will Edappally flood
 tonight?") and the browser finds it and zooms in. Draw a box and type a question, and the agents run
 in about ten to twenty seconds with every step streamed to the screen as it finishes.
 
@@ -345,7 +348,7 @@ KEYS
 Without `GEMINI_API_KEY` the agent layer reports itself unavailable and the ask box does not
 appear. Everything else works unchanged.
 
-Tests: `./.venv/Scripts/python.exe -m pytest engine` — 316 tests, all offline, no network, no
+Tests: `./.venv/Scripts/python.exe -m pytest engine` — 332 tests, all offline, no network, no
 staged data and no model. The agent tests stub both models out on purpose: what is worth testing
 there is the part that holds when the model is wrong, and that part is deterministic by design.
 
@@ -359,7 +362,7 @@ engine/bih_engine/   deterministic, no model: terrain, hydrology, osm, routes, o
                      preparations, heat, surface_heat, popgrid, density, air_quality, weather_grid, replay, store
 engine/bih_agents/   scenario, narrator, verifier, guide, planner, news and news_agent, coordinator, facts
 engine/tools/        staging jobs: the only code that talks to Overpass, Earth Engine or a data portal
-engine/tests/        316 tests, mostly on synthetic data where the answer is known
+engine/tests/        332 tests, mostly on synthetic data where the answer is known
 service/             FastAPI: every /api route, and the static web files
 web/                 map, layers and one clock, and the right-hand panel: Agent (chat with memory),
                      Rain, Details, Heat, Air, News

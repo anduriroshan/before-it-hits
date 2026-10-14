@@ -22,9 +22,14 @@ message + history
 A2 Scenario  ── model ──▶  spec {intent, topic, scope, mode, rainfall, duration, place, audience}
    │                        settle(): a figure only survives if its exact words are in the question
    │
+   ├─ scope=city & analyse & topic ∈ {population, heat, air_quality, wind}
+   │                         ──▶ _run_topic(city=True): people compared across the presets, the rest
+   │                             read once at the city centre; `area` in the bundle says "whole city"
    ├─ scope=city & analyse ──▶ _run_city_overview: forecast + engine over each preset, ranked
    ├─ intent=explain        ──▶ A8 Guide answers from the written reference, no analysis
    ├─ place named, no box   ──▶ "place_needed": the BROWSER finds it and asks again with a box
+   │                             (also for `earlier_area`: "the most populated one", checked by code to
+   │                             be a preset the conversation named, so a preset resolves with no geocoder)
    ├─ no box                ──▶ asks for an area
    ├─ topic ∈ {population, heat, air_quality, wind} ──▶ _run_topic: fetch only that data
    │

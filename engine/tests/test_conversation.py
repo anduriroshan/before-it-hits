@@ -346,3 +346,154 @@ def test_city_answer_text():
     assert "10 mm" in text
     assert "A" in text and "B" in text
     assert "would fill" in text
+
+
+# ---- a whole-city question about one topic is answered from that topic, not from the rain ----
+
+def city_topic(monkeypatch, topic):
+    """A whole-city question, with the rain forecast and the terrain engine both forbidden and the
+    narrator and checker stubbed to record the findings they were handed."""
+    read_returns(monkeypatch, scope="city", topic=topic)
+    no_engine(monkeypatch)
+
+    def no_forecast(*a, **k):
+        raise AssertionError("a question that is not about rain must not fetch the rain forecast")
+    monkeypatch.setattr(coordinator.forecast, "for_bbox", no_forecast)
+    seen = {}
+
+    def draft(bundle, **k):
+        seen.update(bundle)
+        return type("R", (), {"data": {"headline": "h", "bullets": ["b"], "caveat": "c"},
+                              "ms": 1, "model": "fake"})
+    monkeypatch.setattr(narrator, "draft", draft)
+    monkeypatch.setattr(coordinator.verifier, "verify", lambda bundle, briefing: [])
+    return seen
+
+
+@pytest.mark.parametrize("topic", coordinator.TOPIC_ONLY)
+def test_a_city_question_about_one_topic_never_becomes_the_rain_overview(monkeypatch, topic):
+    city_topic(monkeypatch, topic)
+    monkeypatch.setattr(coordinator, "_run_topic", lambda *a, **k: {"kind": "analysis", "called": (a[2], k)})
+    out = coordinator.run(question="q", bbox=None, region=RegionWithPresets())
+    assert out["called"] == (topic, {"city": True})
+
+
+def test_a_flood_question_about_the_city_still_gets_the_rain_overview(monkeypatch):
+    read_returns(monkeypatch, scope="city", topic="flood", mode="whatif")
+    monkeypatch.setattr(coordinator, "analyse_area", lambda *a, **k: result_fixture())
+    out = coordinator.run(question="will it flood?", bbox=None, region=RegionWithPresets(), slider_mm=50)
+    assert out["kind"] == "city_overview"
+
+
+def test_who_lives_where_is_compared_across_the_preset_areas_most_people_first(monkeypatch):
+    from bih_engine import popgrid
+    seen = city_topic(monkeypatch, "population")
+    people = {(76.3, 9.99, 76.32, 10.0): 12000, (76.31, 9.99, 76.33, 10.0): 48000}
+    monkeypatch.setattr(popgrid, "density_for", lambda region, bbox, cells=None: {
+        "available": True, "people_in_area": people[tuple(bbox)], "source": "s", "method": "m"})
+    out = coordinator.run(question="most populated area?", bbox=None, region=RegionWithPresets())
+    p = seen["people"]
+    assert out["kind"] == "analysis" and out["briefing"]["headline"] == "h"
+    assert [r["area"] for r in p["by_area_most_people_first"]] == ["B", "A"]
+    assert p["area_with_most_people"] == "B" and p["areas_compared"] == 2
+    # The model is told the limit, in the findings and not left to chance: only these areas were measured.
+    assert "not every neighbourhood" in seen["area"]["what_these_findings_cover"]
+    assert "outside them" in p["note"]
+
+
+def test_an_area_with_no_estimate_is_skipped_not_guessed(monkeypatch):
+    from bih_engine import popgrid
+    seen = city_topic(monkeypatch, "population")
+    monkeypatch.setattr(popgrid, "density_for", lambda region, bbox, cells=None: (
+        {"available": True, "people_in_area": 9000, "source": "s", "method": "m"}
+        if bbox[0] == 76.3 else {"available": False, "reason": "no buildings"}))
+    coordinator.run(question="q", bbox=None, region=RegionWithPresets())
+    assert [r["area"] for r in seen["people"]["by_area_most_people_first"]] == ["A"]
+
+
+def test_no_estimate_for_any_area_means_no_people_claim_at_all(monkeypatch):
+    from bih_engine import popgrid
+    seen = city_topic(monkeypatch, "population")
+    monkeypatch.setattr(popgrid, "density_for", lambda *a, **k: {"available": False, "reason": "none"})
+    out = coordinator.run(question="q", bbox=None, region=RegionWithPresets())
+    assert "people" not in seen and out["kind"] == "analysis"
+
+
+def test_city_heat_is_read_at_the_middle_of_the_city_and_says_it_is_the_city(monkeypatch):
+    from bih_engine import heat
+    seen = city_topic(monkeypatch, "heat")
+    at = []
+
+    def fetch(lat, lon, hours=48):
+        at.append((lat, lon))
+        return type("H", (), {"as_dict": lambda self: {"current": {"heat_index_c": 33},
+                                                       "current_level": {"label": "Caution"}}})()
+    monkeypatch.setattr(heat, "fetch", fetch)
+    monkeypatch.setattr(coordinator.facts, "add_heat", lambda b, d: b.update(heat={"ok": True}))
+    coordinator.run(question="how hot is it?", bbox=None, region=RegionWithPresets())
+    assert at == [pytest.approx((9.975, 76.325))]
+    assert seen["area"] == {"what_these_findings_cover": coordinator.CITY_COVER, "the_city": "Kochi, Kerala"}
+    assert "box_km2" not in seen["area"]
+
+
+# ---- "draw a box on the most populated area": a reference to what an earlier answer named -----
+
+class RegionWithRealNames(RegionWithPresets):
+    presets = [{"label": "Geylang / Kallang", "bbox": [76.3, 9.99, 76.32, 10.0]},
+               {"label": "Orchard Road", "bbox": [76.31, 9.99, 76.33, 10.0]}]
+
+
+LABELS = [p["label"] for p in RegionWithRealNames.presets]
+SAID_IT = [{"q": "which area is most populated", "area": "Singapore",
+            "headline": "Of the four areas compared, Geylang / Kallang has the most people."}]
+
+
+def earlier(name, history=SAID_IT, labels=LABELS):
+    return scenario.settle(spec(earlier_area=name), question="draw a box on the most populated area",
+                           slider_mm=50, history=history, preset_labels=labels)["earlier_area"]
+
+
+def test_an_area_the_earlier_answer_named_is_found_and_spelled_as_the_preset_spells_it():
+    assert earlier("geylang / kallang") == "Geylang / Kallang"
+
+
+def test_the_model_cannot_open_an_area_that_is_not_one_of_the_cities_own():
+    assert earlier("Tampines") == ""
+
+
+def test_a_preset_nobody_mentioned_is_not_opened_on_the_models_say_so():
+    assert earlier("Orchard Road") == ""
+
+
+def test_with_no_conversation_there_is_nothing_to_point_back_at():
+    assert earlier("Geylang / Kallang", history=[]) == ""
+
+
+def test_a_pointed_back_at_area_is_handed_to_the_browser_like_a_named_place(monkeypatch):
+    read_returns(monkeypatch, earlier_area="Geylang / Kallang", scope="city")
+    no_engine(monkeypatch)
+    out = coordinator.run(question="draw a box on the most populated area", bbox=None,
+                          region=RegionWithRealNames(), history=SAID_IT, area_label=None)
+    assert out["kind"] == "place_needed" and out["place"] == "Geylang / Kallang"
+    assert out["scenario"]["scope"] == "area"           # it is about that one area, not the city
+
+
+def test_once_that_area_is_open_the_analysis_runs_and_does_not_ask_again(monkeypatch):
+    read_returns(monkeypatch, earlier_area="Geylang / Kallang", scope="area")
+    monkeypatch.setattr(coordinator, "analyse_area", lambda *a, **k: result_fixture())
+    monkeypatch.setattr(narrator, "draft",
+                        lambda *a, **k: (_ for _ in ()).throw(LlmUnavailable("stop here")))
+    out = coordinator.run(question="draw a box on the most populated area", bbox=BOX,
+                          region=RegionWithRealNames(), history=SAID_IT,
+                          area_label="Geylang / Kallang", place_resolved="Geylang / Kallang")
+    assert out["kind"] == "analysis" and out["result"] is not None
+
+
+def test_the_area_already_selected_is_not_looked_up_again(monkeypatch):
+    read_returns(monkeypatch, earlier_area="Geylang / Kallang")
+    monkeypatch.setattr(coordinator, "analyse_area", lambda *a, **k: result_fixture())
+    monkeypatch.setattr(narrator, "draft",
+                        lambda *a, **k: (_ for _ in ()).throw(LlmUnavailable("stop here")))
+    out = coordinator.run(question="the most populated area again", bbox=BOX,
+                          region=RegionWithRealNames(), history=SAID_IT, area_label="Geylang / Kallang")
+    assert out["kind"] == "analysis"

@@ -3194,7 +3194,7 @@ function renderAnswer(turn, ev) {
   }
   const facts = factChips(ev);
   if (facts.length) a.appendChild(mk('div', 'facts', facts.map((f) => `<span class="fact">${f}</span>`).join('')));
-  a.appendChild(actionsRow(turn, { details: true }));
+  a.appendChild(actionsRow(turn, { details: Boolean(ev.result) }));   // no engine run, nothing behind it
 }
 
 /* The other half of the link: from a screening answer to what is being reported about the same place
@@ -3216,9 +3216,18 @@ function reportedChip(topic, place) {
   return c;
 }
 
+/* What follows an answer about the whole city: no area has been chosen, so the way on is to pick one. */
+function cityTail(turn, topic) {
+  turn.answer.appendChild(mk('p', 'city-hint', 'Tap an area to look closer:'));
+  turn.answer.appendChild(areaChips(state.region));
+  const rep = reportedChip(topic, null);
+  if (rep) turn.answer.appendChild(mk('div', 'followups')).appendChild(rep);
+}
+
 function addFollowups(turn, ev) {
   const sc = ev.scenario || {};
   const topic = sc.topic || 'overview';
+  if (sc.scope === 'city') { cityTail(turn, topic); return; }
   turn.answer.appendChild(areaOptions(topic));
   const hasOfficial = Boolean(state.region && state.region.official
     && (state.region.official.return_periods || []).length);
@@ -3284,9 +3293,13 @@ function finishTurn(turn, ev) {
   const stick = nearBottom();
   renderAnswer(turn, ev);
   addFollowups(turn, ev);
+  const city = sc.scope === 'city';
+  // A whole-city answer has no box to look at, so the map shows the same thing across the city.
+  if (city && OPTION_LAYER[TOPIC_HAZARD[sc.topic]]) turnOnLayer(OPTION_LAYER[TOPIC_HAZARD[sc.topic]]);
   remember({
     q: turn.auto ? `Forecast for ${state.areaLabel || 'the area'}` : turn.question,
-    area: state.areaLabel, mode: sc.mode, rainfall_mm: sc.rainfall_mm, duration_h: sc.duration_h,
+    area: city ? state.region.title : state.areaLabel,
+    mode: sc.mode, rainfall_mm: sc.rainfall_mm, duration_h: sc.duration_h,
     headline: ev.briefing ? ev.briefing.headline : null,
   });
   const c = $('chat');
@@ -3382,12 +3395,7 @@ function finishCityOverview(turn, ev) {
   a.appendChild(cav);
   a.appendChild(actionsRow(turn, { details: false }));
 
-  const hint = mk('p', 'city-hint');
-  hint.textContent = 'Tap an area to look closer:';
-  a.appendChild(hint);
-  a.appendChild(areaChips(state.region));
-  const rep = reportedChip('overview', null);
-  if (rep) a.appendChild(mk('div', 'followups')).appendChild(rep);
+  cityTail(turn, 'overview');
 
   turn.text = ev.answer || '';
   remember({

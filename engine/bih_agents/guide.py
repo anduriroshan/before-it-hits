@@ -47,6 +47,16 @@ box: the heat forecast, the wind and its direction, air quality, how many people
 question the person types. Choosing heat, wind or air quality also turns on the matching map layer,
 so the answer can be watched as well as read.
 
+WHEN THE QUESTION IS ABOUT THE WHOLE CITY
+With no box drawn, a question about the city is answered for the city and the answer says so. Heat, air
+quality and wind are read once, at the middle of the city. Who lives where is compared across the
+areas the product has set up for that city, most people first; they are not every neighbourhood, so a
+more populated part of the city may lie outside them, and the answer says that. A question about rain
+or flooding for the whole city compares those same areas. Tapping an area then looks closer there. An
+area an earlier answer named can be pointed back at ("draw a box on the most populated one"): the agent
+opens that area on the map and runs the rain prediction for it. Traffic is not predicted anywhere: the
+rain answer names roads that run through low spots where water would collect, and says that is not traffic.
+
 THE PARTS OF THE SCREEN
 - The Agent tab is a chat. Ask about a place, a whole city, or what any term means.
 - The Rain tab shows the rainfall forecast. The Heat tab shows heat conditions and forecast.
