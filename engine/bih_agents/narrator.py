@@ -53,11 +53,12 @@ Hard rules, each of which is checked afterwards by a separate agent:
    never stated the unit and it is inferred.
 8. If the JSON has pooling/flood data, the caveat must say that this is a terrain screening at the
    stated grid size, and that stormwater drains are not in the data. If the JSON is about a single
-   topic (population, heat, or air quality) and has no pooling data, say what the data's limits
+   topic (population, heat, air quality or wind) and has no pooling data, say what the data's limits
    are instead - for population, that it is a modelled estimate by area; for heat, that the forecast is
    a point forecast, and when your answer rests on "surface_heat" the caveat is about THAT: it is a
    typical season rather than today, and the satellite sees patches a few blocks across, not single
-   buildings; for air quality, that it is a regional reading.
+   buildings; for air quality, that it is a regional reading; for wind, that it is a point forecast
+   and the wind between buildings, trees and water differs from it.
 
 The JSON may include heat and air quality data alongside the flood findings. If they are present
 and relevant to the question, mention them briefly - but keep the hazards separate, never blend
@@ -76,7 +77,13 @@ source here that can say which parts of the box run hotter than others. Rules fo
     named road close by", not "a spot that is not near a named road".
   - It does not say anything about flooding, health effects, or what anyone should do.
 
-If the JSON has a "topic" field set to "population", "heat", or "air_quality", the question is
+If the JSON has "wind", it is the forecast for the middle of this box. Say which way the wind blows
+FROM and which way the air is going, in the words given ("from the south-west, towards the
+north-east"), never as a bearing or a number of degrees. Give the speed and the gusts as given, say
+how it changes later if the readings under "later" differ, and say when it is strongest. It does not
+say anything about flooding, health effects, or what anyone should do.
+
+If the JSON has a "topic" field set to "population", "heat", "air_quality" or "wind", the question is
 about that one thing only. Answer about that topic. Do not mention floods, pooling, or drainage -
 the engine was not run and there is no flood data in the JSON.
 

@@ -96,7 +96,22 @@ why the service runs with `--min-instances 1`.
 | Road outlook | `road_outlook.py` | fast | qualitative, region-specific read on the road timeline, grounded in cached news |
 | (support) | `facts.py`, `hazards.py`, `llm.py` | | facts bundle builder; the one list of live hazards; the one place that talks to Gemini |
 
-**Topic routing (14 Oct).** The Scenario agent returns `topic`: `flood`, `population`, `heat`, `air_quality`
+**What a drawn box does (15 Oct).** `predictBox` asks for the rain prediction at once (forecast, engine, briefing;
+the pooling stays on the map and nothing hides it). The same turn shows an "options" row immediately and the
+answer carries a copy: one chip per entry in `hazards.py` that has an `option` (heat, wind and direction, air
+quality, rain re-run), plus "Who lives here" and "Ask about this area". Heat, wind, air and people also turn on
+their map layer (`OPTION_LAYER`), so the answer can be watched. A hazard added to `hazards.py` with an `option`
+gets its chip with no change to `app.js`. After a non-rain answer the rain-specific follow-ups are not shown.
+
+**Wind (15 Oct).** A topic like the others: `heat.py` parses `wind_gust_kmh` and `wind_dir_deg` (Google's
+`degrees` is where the wind comes FROM), `facts.add_wind` writes now / 6, 12, 24 h on / strongest hour, each with
+`blowing_from` and `blowing_towards` in eight compass words, `coordinator._add_wind` fetches it, the Narrator has a
+rule. The map layer (`weather_grid.field(kind="wind")` also returns `dirs`) is a vector field in `app.js`: colour for
+speed, a grid of arrows and animated streaks for direction, interpolated by u/v components never by angle
+(`windUV`), following the one clock. Streak pace has a floor so light winds still read as moving; colour and arrow
+length carry the speed, and the layer note says so.
+
+**Topic routing (14 Oct).** The Scenario agent returns `topic`: `flood`, `population`, `heat`, `air_quality`, `wind`
 or `overview`. A population, heat or air-quality question runs only what it needs (about 4 steps, no flood
 engine, no other hazards). `flood` and `overview` run the full pipeline and add heat, surface heat and air
 quality to the bundle. A whole-city question runs the engine over each preset area and ranks them.
@@ -158,7 +173,8 @@ every active field gets a colour scale on the right built from the same ramp as 
 |---|---|---|---|---|
 | Heat index (forecast) | Weather API, 16 points × 24 h | 9.3 km city, 1.5 km box | ✅ | animated; the note states the box's own spread |
 | **Surface heat (satellite)** | Landsat composite | sensor about 100 m, grid 30 m | ✅ | typical season, surface not air, city-scale colours |
-| Temperature, Humidity, Rain per hour, Wind speed | Weather API | as above | ✅ | animated |
+| Temperature, Humidity, Rain per hour | Weather API | as above | ✅ | animated |
+| **Wind speed** (with direction) | Weather API, speed and direction per point and hour | as above | ✅ | colour = speed; arrows + moving streaks = the way the air is going; animated by the clock |
 | People per km² | GHS-POP 2020 grid scaled to the census total | about 150 m box / 600 m city | ✅ | approximation by area; null where the grid holds nobody |
 | Air quality | Google's own heatmap tiles | provider's | n/a | shown as published; see 03 (unverified on the live site) |
 | Traffic | Google TrafficLayer | | n/a | display only |
@@ -177,7 +193,7 @@ same moment. Scrubbing never re-runs the engine.
   the most-vegetated quarter of pixels is 1.6 °C and 3.3 °C cooler.
 - News agent resisted a planted prompt-injection headline.
 
-## 9. Tests: 301, all offline
+## 9. Tests: 316, all offline
 
 | File | Tests | Covers |
 |---|---|---|
@@ -192,6 +208,7 @@ same moment. Scrubbing never re-runs the engine.
 | `test_air_quality.py` | 11 | parsing, units |
 | `test_density.py` | 12 | raster, null, p95 cut, people in an area (not the city total) |
 | `test_popgrid.py` | 12 | grid scaling, people follow the roof, open ground holds nobody, unmapped cells spread evenly, exposure and fallback |
+| `test_wind.py` | 12 | the 180 degree trap (from vs towards), digit-free prose, traceable figures, the topic skips the flood engine, every hazard has an option; plus 3 in `test_weather_grid.py` / `test_heat.py` |
 | `test_forecast.py` / `test_official.py` | 10 / 10 | forecast peaks; official clip and enrichment |
 | `test_hydrology.py` / `test_replay.py` | 9 / 9 | depression fill; replay scoring |
 | `test_osm.py` / `test_routes.py` | 8 / 8 | |

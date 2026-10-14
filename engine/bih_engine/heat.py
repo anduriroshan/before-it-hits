@@ -84,6 +84,9 @@ def _parse_hour(h: dict) -> dict:
         "heat_index_c": heat_index.get("degrees"),
         "dew_point_c": dew_point.get("degrees"),
         "wind_speed_kmh": (wind.get("speed") or {}).get("value"),
+        "wind_gust_kmh": (wind.get("gust") or {}).get("value"),
+        # Where the wind blows FROM, as in a weather report (Google: "the angle it is coming from").
+        "wind_dir_deg": (wind.get("direction") or {}).get("degrees"),
     }
 
 

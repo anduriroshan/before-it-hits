@@ -1,9 +1,11 @@
 """Which hazards this product can screen for today.
 
-One list, read by the welcome message, the Guide's reference and the news agent, so a hazard added
-here appears everywhere at once instead of the product talking about rain in three places. Only
-hazards whose engine is built and tested belong in `HAZARDS`; a planned one is not listed, because
-the product must never describe a capability it does not have.
+One list, read by the welcome message, the Guide's reference, the news agent and the options offered
+once a box is drawn, so a hazard added here appears everywhere at once instead of the product talking
+about rain in four places. Only hazards whose engine is built and tested belong in `HAZARDS`; a
+planned one is not listed, because the product must never describe a capability it does not have.
+
+`option` is what the chat offers after a box is drawn: a short label and the question it asks.
 """
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ HAZARDS = [
         "what": "where rain water collects in the terrain, which roads run through those places, and "
                 "roughly how many people live there",
         "example": "Will {place} flood tonight?",
+        "option": {"label": "Rain and flooding", "q": "Which spots fill first here?"},
     },
     {
         "id": "heat",
@@ -22,6 +25,15 @@ HAZARDS = [
                 "whether the heat level is in a caution, warning or danger zone, and which parts "
                 "of an area run hotter at the ground, from a satellite",
         "example": "How hot will {place} be today?",
+        "option": {"label": "Heat forecast", "q": "How hot will it get here over the next two days?"},
+    },
+    {
+        "id": "wind",
+        "label": "Wind",
+        "what": "wind speed, gusts and which way the wind blows, now and over the next two days, "
+                "drawn on the map as arrows and moving streaks",
+        "example": "Which way is the wind blowing in {place}?",
+        "option": {"label": "Wind and direction", "q": "Which way is the wind blowing here, and how strong will it get?"},
     },
     {
         "id": "air",
@@ -29,6 +41,7 @@ HAZARDS = [
         "what": "current AQI, dominant pollutant and concentration levels, "
                 "plus an hourly AQI forecast",
         "example": "How is the air quality in {place}?",
+        "option": {"label": "Air quality", "q": "How is the air quality here?"},
     },
 ]
 

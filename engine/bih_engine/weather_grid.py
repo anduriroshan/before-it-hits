@@ -49,7 +49,9 @@ FIELDS = {
                      "screening runs on its own forecast window, not on this field."},
     "wind": {"key": "wind_speed_kmh", "fallback": None, "label": "Wind speed",
              "unit": "km/h", "floor": 0.0, "ceil": 40.0,
-             "note": "Wind speed from the forecast model."},
+             "note": "Wind speed from the forecast model. The arrows and moving streaks point the way "
+                     "the air is going; the forecast names the direction it comes from. The colour and "
+                     "the arrow length carry the speed; how fast a streak moves does not."},
 }
 
 
@@ -162,6 +164,7 @@ def field(data: dict, kind: str = "heat") -> dict:
     points, seen = [], []
     for p in data.get("points", []):
         vals: list[float | None] = []
+        dirs: list[float | None] = []
         for i in range(n_hours):
             h = p["hours"][i] if i < len(p["hours"]) else {}
             v = h.get(spec["key"])
@@ -170,8 +173,15 @@ def field(data: dict, kind: str = "heat") -> dict:
             vals.append(None if v is None else round(float(v), 1))
             if v is not None:
                 seen.append(float(v))
+            d = h.get("wind_dir_deg")
+            dirs.append(None if d is None else round(float(d)))
         if any(v is not None for v in vals):
-            points.append({"lat": p["lat"], "lng": p["lng"], "values": vals})
+            pt = {"lat": p["lat"], "lng": p["lng"], "values": vals}
+            if kind == "wind":
+                # Degrees the wind blows FROM, one per hour, so the browser can draw which way the air
+                # is going. A direction is only useful with its speed, so it rides on the speed field.
+                pt["dirs"] = dirs
+            points.append(pt)
 
     if not points:
         raise WeatherUnavailable(f"the forecast carries no {spec['label'].lower()} for this region")

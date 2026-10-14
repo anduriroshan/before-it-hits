@@ -263,6 +263,50 @@ def add_heat(bundle: dict, heat_data: dict) -> None:
     }
 
 
+COMPASS = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"]
+
+
+def compass(deg: float) -> str:
+    """Eight points, in plain words: 'south-west', not 225 degrees and not SOUTHWEST."""
+    return COMPASS[int(round((float(deg) % 360) / 45.0)) % 8]
+
+
+def add_wind(bundle: dict, heat_data: dict) -> None:
+    """Append the wind forecast to a facts bundle: now, a few hours on, and the strongest hour.
+
+    Directions are where the wind blows FROM, as in a weather report, and each reading also says where
+    the air is going, because the map's arrows show that and the two are easily swapped. A point
+    forecast at the middle of the box, said so. The prose has no digits, for the reason the heat
+    notes have none: each would smuggle a small integer into the figures a briefing may quote."""
+    hours = [h for h in (heat_data.get("hours") or []) if h]
+    if not hours or all(h.get("wind_speed_kmh") is None for h in hours):
+        return
+
+    def reading(ahead: int) -> dict:
+        h = hours[ahead]
+        out = {"hours_from_now": ahead, "speed_kmh": tidy(h.get("wind_speed_kmh"))}
+        if h.get("wind_gust_kmh") is not None:
+            out["gusts_to_kmh"] = tidy(h["wind_gust_kmh"])
+        if h.get("wind_dir_deg") is not None:
+            out["blowing_from"] = compass(h["wind_dir_deg"])
+            out["blowing_towards"] = compass(h["wind_dir_deg"] + 180)
+        return out
+
+    strongest = max(range(len(hours)), key=lambda i: hours[i].get("wind_speed_kmh") or 0)
+    bundle["wind"] = {
+        "now": reading(0),
+        "later": [reading(i) for i in (6, 12, 24) if i < len(hours)],
+        "strongest_in_the_forecast": reading(strongest),
+        "direction_note": "Directions are where the wind blows FROM, as in a weather report: a wind "
+                          "from the south-west carries air towards the north-east. The arrows on the "
+                          "map point the way the air is going.",
+        "source": heat_data.get("source", "Google Weather API"),
+        "note": "A forecast at one point in the middle of this box, not a measurement. The wind "
+                "between buildings, trees and water differs from it. Wind is a separate hazard from "
+                "the pooling and is not combined with it into one ranking.",
+    }
+
+
 def add_surface_heat(bundle: dict, sh: dict) -> None:
     """Append the satellite picture of how hot the ground itself runs inside the box.
 

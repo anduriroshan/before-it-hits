@@ -85,6 +85,19 @@ def test_a_variable_the_provider_never_gave_stays_missing_and_is_not_filled_in()
         wg.field(cube, "wind")
 
 
+def test_the_wind_field_carries_the_direction_it_blows_from_beside_the_speed():
+    hrs = [{"time": f"t{h}", "wind_speed_kmh": s, "wind_dir_deg": d}
+           for h, (s, d) in enumerate([(10.0, 350.2), (12.0, None)])]
+    cube = {"points": [{"lat": 10.0, "lng": 76.0, "hours": hrs}], "times": ["t0", "t1"],
+            "bbox": [76.2, 9.85, 76.45, 10.1], "grid_size": 2, "spacing_km": 1.0, "source": "a forecast"}
+    p = wg.field(cube, "wind")["points"][0]
+    assert p["values"] == [10.0, 12.0] and p["dirs"] == [350, None]       # an hour with no direction stays missing
+
+
+def test_the_other_fields_carry_no_direction():
+    assert "dirs" not in wg.field(_cube([(36.0, 70)]), "heat")["points"][0]
+
+
 def test_a_point_that_returned_fewer_hours_pads_with_none_not_with_its_last_value():
     cube = _cube([(36.0, 70), (38.0, 72)], [(34.0, 80), (35.0, 82)])
     cube["points"][1]["hours"] = cube["points"][1]["hours"][:1]

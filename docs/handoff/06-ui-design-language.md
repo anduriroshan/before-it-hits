@@ -113,6 +113,15 @@ same stops, so **the legend cannot drift from the picture**.
   Removed claims are listed with the rule that removed them, in orange.
 - **Chips.** 999 px pills, 12.5 px. Default white; `chip-alt` teal-tinted (e.g. "What if it rains more?");
   `chip-static` solid tint for labels. Fact chips are 11.5 px, muted, value in bold.
+- **"More about this area" row** (`.followups.area-options`). A small uppercase label then teal chips, one per
+  hazard in `hazards.py` plus "Who lives here" and a plain "Ask about this area". It appears in the agent bubble
+  the moment a box is drawn, while the rain prediction is still running, and moves into the answer when it lands.
+  After any answer it offers the other things, never the one just answered. Rain is never behind it: it has
+  already run. Choosing heat, wind or air also turns on that layer.
+- **Wind on the map.** Colour for speed, a grid of white arrows with a dark halo (about 62 px apart, longer where
+  stronger) and animated white streaks with fading tails, for direction. Arrows point where the air is GOING;
+  words say where it blows FROM. Streak pace has a floor and means "moving", not "fast": colour and arrow length
+  carry the speed, and the layer note says so.
 - **Cards.** `<details class="card">`, 1 px border, radius 12, a chevron drawn with borders, summary hover `--bg`,
   body padding `2px 14px 14px`. Heavy detail folds into cards; the primary answer stays open.
 - **Scope line.** `.scopeline.box` pale blue `#eef7fb` with a teal left rule; `.scopeline.city` pale amber

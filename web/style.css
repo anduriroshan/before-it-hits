@@ -591,6 +591,7 @@ details.block > :not(summary) { margin: 2px 0 8px; }
 .icon-btn:hover { background: #e9edf1; color: var(--ink); border: 0; }
 .icon-btn svg { width: 16px; height: 16px; fill: currentColor; }
 .followups { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.area-options .chat-label { flex: 0 0 100%; margin: 0 0 2px; }
 .preset-grid { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
 .preset-card {
   display: flex; flex-direction: column; gap: 3px; padding: 10px 12px;

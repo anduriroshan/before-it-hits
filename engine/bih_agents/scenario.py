@@ -49,13 +49,14 @@ SCHEMA = {
                                   "term means, how this works, how far to trust it, or why the "
                                   "last answer said what it said."},
         "topic": {"type": "STRING",
-                  "enum": ["flood", "population", "heat", "air_quality", "overview"],
+                  "enum": ["flood", "population", "heat", "air_quality", "wind", "overview"],
                   "description": "What the question is about. 'flood' = pooling, roads, drainage, "
                                  "water. 'population' = how many people, density. 'heat' = "
                                  "temperature, heat index, humidity, which parts are hotter or "
                                  "cooler, urban heat, hot spots. 'air_quality' = pollution, "
-                                 "AQI, air. 'overview' = general analysis, multiple things at "
-                                 "once, or 'analyse this area'."},
+                                 "AQI, air. 'wind' = wind speed, gusts, which way the wind blows. "
+                                 "'overview' = general analysis, multiple things at once, or "
+                                 "'analyse this area'."},
         "scope": {"type": "STRING", "enum": ["area", "city"],
                   "description": "city = the message asks about the whole selected city or region "
                                  "(by its name, or 'the whole city', 'this city', or generally). "
@@ -98,8 +99,8 @@ Rules:
   things answerable from the reference without fetching new data.
 - topic: what data the question is really about. "population" for how many people, density, who
   lives here. "heat" for temperature, heat index, how hot, and which parts of an area are hotter
-  or cooler than others, urban heat, hot spots. "air_quality" for AQI, pollution, air.
-  "flood" for pooling, water, roads, drainage. "overview" when the question is general ("analyse
+  or cooler than others, urban heat, hot spots. "air_quality" for AQI, pollution, air. "wind" for
+  wind speed, gusts, which way the wind blows, breeze. "flood" for pooling, water, roads, drainage. "overview" when the question is general ("analyse
   this area"), covers multiple things, or is primarily about flood risk.
 - place: only a place the message itself names that is not the selected area AND not the selected
   city itself, exactly as written. Never take one from the history. Empty otherwise.
@@ -241,7 +242,7 @@ def settle(spec: dict, *, question: str, slider_mm: float,
     rp = spec.get("return_period_years", -1)
     rp = int(rp) if isinstance(rp, (int, float)) and int(rp) in periods else None
 
-    TOPICS = ("flood", "population", "heat", "air_quality", "overview")
+    TOPICS = ("flood", "population", "heat", "air_quality", "wind", "overview")
     topic = spec.get("topic") if spec.get("topic") in TOPICS else "overview"
 
     return {

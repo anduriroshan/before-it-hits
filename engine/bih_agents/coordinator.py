@@ -250,6 +250,23 @@ def _add_surface_heat(bundle: dict, region, bbox, trace: Trace) -> None:
         trace.add("Surface heat", "unavailable", 0, str(exc)[:120])
 
 
+def _add_wind(bundle: dict, lat: float, lon: float, trace: Trace) -> None:
+    """The wind forecast at the middle of the box: speed, gusts, and which way it blows."""
+    try:
+        from bih_engine import heat as heat_mod
+        t0 = time.perf_counter()
+        hdata = heat_mod.fetch(lat, lon, hours=48).as_dict()
+        facts.add_wind(bundle, hdata)
+        if "wind" not in bundle:
+            trace.add("Wind", "unavailable", 0, "The forecast carries no wind for this point.")
+            return
+        now = bundle["wind"]["now"]
+        trace.add("Wind", "ok", int((time.perf_counter() - t0) * 1000),
+                  f"Wind {now['speed_kmh']} km/h" + (f" from the {now['blowing_from']}." if "blowing_from" in now else "."))
+    except Exception as exc:
+        trace.add("Wind", "unavailable", 0, str(exc)[:120])
+
+
 def _add_supplementary_hazards(bundle: dict, region, bbox, trace: Trace) -> None:
     """Best-effort: heat and air quality for the same box the screening ran on, into the bundle.
 
@@ -288,7 +305,7 @@ def _add_supplementary_hazards(bundle: dict, region, bbox, trace: Trace) -> None
 
 
 def _run_topic(question, spec, topic, bbox, region, trace) -> dict:
-    """Answer a question about one specific data layer — population, heat, or air quality — without
+    """Answer a question about one specific data layer — population, heat, air quality or wind — without
     running the full terrain engine. The engine is the costly part (~8 s) and answers about flooding,
     which is not what was asked. The bundle carries only the requested data, so the Narrator writes
     about that and nothing else."""
@@ -358,6 +375,9 @@ def _run_topic(question, spec, topic, bbox, region, trace) -> dict:
                       f"AQI {aqdata.get('aqi')}, {aqdata.get('category')}.")
         except Exception as exc:
             trace.add("Air quality", "unavailable", 0, str(exc)[:120])
+
+    elif topic == "wind":
+        _add_wind(bundle, lat, lon, trace)
 
     out = _reply(question, spec, trace, kind="analysis", facts=bundle, result=None)
 
@@ -480,7 +500,7 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
 
     # --- topic-specific fast path: skip the engine when the question is not about flooding ----
     topic = spec.get("topic", "overview")
-    if topic in ("population", "heat", "air_quality"):
+    if topic in ("population", "heat", "air_quality", "wind"):
         return _run_topic(question, spec, topic, bbox, region, trace)
 
     # --- A3 Forecast: a tool, not a model, until we have bulletins worth reading -----------

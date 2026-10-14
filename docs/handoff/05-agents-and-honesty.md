@@ -26,7 +26,7 @@ A2 Scenario  ── model ──▶  spec {intent, topic, scope, mode, rainfall,
    ├─ intent=explain        ──▶ A8 Guide answers from the written reference, no analysis
    ├─ place named, no box   ──▶ "place_needed": the BROWSER finds it and asks again with a box
    ├─ no box                ──▶ asks for an area
-   ├─ topic ∈ {population, heat, air_quality} ──▶ _run_topic: fetch only that data
+   ├─ topic ∈ {population, heat, air_quality, wind} ──▶ _run_topic: fetch only that data
    │
    └─ topic ∈ {flood, overview}:
         A3 Forecast (only if the question is about what is coming)
@@ -101,6 +101,7 @@ question ran the 8 s flood engine, heat and air quality, then printed "What-if �
 | `heat` | a point forecast for the air, not a map | |
 | `surface_heat` | "surface"; typical of a dry-season morning, **not today, not a forecast**; patches a few blocks across | compare it with the heat index or air temperature; call it "the temperature" or "how hot it is"; describe a single building or roof |
 | `air_quality` | a regional reading, the provider's figures | a health effect for a person |
+| `wind` | a point forecast for the middle of the box: speed, gusts, and the direction it blows FROM with where the air is GOING, in words | a bearing in degrees; wind "at a street"; swapping from and towards; anything about flooding or health |
 | `people` | roughly, by area. The method may be named: a modelled satellite-and-census grid scaled to the published total, with a measured check against Singapore's census (about 7% of people in the wrong planning area, against about 34% for footprint-only). **Kochi has no such check; say so if asked** | a number for one building or home; "a head count"; the check as a claim about Kochi |
 | anything | the box, not the city ("in this box") | "across Kochi" about a box's findings |
 

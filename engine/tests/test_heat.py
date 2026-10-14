@@ -32,6 +32,15 @@ def test_parse_hour():
     assert h["heat_index_c"] == 38
 
 
+def test_parse_hour_reads_the_wind_gust_and_the_direction_it_blows_from():
+    raw = _make_hour()
+    raw["wind"] = {"speed": {"value": 6}, "gust": {"value": 11}, "direction": {"degrees": 131}}
+    h = heat._parse_hour(raw)
+    assert (h["wind_speed_kmh"], h["wind_gust_kmh"], h["wind_dir_deg"]) == (6, 11, 131)
+    plain = heat._parse_hour(_make_hour())
+    assert plain["wind_gust_kmh"] is None and plain["wind_dir_deg"] is None
+
+
 def test_parse_hour_missing_fields():
     h = heat._parse_hour({"interval": {"startTime": "2026-10-14T10:00:00Z"}})
     assert h["temperature_c"] is None

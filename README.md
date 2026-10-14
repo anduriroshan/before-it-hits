@@ -75,7 +75,14 @@ every preset area and ranks them by risk — no box needed. Name a place ("will 
 tonight?") and the browser finds it and zooms in. Draw a box and type a question, and the agents run
 in about ten to twenty seconds with every step streamed to the screen as it finishes.
 
-The Scenario agent also reads *what the question is about*. A question about people, heat or air
+Drawing a box (or picking an area) asks for the **rain prediction at once**: the live forecast is run
+through the terrain engine and the low spots that would fill stay on the map, never behind a button.
+Right under it the agent offers **what else it can say about the same box**: the heat forecast, the wind
+and its direction, air quality, who lives there, or any question you type. Choosing heat, wind or air
+quality also switches on the matching map layer, so the answer can be watched as well as read. The
+offers are read from one list of hazards, so a hazard added there is offered with no change to the page.
+
+The Scenario agent also reads *what the question is about*. A question about people, heat, wind or air
 quality runs only what it needs (about four steps, no flood engine); a flood question adds the heat,
 satellite-heat and air-quality findings to the same checked briefing; "what does this mean?" goes to a
 Guide that answers from a written reference and analyses nothing.
@@ -157,6 +164,13 @@ across, so it shows a few blocks at best and never a roof. Before building on it
 vegetation: Spearman −0.33 (Kochi) and −0.32 (Singapore), and the most-vegetated quarter of pixels is
 1.6 °C and 3.3 °C cooler, which is what a real surface-temperature signal should show.
 
+**Wind** comes from the same hourly forecast: speed, gusts and direction, now and over the next two days.
+The agent says which way it blows *from* (as a weather report does) and which way the air is *going*, in
+words, because the two are easily swapped and a 180 degree mistake is the one way this goes badly wrong
+(the tests pin both words for the same reading). On the map the wind layer is a vector field in the style
+of Ventusky: a colour for the speed, arrows and moving streaks for the direction, interpolated between the
+forecast points by components and never by angle, and moving with the one clock.
+
 **Air quality** is the provider's reading (Google Air Quality API), attributed and never rewritten: the
 current index, dominant pollutant, concentrations with units, an hourly forecast and the provider's own
 health recommendations. A regional reading, and said to be.
@@ -164,7 +178,7 @@ health recommendations. A regional reading, and said to be.
 ## The map: nine layers and one clock
 
 The Layers panel stacks nine layers, each with its own opacity and a one-line note on what it is drawn
-from: heat index, **surface heat (satellite)**, temperature, humidity, rain per hour, wind, people per km²,
+from: heat index, **surface heat (satellite)**, temperature, humidity, rain per hour, wind (with direction), people per km²,
 air quality and traffic. The weather fields follow the box you drew (finer inside a small box, and the note
 states how little a forecast actually varies across one), and every active field gets a colour scale drawn
 from the same ramp as the picture. The people layer is the population grid drawn as a smooth field, left
@@ -331,7 +345,7 @@ KEYS
 Without `GEMINI_API_KEY` the agent layer reports itself unavailable and the ask box does not
 appear. Everything else works unchanged.
 
-Tests: `./.venv/Scripts/python.exe -m pytest engine` — 301 tests, all offline, no network, no
+Tests: `./.venv/Scripts/python.exe -m pytest engine` — 316 tests, all offline, no network, no
 staged data and no model. The agent tests stub both models out on purpose: what is worth testing
 there is the part that holds when the model is wrong, and that part is deterministic by design.
 
@@ -345,7 +359,7 @@ engine/bih_engine/   deterministic, no model: terrain, hydrology, osm, routes, o
                      preparations, heat, surface_heat, popgrid, density, air_quality, weather_grid, replay, store
 engine/bih_agents/   scenario, narrator, verifier, guide, planner, news and news_agent, coordinator, facts
 engine/tools/        staging jobs: the only code that talks to Overpass, Earth Engine or a data portal
-engine/tests/        301 tests, mostly on synthetic data where the answer is known
+engine/tests/        316 tests, mostly on synthetic data where the answer is known
 service/             FastAPI: every /api route, and the static web files
 web/                 map, layers and one clock, and the right-hand panel: Agent (chat with memory),
                      Rain, Details, Heat, Air, News

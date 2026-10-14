@@ -505,6 +505,10 @@ async function loadWeatherField(id) {
       : `Forecast at ${d.points.length} points about ${d.spacing_km} km apart across the whole city, `
         + 'coloured between them. The colour between points is interpolation, not a reading. '
         + 'Draw a box to zoom this in.');
+    if (l.src.wind) {
+      layerNote(id, `${l.note.textContent} Arrows and moving streaks point the way the air is going; `
+        + 'the colour and the length of the arrows carry the speed, and the pace of the streaks does not.');
+    }
     renderFieldScales();
     updateTimebar();
   } catch {
@@ -622,6 +626,8 @@ function scatterSource(d, ramp) {
     min: d.field.min, max: d.field.max, label: d.field.label, unit: d.field.unit,
     note: d.field.note, source: d.source,
     points: d.points, rw: FIELD_RES, rh: FIELD_RES, weights: null,
+    // Wind carries a direction per point and hour; the overlay draws it as arrows and moving streaks.
+    wind: d.field.id === 'wind' && d.points.some((p) => (p.dirs || []).some((x) => x != null)),
   };
 }
 
@@ -684,6 +690,57 @@ function scatterValue(src, cell, hour, frac) {
   return weight > 0 ? sum / weight : null;
 }
 
+/* Wind as a vector field. The forecast gives the direction the wind blows FROM (degrees clockwise
+   from north, as in a weather report); the air is going the opposite way, which is what an arrow on a
+   map must show. Components are interpolated, never angles: halfway between 350 and 10 degrees is
+   north, and averaging the two numbers would say south. Returns km/h east (u) and north (v) per cell
+   at the moment the clock is at, with the same inverse-distance weights as the colour. */
+function windUV(src, hour, frac) {
+  if (!src.weights) buildWeights(src);
+  const pts = src.points;
+  const nPts = pts.length;
+  if (!src.uv) src.uv = new Float32Array(src.rw * src.rh * 2);
+  const pu = new Float32Array(nPts);
+  const pv = new Float32Array(nPts);
+  const ok = new Uint8Array(nPts);
+  const comp = (sp, dir) => {
+    const r = (dir * Math.PI) / 180;
+    return [-sp * Math.sin(r), -sp * Math.cos(r)];
+  };
+  for (let i = 0; i < nPts; i += 1) {
+    const sp = pts[i].values;
+    const di = pts[i].dirs || [];
+    const h0 = Math.min(hour, sp.length - 1);
+    const h1 = Math.min(hour + 1, sp.length - 1);
+    if (sp[h0] == null || di[h0] == null) continue;
+    const [u0, v0] = comp(sp[h0], di[h0]);
+    const [u1, v1] = sp[h1] != null && di[h1] != null ? comp(sp[h1], di[h1]) : [u0, v0];
+    pu[i] = u0 + (u1 - u0) * frac;
+    pv[i] = v0 + (v1 - v0) * frac;
+    ok[i] = 1;
+  }
+  for (let cell = 0; cell < src.rw * src.rh; cell += 1) {
+    const base = cell * nPts;
+    let u = 0;
+    let v = 0;
+    let weight = 0;
+    for (let i = 0; i < nPts; i += 1) {
+      if (!ok[i]) continue;
+      const w = src.weights[base + i];
+      u += pu[i] * w;
+      v += pv[i] * w;
+      weight += w;
+    }
+    src.uv[cell * 2] = weight > 0 ? u / weight : NaN;
+    src.uv[cell * 2 + 1] = weight > 0 ? v / weight : NaN;
+  }
+}
+
+const FLOW_PARTICLES = 420;       // streaks on the map: enough to read the field, few enough to stay calm
+const FLOW_MIN_PX = 0.7;          // screen pixels a streak moves per frame, however light the wind
+const FLOW_PX_PER_KMH = 0.1;      // ...plus this much per km/h
+const FLOW_MAX_PX = 3.5;          // ...and never more than this
+
 const hexRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16),
   parseInt(h.slice(5, 7), 16)];
 
@@ -734,11 +791,112 @@ function defineFieldOverlay() {
       c.className = 'fieldcanvas';
       this.canvas = c;
       this.getPanes().overlayLayer.appendChild(c);
+      if (this.layer.src && this.layer.src.wind) {
+        // The moving streaks live on a canvas of their own: the field above is repainted from scratch
+        // whenever the clock moves, and a streak needs its trail to survive from one frame to the next.
+        const f = document.createElement('canvas');
+        f.className = 'fieldcanvas';
+        this.flow = f;
+        this.particles = null;
+        this.getPanes().overlayLayer.appendChild(f);
+        const tick = () => { this.raf = requestAnimationFrame(tick); this.flowFrame(); };
+        this.raf = requestAnimationFrame(tick);
+      }
     }
 
     onRemove() {
-      if (this.canvas && this.canvas.parentNode) this.canvas.parentNode.removeChild(this.canvas);
+      if (this.raf) cancelAnimationFrame(this.raf);
+      this.raf = null;
+      for (const c of [this.canvas, this.flow]) if (c && c.parentNode) c.parentNode.removeChild(c);
       this.canvas = null;
+      this.flow = null;
+    }
+
+    /* One frame of moving streaks, each carried along by the wind at its own spot. A streak is born
+       at random, drifts for a while, then is born again somewhere else, and the canvas fades a little
+       each frame so what is left behind is a short tail pointing back the way it came. */
+    flowFrame() {
+      const src = this.layer.src;
+      const c = this.flow;
+      if (!c || !src || !src.uv || document.hidden) return;
+      const W = c.width;
+      const H = c.height;
+      const ctx = c.getContext('2d');
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = 'rgba(0,0,0,0.06)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 1.8;
+      if (!this.particles) {
+        this.particles = Array.from({ length: FLOW_PARTICLES },
+          () => ({ x: Math.random(), y: Math.random(), age: Math.floor(Math.random() * 70) }));
+      }
+      for (const p of this.particles) {
+        const k = (Math.min(src.rh - 1, Math.floor(p.y * src.rh)) * src.rw
+          + Math.min(src.rw - 1, Math.floor(p.x * src.rw))) * 2;
+        const u = src.uv[k];
+        const v = src.uv[k + 1];
+        if (p.age > 70 || !Number.isFinite(u) || !Number.isFinite(v)) {
+          p.x = Math.random(); p.y = Math.random(); p.age = 0;
+          continue;
+        }
+        const sp = Math.hypot(u, v);
+        // Motion is for direction, not for speed: a light breeze of a few km/h would crawl a fraction
+        // of a pixel a frame and read as a still picture, so the pace has a floor. The colour and the
+        // arrow length carry the speed; how fast a streak moves only says it is moving.
+        const step = sp > 0.05 ? Math.min(FLOW_MAX_PX, FLOW_MIN_PX + sp * FLOW_PX_PER_KMH) : 0;
+        const nx = p.x + (sp > 0.05 ? (u / sp) * step / W : 0);
+        const ny = p.y - (sp > 0.05 ? (v / sp) * step / H : 0);  // north is up the screen
+        ctx.strokeStyle = `rgba(255,255,255,${(0.4 + Math.min(sp / 30, 1) * 0.5).toFixed(2)})`;
+        ctx.beginPath();
+        ctx.moveTo(p.x * W, p.y * H);
+        ctx.lineTo(nx * W, ny * H);
+        ctx.stroke();
+        p.x = nx; p.y = ny; p.age += 1;
+        if (p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1) p.age = 99;
+      }
+    }
+
+    /* A grid of arrows pointing the way the air is going, longer where it is stronger. The streaks
+       show motion; these still read when the clock is paused and in a screenshot. */
+    arrows(ctx, src) {
+      if (!src.uv) return;
+      const W = this.canvas.width;
+      const H = this.canvas.height;
+      const gap = 62;
+      const sx = W / src.rw;
+      const sy = H / src.rh;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (let y = gap / 2; y < H; y += gap) {
+        for (let x = gap / 2; x < W; x += gap) {
+          const k = (Math.min(src.rh - 1, Math.floor(y / sy)) * src.rw + Math.min(src.rw - 1, Math.floor(x / sx))) * 2;
+          const u = src.uv[k];
+          const v = src.uv[k + 1];
+          const sp = Math.hypot(u, v);
+          if (!Number.isFinite(sp) || sp < 0.5) continue;
+          const len = 10 + Math.min(sp, 40) / 40 * 16;
+          const ang = Math.atan2(-v, u);                          // screen y runs down
+          const tx = x + Math.cos(ang) * len / 2;
+          const ty = y + Math.sin(ang) * len / 2;
+          const bx = x - Math.cos(ang) * len / 2;
+          const by = y - Math.sin(ang) * len / 2;
+          const head = 4.5;
+          ctx.beginPath();
+          ctx.moveTo(bx, by);
+          ctx.lineTo(tx, ty);
+          ctx.moveTo(tx - Math.cos(ang - 0.5) * head, ty - Math.sin(ang - 0.5) * head);
+          ctx.lineTo(tx, ty);
+          ctx.lineTo(tx - Math.cos(ang + 0.5) * head, ty - Math.sin(ang + 0.5) * head);
+          ctx.strokeStyle = 'rgba(20,32,44,0.55)';
+          ctx.lineWidth = 3.4;
+          ctx.stroke();
+          ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+          ctx.lineWidth = 1.6;
+          ctx.stroke();
+        }
+      }
     }
 
     draw() {
@@ -757,6 +915,12 @@ function defineFieldOverlay() {
       st.height = `${height}px`;
       this.canvas.width = Math.min(width, 1400);
       this.canvas.height = Math.min(height, 1400);
+      if (this.flow) {
+        const fs = this.flow.style;
+        fs.left = st.left; fs.top = st.top; fs.width = st.width; fs.height = st.height;
+        this.flow.width = this.canvas.width;
+        this.flow.height = this.canvas.height;
+      }
       this.repaint();
     }
 
@@ -771,6 +935,13 @@ function defineFieldOverlay() {
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(this.small, 0, 0, this.canvas.width, this.canvas.height);
       ctx.globalAlpha = 1;
+      if (src.wind) {
+        windUV(src, Math.max(0, clock.hour - (src.offset || 0)), clock.frac);
+        this.arrows(ctx, src);
+        // The streaks and arrows follow the layer's opacity slider too, kept a little stronger than
+        // the colour so the direction stays readable when the colour is faded right down.
+        if (this.flow) this.flow.style.opacity = String(Math.min(1, this.layer.opacity + 0.35));
+      }
     }
   };
 }
@@ -2828,6 +2999,52 @@ function setArea(bbox, label) {
 
 /* ---- one agent turn -------------------------------------------------------------------------- */
 
+/* What else can be asked about the area, one chip per hazard the server says it can screen (so a
+   hazard added in hazards.py is offered here with no change to this file), plus people and a free
+   question. Choosing heat, wind or air quality also turns on the matching map layer, so the answer can
+   be watched on the map and not only read. Rain is one of the options like the others, but it is the
+   one that has already run: drawing a box asks for it straight away and it is never behind a button. */
+const OPTION_LAYER = { heat: 'heat', wind: 'wind', air: 'airquality', people: 'population' };
+const TOPIC_HAZARD = { flood: 'flood', overview: 'flood', heat: 'heat', wind: 'wind',
+  air_quality: 'air', population: 'people' };
+
+function turnOnLayer(id) {
+  const l = dataLayers[id];
+  if (!l || l.visible) return;
+  const cb = l.row.querySelector('input[type="checkbox"]');
+  if (cb) cb.checked = true;
+  setLayerVisible(id, true);
+}
+
+function areaOptions(topic) {
+  const done = TOPIC_HAZARD[topic];
+  const box = mk('div', 'followups area-options');
+  box.appendChild(mk('div', 'chat-label', 'More about this area'));
+  const add = (id, label, run) => {
+    if (id === done) return;
+    const c = mk('button', 'chip chip-alt');
+    c.type = 'button';
+    c.textContent = label;
+    c.onclick = () => { if (OPTION_LAYER[id]) turnOnLayer(OPTION_LAYER[id]); run(); };
+    box.appendChild(c);
+  };
+  for (const h of state.hazards || []) {
+    if (!h.option) continue;
+    add(h.id, h.option.label, () => (h.id === 'flood'
+      ? sendQuestion(DEFAULT_PREDICT_Q, { auto: true }) : sendQuestion(h.option.q)));
+  }
+  add('people', 'Who lives here', () => sendQuestion('Roughly how many people live here?'));
+  const ask = mk('button', 'chip');
+  ask.type = 'button';
+  ask.textContent = 'Ask about this area';
+  ask.onclick = () => {
+    $('question').focus();
+    chatNote(`Ask anything about ${state.areaLabel || 'this area'} below`);
+  };
+  box.appendChild(ask);
+  return box;
+}
+
 function startTurn(question, opts) {
   // Only the newest answer offers follow-ups, or the chat fills with stale buttons.
   document.querySelectorAll('#chat .followups, #chat .whatif-inline').forEach((n) => n.remove());
@@ -2836,10 +3053,14 @@ function startTurn(question, opts) {
     '<details class="work" open><summary><span class="spin"></span>'
     + '<span class="work-label">Reading your question…</span></summary><ol class="trace"></ol></details>'
     + '<div class="answer" hidden></div>';
+  // The rain prediction a drawn box asks for takes a while; the other things to ask about the area
+  // are offered at once rather than after the wait. They move into the answer when it lands.
+  const areaOpts = opts.auto ? areaOptions('flood') : null;
+  if (areaOpts) b.appendChild(areaOpts);
   if (opts.replace && opts.replace.isConnected) opts.replace.replaceWith(m);
   else push(m);
   return {
-    m, question, auto: Boolean(opts.auto), finished: false, steps: 0, ms: 0, text: '',
+    m, areaOpts, question, auto: Boolean(opts.auto), finished: false, steps: 0, ms: 0, text: '',
     work: b.querySelector('.work'), label: b.querySelector('.work-label'),
     trace: b.querySelector('.trace'), answer: b.querySelector('.answer'),
   };
@@ -2980,7 +3201,7 @@ function renderAnswer(turn, ev) {
    and hazard. It only opens the News tab with a question, so the news stays labelled as reported and
    moves no number. A drawn box has no name, so its question is about the city, and says so. */
 const REPORT_TOPICS = { overview: ['flood', 'heat', 'air'], flood: ['flood'], population: ['flood'],
-                        heat: ['heat'], air_quality: ['air'] };
+                        heat: ['heat'], air_quality: ['air'], wind: [] };   // no wind news topic: no chip
 
 function reportedChip(topic, place) {
   const names = (REPORT_TOPICS[topic] || ['flood'])
@@ -2997,29 +3218,33 @@ function reportedChip(topic, place) {
 
 function addFollowups(turn, ev) {
   const sc = ev.scenario || {};
+  const topic = sc.topic || 'overview';
+  turn.answer.appendChild(areaOptions(topic));
   const hasOfficial = Boolean(state.region && state.region.official
     && (state.region.official.return_periods || []).length);
   const hasPeople = Boolean(ev.result && ev.result.exposure && ev.result.exposure.available);
   const box = mk('div', 'followups');
-  SUGGESTIONS
-    .filter((s) => s.q !== turn.question && (s.needs !== 'official' || hasOfficial)
-      && (s.needs !== 'people' || hasPeople))
-    .slice(0, 3)
-    .forEach((s) => {
-      const c = mk('button', 'chip');
-      c.type = 'button';
-      c.textContent = s.q;
-      c.onclick = () => sendQuestion(s.q);
-      box.appendChild(c);
-    });
-  const w = mk('button', 'chip chip-alt', 'What if it rains more?');
-  w.type = 'button';
-  w.onclick = () => toggleWhatIf(turn, sc);
-  box.appendChild(w);
+  if (topic === 'flood' || topic === 'overview') {      // the rain-specific follow-ups, only after rain
+    SUGGESTIONS
+      .filter((s) => s.q !== turn.question && (s.needs !== 'official' || hasOfficial)
+        && (s.needs !== 'people' || hasPeople))
+      .slice(0, 3)
+      .forEach((s) => {
+        const c = mk('button', 'chip');
+        c.type = 'button';
+        c.textContent = s.q;
+        c.onclick = () => sendQuestion(s.q);
+        box.appendChild(c);
+      });
+    const w = mk('button', 'chip chip-alt', 'What if it rains more?');
+    w.type = 'button';
+    w.onclick = () => toggleWhatIf(turn, sc);
+    box.appendChild(w);
+  }
   const place = state.areaLabel && state.areaLabel !== DRAWN_BOX ? state.areaLabel : null;
-  const rep = reportedChip(sc.topic || 'overview', place);
+  const rep = reportedChip(topic, place);
   if (rep) box.appendChild(rep);
-  turn.answer.appendChild(box);
+  if (box.children.length) turn.answer.appendChild(box);
 }
 
 /* The agent offers the slider: a hypothesis, run through the same agents, so the answer to "what if
@@ -3048,6 +3273,7 @@ function toggleWhatIf(turn, sc) {
 }
 
 function finishTurn(turn, ev) {
+  if (turn.areaOpts) turn.areaOpts.remove();          // the answer carries its own copy of these
   const removed = (ev.removed || []).length;
   const sc = ev.scenario || {};
   settle(turn, ev.briefing

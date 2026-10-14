@@ -34,6 +34,19 @@ its concentration, plus an hourly AQI forecast. All values are the Google Air Qu
 numbers, shown as published. AQI is a regional reading — it does not vary at building level. This
 product does not predict health effects for any individual.
 
+For wind, the agent says which way the wind blows and how strong it gets, now and over the next two
+days, from the same hourly forecast. The direction it names is where the wind blows FROM, as in a
+weather report: a wind from the south-west carries air towards the north-east. The Wind speed layer
+draws it on the map as a colour field with arrows and moving streaks that point the way the air is
+going. It is a point forecast, and the wind between buildings, trees and water differs from it.
+
+WHEN A BOX IS DRAWN
+Drawing a box, or picking an area, makes the agent run the rain forecast for that box straight away,
+and the low spots that would fill stay on the map. It then offers what else it can say about the same
+box: the heat forecast, the wind and its direction, air quality, how many people live there, or any
+question the person types. Choosing heat, wind or air quality also turns on the matching map layer,
+so the answer can be watched as well as read.
+
 THE PARTS OF THE SCREEN
 - The Agent tab is a chat. Ask about a place, a whole city, or what any term means.
 - The Rain tab shows the rainfall forecast. The Heat tab shows heat conditions and forecast.
@@ -48,7 +61,8 @@ THE PARTS OF THE SCREEN
   Heat index, Temperature, Humidity, Rain per hour, Wind speed, People per km2, Air quality and
   Traffic. The weather ones are drawn as a smooth colour field interpolated between sixteen
   forecast points - across the whole city, or across the box once one is drawn, where the points
-  sit closer together. The colour between those points is interpolation, not a reading, and the
+  sit closer together. The wind layer adds arrows and moving streaks for direction. The colour between
+  those points is interpolation, not a reading, and the
   scale on the right of the map says what each colour is worth. A forecast model does not resolve
   streets or roofs, so inside a small box the field shows gentle shading rather than block-by-block
   detail; the layer's note under its name gives the box's own figure for how much it varies.
