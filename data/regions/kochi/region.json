@@ -348,5 +348,63 @@
       "Scaled so the staged area adds up to the published figure: the grid says where, the census says how many.",
       "Inside a spot, people are placed on the mapped buildings in their cell, so a spot over open ground holds nobody. Where a cell has people and no mapped building they are spread evenly over the cell instead."
     ]
+  },
+  "seismic": {
+    "hazard": {
+      "file": "pga.tif",
+      "source": "GEM Global Seismic Hazard Map v2023.1 (Johnson et al. 2023), GEM Foundation",
+      "doi": "10.5281/zenodo.8409647",
+      "licence": "CC BY-NC-SA 4.0 (non-commercial)",
+      "quantity": "peak ground acceleration, as a fraction of g",
+      "exceedance": "10% chance of being exceeded in 50 years (the 475-year level)",
+      "site_condition": "reference rock, Vs30 760-800 m/s",
+      "native_res": "3 arcminute grid (about 5.5 km), interpolated from points about 6 km apart",
+      "source_md5": "37fbd0848acf58777aa477dc4762ed25",
+      "in_region": {
+        "shape": [
+          9,
+          9
+        ],
+        "cell_deg": [
+          0.05,
+          0.049996666666667
+        ],
+        "min": 0.0858,
+        "max": 0.1061,
+        "cells_without_a_value": 18
+      }
+    },
+    "ground": {
+      "file": "vs30.tif",
+      "source": "USGS global hybrid Vs30 mosaic (Heath, Wald, Worden, Thompson and Smoczyk 2020)",
+      "doi": "10.5066/P96HFVXM",
+      "licence": "US government public domain",
+      "quantity": "Vs30, the average shear-wave speed of the top 30 m, in m/s",
+      "method": "topographic slope (Allen and Wald 2007) as the default, regional maps inserted where they exist",
+      "native_res": "30 arcseconds (about 900 m)",
+      "water_placeholder_m_s": 600.0,
+      "source_md5": "1afff72bd5fd393694c38aeeef7c7ab8",
+      "in_region": {
+        "shape": [
+          42,
+          42
+        ],
+        "cell_deg": [
+          0.008333333333333333,
+          0.008333333333333333
+        ],
+        "min": 195.8766,
+        "max": 813.5942,
+        "cells_without_a_value": 0
+      }
+    },
+    "amplification": "Borcherdt (1994) short-period factors, in the form and values USGS tabulate in Open-File Report 2007-1357, Table 1",
+    "intensity": "Worden et al. (2012) peak-ground-acceleration relation, as USGS ShakeMap implements it",
+    "staged": "2026-10-15",
+    "caveats": [
+      "The published design-level shaking: the level with a one in ten chance of being exceeded in fifty years. It is a hazard level, not a forecast and not an earthquake.",
+      "The ground is estimated from the shape of the land at about 900 m. In a flat city almost everything looks alike to that method, and it cannot see a pocket of soft clay or made ground.",
+      "No data on what buildings stand here or how they are built is held, so nothing here says anything about damage, injury or death."
+    ]
   }
 }

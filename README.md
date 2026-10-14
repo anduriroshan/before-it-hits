@@ -199,6 +199,45 @@ forecast points by components and never by angle, and moving with the one clock.
 current index, dominant pollutant, concentrations with units, an hourly forecast and the provider's own
 health recommendations. A regional reading, and said to be.
 
+## Earthquake shaking, and exactly where it stops
+
+Asked how hard an earthquake could shake an area and how many people live where, the agent gives what a
+published model gives and nothing it would have to invent: **the shaking the national hazard models assign to
+this ground at the design level (a 10% chance of being exceeded in 50 years), how much the ground under it
+amplifies that, and how many people stand on each level of it.** That is the exposure half of what USGS PAGER
+does, rebuilt from its own published pieces:
+
+| Step | Source | Checked how |
+|---|---|---|
+| Shaking on firm rock | GEM Global Seismic Hazard Map v2023.1, PGA at the 475-year level | the staged raster's checksum matches the published one |
+| How soft the ground is | USGS global Vs30 map (Heath et al. 2020), from the shape of the land (Allen and Wald) | the 610 MB source file read locally; water is stored as a flat 600 m/s and is set aside, not read as ground |
+| Ground to shaking | Borcherdt (1994) short-period factors, as USGS tabulate them | reproduces every factor in the printed USGS table, class by class, in the tests |
+| Shaking to intensity | Worden et al. (2012), as USGS ShakeMap implements it | coefficients read from USGS's own code, not from memory |
+
+**It stops at shaking, on purpose.** Turning shaking into damage, injury or death needs to know what buildings
+stand there and how they are built. The staged building footprints carry no attributes at all (no use, height or
+material), and GEM's open global exposure model is published at state level only, so this product holds nothing
+that could support it. Asked
+point-blank "how many people would be killed or injured and how many buildings would collapse in a magnitude 8
+earthquake here?", the live agent leads with *"Casualties and building collapses cannot be estimated because no
+building data is held."* A magnitude on its own does not fix shaking at a place (it depends on distance and
+depth), so a question that names one is told so, and is given the design level instead of a made-up scenario.
+
+What it measured about itself, and says:
+- **The ground map is coarse.** About 900 m. In a flat city almost everyone lands on the same class (of the people
+  the ground map covers, 94% of Kochi's and 99.6% of Singapore's stand on stiff soil), so it separates one part of
+  a city from another only where the land differs (Geylang / Kallang, on Singapore's marine clay, comes out softer than Bukit Timah). It cannot see a
+  pocket of clay or made ground, and the answer says so.
+- **The published hazard map has a seam.** Across the north of Singapore it jumps from 0.02 g to 0.04 g in one
+  cell, where separate regional models are joined. That is not the ground. A city-wide answer must say so, and
+  the Verifier enforces it: a draft that stays silent about a seam is sent back.
+- **Kochi's design-level shaking is more than twice Singapore's** (about 0.09 g against 0.04 g on rock), a
+  feature of the published maps and where the cities sit, not a verdict on either.
+- **Intensity is accurate to about two-thirds of a unit,** so the edge between two bands is soft.
+
+The hazard data is **CC BY-NC-SA 4.0 (non-commercial)**: fine for this competition, and it must be re-checked
+before any commercial use. The Vs30 map is US public domain.
+
 ## The map: nine layers and one clock
 
 The Layers panel stacks nine layers, each with its own opacity and a one-line note on what it is drawn
@@ -264,6 +303,11 @@ Written down before building, because each is a question a judge could ask on st
 - **No per-building claims.** Buildings only route water and spread population.
 - **No indoor heat.** It needs roof, floor and ventilation data that does not exist for Indian cities.
 - **No dispatch or evacuation routing.** Planning and preparedness only.
+- **No earthquake damage or casualty estimate, and no "what would a magnitude N do here".** It gives the
+  published design-level shaking, how soft the ground is, and how many people stand on each level, and stops:
+  nothing here knows what buildings stand there or how they are built.
+- **No count of who will fall ill in the heat.** It counts who lives where a published heat threshold applies;
+  there is no health data.
 - **No drainage network, no tides.** Storm-drain networks are not public anywhere, so **pooling is
   overstated where drains work**. This is shown on every single run, not buried in an appendix.
 - **Surface heat is a typical season, not a forecast and not today; it is the surface, not the air; and
@@ -327,6 +371,9 @@ One trap worth recording: DeltaDTM is a *coastal* model that caps at 30 m, writi
 | Census check (Singapore) | SingStat Census 2020 by planning area; URA Master Plan 2019 boundaries, via data.gov.sg | open data, used only to score the grid |
 | Rainfall, heat, air quality (live) | Google Maps Platform Weather and Air Quality APIs | provider's figures, attributed |
 | Live rain gauges (Singapore) | NEA via data.gov.sg | keyless, 5-minute totals |
+| Live heat stress (Singapore) | NEA wet-bulb globe temperature stations via data.gov.sg | keyless, 15-minute averages |
+| Earthquake shaking on rock | GEM Global Seismic Hazard Map v2023.1 (GEM Foundation) | CC BY-NC-SA 4.0 (non-commercial) |
+| How soft the ground is | USGS global hybrid Vs30 map (Heath et al. 2020) | US public domain |
 | News | GDELT DOC 2.0 | open index, shown as headlines with their publishers, never stored |
 | Basemap | Google Maps | display only — nothing measured or traced from it |
 
@@ -354,6 +401,7 @@ python engine/tools/fetch_terrain.py kochi              # terrain, via your gclo
 python engine/tools/stage_region.py kochi --buildings   # OSM water, roads, buildings
 python engine/tools/fetch_lst.py kochi                  # Landsat surface temperature (Earth Engine)
 python engine/tools/fetch_population.py kochi           # GHS-POP population grid (Earth Engine)
+python engine/tools/fetch_seismic.py kochi --hazard <GEM .tif> --ground <USGS global_vs30.grd>   # local files
 python engine/tools/stage_official.py <dir-with-ksdma-tifs>   # Kochi only
 
 # Three keys, three different jobs, none interchangeable
@@ -369,7 +417,7 @@ KEYS
 Without `GEMINI_API_KEY` the agent layer reports itself unavailable and the ask box does not
 appear. Everything else works unchanged.
 
-Tests: `./.venv/Scripts/python.exe -m pytest engine` — 360 tests, all offline, no network, no
+Tests: `./.venv/Scripts/python.exe -m pytest engine` — 405 tests, all offline, no network, no
 staged data and no model. The agent tests stub both models out on purpose: what is worth testing
 there is the part that holds when the model is wrong, and that part is deterministic by design.
 
@@ -380,10 +428,11 @@ Cloud Build builds the image). Add the service URL to the API key's allowed refe
 
 ```
 engine/bih_engine/   deterministic, no model: terrain, hydrology, osm, routes, official, exposure,
-                     preparations, heat, surface_heat, popgrid, density, air_quality, weather_grid, replay, store
+                     preparations, heat, heat_exposure, heat_obs, seismic, surface_heat, popgrid, density, air_quality,
+                     weather_grid, replay, store
 engine/bih_agents/   scenario, narrator, verifier, guide, planner, news and news_agent, coordinator, facts
 engine/tools/        staging jobs: the only code that talks to Overpass, Earth Engine or a data portal
-engine/tests/        360 tests, mostly on synthetic data where the answer is known
+engine/tests/        405 tests, mostly on synthetic data where the answer is known
 service/             FastAPI: every /api route, and the static web files
 web/                 map, layers and one clock, and the right-hand panel: Agent (chat with memory),
                      Rain, Details, Heat, Air, News

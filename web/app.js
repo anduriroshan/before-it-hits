@@ -3006,7 +3006,7 @@ function setArea(bbox, label) {
    one that has already run: drawing a box asks for it straight away and it is never behind a button. */
 const OPTION_LAYER = { heat: 'heat', wind: 'wind', air: 'airquality', people: 'population' };
 const TOPIC_HAZARD = { flood: 'flood', overview: 'flood', heat: 'heat', wind: 'wind',
-  air_quality: 'air', population: 'people' };
+  air_quality: 'air', population: 'people', earthquake: 'earthquake' };
 
 function turnOnLayer(id) {
   const l = dataLayers[id];
@@ -3204,7 +3204,8 @@ function renderAnswer(turn, ev) {
    and hazard. It only opens the News tab with a question, so the news stays labelled as reported and
    moves no number. A drawn box has no name, so its question is about the city, and says so. */
 const REPORT_TOPICS = { overview: ['flood', 'heat', 'air'], flood: ['flood'], population: ['flood'],
-                        heat: ['heat'], air_quality: ['air'], wind: [] };   // no wind news topic: no chip
+                        heat: ['heat'], air_quality: ['air'], wind: [],     // no wind news topic: no chip
+                        earthquake: [] };                                    // nor an earthquake one
 
 function reportedChip(topic, place) {
   const names = (REPORT_TOPICS[topic] || ['flood'])

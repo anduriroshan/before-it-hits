@@ -76,11 +76,15 @@ and you do not praise anything: you list what is wrong, and nothing else.
 
 Report a part only if it breaks one of these rules:
 
-- unsupported: says something the findings do not contain. This covers any claim about health:
-  the findings never contain one. A population count under "heat_exposure" is how many people LIVE
-  somewhere, so writing that they are "at risk", "in danger", "affected", "will suffer", or any
-  count of illness or death is unsupported, and so is declaring a heat wave when the findings say
-  the threshold is only half checked. Naming a band is fine; naming a consequence is not.
+- unsupported: says something the findings do not contain. This covers any claim about health,
+  injury or damage: the findings never contain one. A population count under "heat_exposure" or
+  "seismic" is how many people LIVE somewhere, so writing that they are "at risk", "in danger",
+  "affected", "vulnerable", "will suffer", or any count of illness, injury, collapse or death is
+  unsupported, and so is declaring a heat wave when the findings say the threshold is only half
+  checked. For "seismic" the findings hold nothing at all about buildings, so any statement about
+  damage, collapse or casualties - or what a stated magnitude "would do" - is unsupported. A sentence
+  that says damage is NOT estimated is fine; a sentence that estimates it is not. Naming a band is
+  fine; naming a consequence is not.
 - own_depth: gives a depth for one of our own pooling spots, or attaches a depth from the
   "official" block to one of our spots. Our spots are ranked against each other and have no depth.
   The official figures are a separate authority's and describe their own flood layer.
@@ -104,7 +108,10 @@ Report a part only if it breaks one of these rules:
 - overstated: makes the extent sound larger than the findings say - "most of the area" when a few
   spots out of many are ranked top, or similar.
 - certainty: presents a forecast or a hypothetical rainfall as something that will happen, or
-  states as settled something the findings flag as uncertain or low confidence. The same rule
+  states as settled something the findings flag as uncertain or low confidence. Presenting the
+  "seismic" design-level shaking as a forecast, a prediction, or a scenario of a particular
+  earthquake is the same error: it is a published hazard level, a one in ten chance in fifty years,
+  and nothing that has happened or will. The same rule
   covers the "surface_heat" block, which is a satellite picture of how hot the GROUND typically
   runs in the dry season. Report a part that presents it as today's or a forecast temperature, that
   calls a surface temperature "the temperature" or "how hot it is", or that compares it with the
@@ -156,6 +163,41 @@ def check_caveat(briefing: dict, bundle: dict | None = None) -> list[dict]:
                             "data, which is this product's largest known bias",
                  "text": briefing.get("caveat", "")}]
     return []
+
+
+# Words by which a briefing can honestly say the published hazard map jumps. Any one will do: the point
+# is that it is said, not how.
+SEAM_WORDS = ("abrupt", "jump", "regional model", "separate model", "where models meet", "joined", "seam")
+
+
+def check_seismic_statements(bundle: dict, briefing: dict) -> list[dict]:
+    """What an earthquake briefing must say, checked rather than hoped for, as the drain caveat is.
+
+    Two things, each of which a reader would otherwise draw the wrong conclusion without. The caveat must
+    say that no building data is held, because without that a count of people on shaking reads as a count
+    of people in danger. And where the published hazard map jumps across the area, the briefing must say
+    so: otherwise a band of people on the lower side of the jump reads as ground that shakes less, when it
+    is the join between two models and nothing to do with the ground."""
+    seismic = (bundle or {}).get("seismic")
+    if not seismic:
+        return []
+    out = []
+    if "building" not in (briefing.get("caveat") or "").lower():
+        out.append({"part": "caveat", "rule": "unsupported", "found_by": "arithmetic",
+                    "problem": "the caveat does not say that no building data is held, so damage and "
+                               "casualties are not estimated - without that, a count of people on "
+                               "shaking reads as a count of people in danger",
+                    "text": briefing.get("caveat", "")})
+    if seismic.get("the_published_map_jumps_here"):
+        whole = " ".join(t for _, t in parts(briefing)).lower()
+        if not any(w in whole for w in SEAM_WORDS):
+            out.append({"part": "caveat", "rule": "unsupported", "found_by": "arithmetic",
+                        "problem": "the findings say the published hazard map changes abruptly across "
+                                   "this area, where separate regional models are joined, and the "
+                                   "briefing does not - so people on the lower side of the jump read as "
+                                   "ground that shakes less, when it is the join between two models",
+                        "text": briefing.get("caveat", "")})
+    return out
 
 
 def check_official_units(bundle: dict, briefing: dict) -> list[dict]:
@@ -227,5 +269,5 @@ def verify(bundle: dict, briefing: dict, *, model: str = llm.CAREFUL_MODEL) -> l
     """Every problem with this draft. Arithmetic first, so a wrong figure is never argued about."""
     allowed = facts.allowed_numbers(bundle)
     return (check_numbers(briefing, allowed) + check_caveat(briefing, bundle)
-            + check_official_units(bundle, briefing)
+            + check_official_units(bundle, briefing) + check_seismic_statements(bundle, briefing)
             + check_claims(bundle, briefing, model=model))

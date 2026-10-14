@@ -50,7 +50,7 @@ Environment switches: `BIH_NO_NEWS_WARM`, `BIH_NO_DENSITY_WARM`, `BIH_FAST_MODEL
 From the repo root:
 
 ```powershell
-& .\.venv\Scripts\python.exe -m pytest engine -q          # expect: 360 passed, about 10 to 30 s
+& .\.venv\Scripts\python.exe -m pytest engine -q          # expect: 405 passed, about 10 to 30 s
 & .\.venv\Scripts\python.exe -m pytest engine/tests/test_surface_heat.py -q
 ```
 

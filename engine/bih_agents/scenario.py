@@ -49,12 +49,15 @@ SCHEMA = {
                                   "term means, how this works, how far to trust it, or why the "
                                   "last answer said what it said."},
         "topic": {"type": "STRING",
-                  "enum": ["flood", "population", "heat", "air_quality", "wind", "overview"],
+                  "enum": ["flood", "population", "heat", "air_quality", "wind", "earthquake",
+                           "overview"],
                   "description": "What the question is about. 'flood' = pooling, roads, drainage, "
                                  "water. 'population' = how many people, density. 'heat' = "
                                  "temperature, heat index, humidity, which parts are hotter or "
                                  "cooler, urban heat, hot spots. 'air_quality' = pollution, "
                                  "AQI, air. 'wind' = wind speed, gusts, which way the wind blows. "
+                                 "'earthquake' = earthquakes, seismic shaking, tremors, soft ground, "
+                                 "how many people would feel or stand on shaking. "
                                  "'overview' = general analysis, multiple things at once, or "
                                  "'analyse this area'."},
         "scope": {"type": "STRING", "enum": ["area", "city"],
@@ -73,6 +76,13 @@ SCHEMA = {
                            "description": "The exact words from the question that carry the "
                                           "temperature figure, copied character for character. "
                                           "Empty if no figure was stated."},
+        "magnitude": {"type": "NUMBER",
+                      "description": "Only if the asker stated an earthquake magnitude ('a magnitude 7', "
+                                     "'an 8.1 quake'). Otherwise -1. Never estimate one yourself."},
+        "magnitude_stated_as": {"type": "STRING",
+                                "description": "The exact words from the question that carry the "
+                                               "magnitude, copied character for character. Empty if no "
+                                               "magnitude was stated."},
         "earlier_area": {"type": "STRING",
                          "description": "Only when the message points back at an area an earlier "
                                         "answer named, without naming it ('the most populated area', "
@@ -90,7 +100,7 @@ SCHEMA = {
     },
     "required": ["reading", "mode", "rainfall_mm", "rainfall_stated_as", "duration_h",
                  "return_period_years", "focus", "scope", "intent", "topic", "place", "earlier_area",
-                 "heat_c", "heat_stated_as",
+                 "heat_c", "heat_stated_as", "magnitude", "magnitude_stated_as",
                  "same_rainfall_as_before", "audience", "needs_clarification", "question_back"],
 }
 
@@ -116,8 +126,10 @@ Rules:
   lives here. "heat" for temperature, heat index, how hot, and which parts of an area are hotter
   or cooler than others, urban heat, hot spots. "air_quality" for AQI, pollution, air. "wind" for
   wind speed, gusts, which way the wind blows, breeze. "flood" for pooling, water, roads, drainage.
-  "overview" when the question is general ("analyse this area"), covers more than one HAZARD, or is
-  primarily about flood risk.
+  "earthquake" for earthquakes, seismic shaking, tremors, how hard the ground shakes, soft or
+  low-lying ground, and how many people would feel or stand on strong shaking. "overview" when the
+  question is general ("analyse this area"), covers more than one HAZARD, or is primarily about
+  flood risk.
 - A question that pairs ONE hazard with how many people ("how hot does it get here and how many
   people live here", "who is exposed to this heat", "how many people live where the air is worst")
   is that hazard's topic, NOT "population" and NOT "overview". Each hazard already carries who lives
@@ -134,6 +146,10 @@ Rules:
   figure to test ("what if it hits 41", "if it reaches 45 degrees"). Copy the exact words into
   heat_stated_as. "If it gets hotter" or "a heat wave" names no figure: leave it at -1 and the real
   forecast is used. Never work out what a heat wave means for this city - an authority decides that.
+- magnitude: the same rule again, for an earthquake. Only a magnitude the asker states ("a magnitude 7",
+  "an 8.1 quake"), with the exact words in magnitude_stated_as. It is never a rainfall and never a
+  temperature, so do not put it in rainfall_mm or heat_c. A question that names a magnitude is still
+  the earthquake topic: do not work out what shaking, damage or deaths that magnitude would cause.
 - Never invent a rainfall figure. If the asker gave one in THIS message, copy it and the words it
   came from. If they said something vague like "heavy rain" or "a storm", set rainfall_mm to -1.
   If they ask to reuse the last storm ("the same rainfall", "same storm", "as before"), set
@@ -291,8 +307,11 @@ def settle(spec: dict, *, question: str, slider_mm: float,
     stated_heat = spec.get("heat_c", NOT_STATED)
     heat_ok = (stated_heat is not None and float(stated_heat) > 0
                and _figure_is_the_askers(spec, question, value="heat_c", words="heat_stated_as"))
+    stated_mag = spec.get("magnitude", NOT_STATED)
+    mag_ok = (stated_mag is not None and 0 < float(stated_mag) < 11
+              and _figure_is_the_askers(spec, question, value="magnitude", words="magnitude_stated_as"))
 
-    TOPICS = ("flood", "population", "heat", "air_quality", "wind", "overview")
+    TOPICS = ("flood", "population", "heat", "air_quality", "wind", "earthquake", "overview")
     topic = spec.get("topic") if spec.get("topic") in TOPICS else "overview"
 
     return {
@@ -304,6 +323,7 @@ def settle(spec: dict, *, question: str, slider_mm: float,
         "place": _clean_place(spec, question),
         "earlier_area": _earlier_area(spec, history, preset_labels or []),
         "heat_c": float(stated_heat) if heat_ok else None,
+        "magnitude": float(stated_mag) if mag_ok else None,
         "reused_previous_rainfall": reuse,
         "audience": spec.get("audience") if spec.get("audience") in ("officer", "resident")
                     else "officer",

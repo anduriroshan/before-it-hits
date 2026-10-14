@@ -152,7 +152,7 @@ def main(name: str, with_buildings: bool, manifest_only: bool = False) -> None:
             manifest[key] = existing[key]
     # stage_official.py, fetch_lst.py and fetch_population.py write these keys; restaging the vectors
     # must not wipe them.
-    for key in ("official", "surface_heat", "population_grid"):
+    for key in ("official", "surface_heat", "population_grid", "seismic"):
         if existing.get(key):
             manifest[key] = existing[key]
     (out / "region.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

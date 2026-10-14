@@ -47,6 +47,25 @@ The people figure is everyone the population grid places in the area, which is h
 where that forecast applies. It is never a count of who will fall ill: this product holds no health
 data and will not estimate harm to anybody.
 
+EARTHQUAKE SHAKING, AND WHERE IT STOPS
+Asked how hard an earthquake could shake an area and how many people live where, the agent gives the
+shaking that the published national hazard models assign to the ground at the design level: the level
+with a one in ten chance of being exceeded in fifty years. That is a hazard level for planning. It is not
+a forecast, and it is not a scenario of any particular earthquake. The shaking on firm rock comes from the
+Global Earthquake Model Foundation's Global Seismic Hazard Map. How much the ground under a place
+amplifies it comes from the average shear-wave speed of the top thirty metres, which the US Geological
+Survey estimates from the shape of the land; soft ground multiplies weak shaking most, which is why the
+same earthquake is felt harder on soft ground than on rock. The shaking is then turned into the Modified
+Mercalli intensity scale, and people are counted by the intensity band they stand in.
+Where it stops matters more than what it gives. The ground is estimated at a scale of about nine hundred
+metres, so in a flat city nearly everything looks alike to it and it cannot see a pocket of soft clay or
+made ground. A magnitude alone does not fix shaking at a place, because that depends on how far away the
+earthquake is and how deep, so a question that names a magnitude is answered with the design level and is
+told so. And the product holds no data on what buildings stand there or how they are built, which is what
+turns shaking into harm, so it estimates no damage, no injuries and no deaths. Kochi's published design
+level is stronger than Singapore's, which is a feature of the published maps and of where the two cities
+sit, not a verdict on either city.
+
 For air quality, the Air tab shows the current Air Quality Index (AQI), the dominant pollutant and
 its concentration, plus an hourly AQI forecast. All values are the Google Air Quality API's own
 numbers, shown as published. AQI is a regional reading — it does not vary at building level. This
@@ -150,6 +169,11 @@ WHAT IT DELIBERATELY DOES NOT CLAIM
   overstates pooling wherever drains work, most of all in a well-drained city such as Singapore.
 - No timing for when water arrives or drains away.
 - No claim about any single building.
+- No damage, injury or casualty estimate for an earthquake, and no answer to "what would a magnitude N
+  earthquake do here". A magnitude alone does not fix the shaking at a place, and turning shaking into
+  harm needs to know what buildings stand there and how they are built, which this product does not hold.
+  It gives the published design-level shaking, how soft the ground is, and how many people stand on each
+  level, and stops there.
 - When it was checked against the May 2024 Kochi cloudburst, the ranking could not tell the places
   that flooded from the others at that extreme rainfall, because it flags most of the area then.
   That is reported openly as a limit.

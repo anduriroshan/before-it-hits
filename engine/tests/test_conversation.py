@@ -589,3 +589,154 @@ def test_a_city_whose_authority_cannot_be_read_from_a_forecast_says_so_in_the_fi
     assert ex["whose_threshold_this_is"] != "the National Environment Agency"
     assert "solar radiation" in ex["why_this_authority_and_not_the_local_one"]
     assert ex["people_unavailable"] == "none"
+
+
+# ---- earthquake: a magnitude the asker named is theirs or it is dropped -----------------------
+
+def quake_spec(**over):
+    return spec(**{"magnitude": -1, "magnitude_stated_as": "", "topic": "earthquake", **over})
+
+
+def test_a_magnitude_in_the_askers_own_words_is_kept():
+    s = scenario.settle(quake_spec(magnitude=7, magnitude_stated_as="magnitude 7"),
+                        question="what if a magnitude 7 earthquake hits here?", slider_mm=50)
+    assert s["magnitude"] == 7.0 and s["topic"] == "earthquake"
+
+
+def test_a_magnitude_the_model_invented_is_dropped():
+    s = scenario.settle(quake_spec(magnitude=7, magnitude_stated_as="magnitude 7"),
+                        question="how bad would a big earthquake be here?", slider_mm=50)
+    assert s["magnitude"] is None
+
+
+def test_a_magnitude_outside_any_earthquake_is_dropped_even_when_it_is_in_the_words():
+    s = scenario.settle(quake_spec(magnitude=70, magnitude_stated_as="magnitude 70"),
+                        question="what about a magnitude 70 earthquake?", slider_mm=50)
+    assert s["magnitude"] is None
+
+
+def test_a_magnitude_is_never_read_as_a_rainfall_or_a_temperature():
+    s = scenario.settle(quake_spec(magnitude=7, magnitude_stated_as="magnitude 7"),
+                        question="a magnitude 7 earthquake", slider_mm=55.0)
+    assert s["rainfall_mm"] == 55.0 and s["heat_c"] is None
+
+
+# ---- an earthquake question carries the shaking and the limit, and only that -------------------
+
+SEISMIC = {"available": True, "people_in_area": 90000,
+           "design_level": {"chance_of_being_exceeded_percent": 10, "within_years": 50,
+                            "return_period_years": 475}, "rock_pga_g": {"lowest": 0.041, "highest": 0.041},
+           "published_map_steps_here": False,
+           "people_by_intensity": [{"intensity": 5, "people": 90000}],
+           "intensity_most_people_feel": 5, "intensity_on_firm_rock": 4, "ground_amplifies_by": 1.58,
+           "ground": {"vs30_typical": 213, "vs30_most_people_from": 200, "vs30_most_people_to": 230,
+                      "classes": [{"class": "D", "described_as": "stiff soil", "share_of_people": 1.0}]},
+           "people_with_no_ground_estimate": 0, "people_with_no_hazard_value": 0,
+           "scatter_in_intensity": 0.66}
+
+
+def quake(monkeypatch, scope="area", **over):
+    from bih_engine import seismic
+    seen = city_topic(monkeypatch, "earthquake")
+    monkeypatch.setattr(seismic, "exposure", lambda region, box: dict(SEISMIC, **over))
+    read_returns(monkeypatch, scope=scope, topic="earthquake",
+                 magnitude=over.pop("_mag", -1), magnitude_stated_as=over.pop("_words", ""))
+    return seen
+
+
+def test_an_earthquake_question_never_runs_the_rain_engine_or_forecast(monkeypatch):
+    seen = quake(monkeypatch)
+    out = coordinator.run(question="how strong could shaking be here?", bbox=BOX,
+                          region=RegionWithPresets(), area_label="Drawn box")
+    assert out["kind"] == "analysis" and out["scenario"]["topic"] == "earthquake"
+    assert "seismic" in seen and "pooling" not in seen
+
+
+def test_the_limit_travels_with_the_figures(monkeypatch):
+    seen = quake(monkeypatch)
+    coordinator.run(question="q", bbox=BOX, region=RegionWithPresets(), area_label="Drawn box")
+    s = seen["seismic"]
+    assert "damage, injury or death" in s["not_in_the_data"]
+    assert "no magnitude can be turned into a casualty count" in s["not_in_the_data"]
+    assert "not a forecast" in s["what_this_is"]
+    assert s["intensity_most_people_feel"] == {"intensity": "V", "felt_as": "moderate"}
+    assert s["intensity_on_firm_rock_for_comparison"]["intensity"] == "IV"
+
+
+def test_the_prose_about_shaking_is_digit_free_so_it_smuggles_no_figure(monkeypatch):
+    """A digit in prose becomes a figure the briefing is allowed to quote. The sources carry years and
+    are the one place that is acceptable; everything else that explains must have none."""
+    seen = quake(monkeypatch)
+    coordinator.run(question="q", bbox=BOX, region=RegionWithPresets(), area_label="Drawn box")
+    s = seen["seismic"]
+    for key in ("what_this_is", "scatter_note", "the_ground_map_is_coarse", "not_in_the_data"):
+        assert not any(c.isdigit() for c in s[key]), key
+
+
+def test_a_magnitude_is_echoed_with_why_it_does_not_give_shaking(monkeypatch):
+    seen = quake(monkeypatch, _mag=7.0, _words="magnitude 7")
+    coordinator.run(question="a magnitude 7 earthquake here?", bbox=BOX, region=RegionWithPresets(),
+                    area_label="Drawn box")
+    s = seen["seismic"]
+    assert s["the_magnitude_the_question_gave"] == 7
+    assert "depends on how far away" in s["why_that_does_not_give_shaking_here"]
+
+
+def test_no_magnitude_asked_means_no_magnitude_note(monkeypatch):
+    seen = quake(monkeypatch)
+    coordinator.run(question="q", bbox=BOX, region=RegionWithPresets(), area_label="Drawn box")
+    assert "the_magnitude_the_question_gave" not in seen["seismic"]
+
+
+def test_a_whole_city_earthquake_question_is_summed_not_read_at_a_point(monkeypatch):
+    seen = quake(monkeypatch, scope="city")
+    coordinator.run(question="how many people in the city feel shaking?", bbox=None,
+                    region=RegionWithPresets())
+    assert seen["area"]["what_these_findings_cover"] == coordinator.CITY_SUM_COVER
+    assert "summed" in coordinator.CITY_SUM_COVER and "middle of the city" not in coordinator.CITY_SUM_COVER
+
+
+def test_an_abrupt_seam_in_the_published_map_is_told_to_the_model(monkeypatch):
+    seen = quake(monkeypatch, scope="city", published_map_steps_here=True,
+                 rock_pga_g={"lowest": 0.019, "highest": 0.042})
+    coordinator.run(question="q", bbox=None, region=RegionWithPresets())
+    assert "regional models" in seen["seismic"]["the_published_map_jumps_here"]
+
+
+def test_people_the_ground_map_cannot_place_are_reported_not_hidden(monkeypatch):
+    seen = quake(monkeypatch, people_with_no_ground_estimate=290000)
+    coordinator.run(question="q", bbox=BOX, region=RegionWithPresets(), area_label="Drawn box")
+    assert seen["seismic"]["people_where_the_ground_map_has_no_estimate"] == 290000
+
+
+def test_a_city_with_nothing_staged_gets_no_seismic_claim_and_says_why(monkeypatch):
+    from bih_engine import seismic
+    seen = city_topic(monkeypatch, "earthquake")
+    monkeypatch.setattr(seismic, "exposure",
+                        lambda region, box: {"available": False, "reason": "no seismic data is staged for this city"})
+    read_returns(monkeypatch, scope="area", topic="earthquake")
+    steps = []
+    coordinator.run(question="q", bbox=BOX, region=RegionWithPresets(), area_label="Drawn box",
+                    emit=steps.append)
+    assert "seismic" not in seen
+    assert any(s["agent"] == "Seismic exposure" and s["status"] == "unavailable" for s in steps)
+
+
+def test_the_product_lists_earthquake_shaking_and_states_the_limit_in_its_own_reference():
+    from bih_agents import hazards
+    assert "earthquake" in [h["id"] for h in hazards.live()]
+    assert "Earthquake shaking" in guide.REFERENCE
+    assert "No damage, injury or casualty estimate for an earthquake" in guide.REFERENCE
+
+
+def test_the_standard_way_to_write_the_design_level_is_traceable_to_the_findings(monkeypatch):
+    """The Narrator naturally writes "a 10% chance of being exceeded in 50 years". The digits are the
+    dataset's own definition, so they have to be in the findings or every such answer is sent back, which
+    the live model did on every run before they were."""
+    from bih_agents import facts
+    seen = quake(monkeypatch)
+    coordinator.run(question="q", bbox=BOX, region=RegionWithPresets(), area_label="Drawn box")
+    allowed = facts.allowed_numbers(seen)
+    for phrase in ("a 10 percent chance of being exceeded in 50 years", "the 475-year level"):
+        assert facts.untraceable_numbers(phrase, allowed) == [], phrase
+    assert seen["seismic"]["design_level"]["within_years"] == 50

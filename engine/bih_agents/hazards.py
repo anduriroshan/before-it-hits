@@ -41,6 +41,16 @@ HAZARDS = [
         "option": {"label": "Wind and direction", "q": "Which way is the wind blowing here, and how strong will it get?"},
     },
     {
+        "id": "earthquake",
+        "label": "Earthquake shaking",
+        "what": "the published design-level shaking for this ground, how much the ground under it "
+                "amplifies that, and how many people stand on each level of it; it stops at shaking "
+                "and never estimates damage or casualties",
+        "example": "How strong could earthquake shaking be in {place}?",
+        "option": {"label": "Earthquake shaking",
+                   "q": "How strong could earthquake shaking be here, and how many people live on which ground?"},
+    },
+    {
         "id": "air",
         "label": "Air quality",
         "what": "current AQI, dominant pollutant and concentration levels, "

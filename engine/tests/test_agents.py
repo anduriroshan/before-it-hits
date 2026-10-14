@@ -354,3 +354,71 @@ def test_a_heat_level_is_credited_to_its_scale_and_not_to_the_forecast_provider(
     assert "National Weather Service" in bundle["heat"]["whose_scale_the_level_is_on"]
     assert "Google" in bundle["heat"]["source"]
     assert "Google" not in bundle["heat"]["whose_scale_the_level_is_on"]
+
+
+# ---- earthquake: what the briefing must say is checked, not hoped for -------------------------
+
+def _seismic_bundle(jump=False):
+    b = {"topic": "earthquake", "seismic": {"not_in_the_data": "x"}}
+    if jump:
+        b["seismic"]["the_published_map_jumps_here"] = "the map is joined from separate regional models"
+    return b
+
+
+def _briefing(caveat, bullets=("Roughly people stand on intensity V.",)):
+    return {"headline": "Design-level shaking.", "bullets": list(bullets), "caveat": caveat}
+
+
+def test_an_earthquake_caveat_must_say_no_building_data_is_held():
+    from bih_agents import verifier
+    bad = verifier.check_seismic_statements(_seismic_bundle(), _briefing("This is a design level."))
+    assert [p["part"] for p in bad] == ["caveat"] and "building" in bad[0]["problem"]
+    ok = verifier.check_seismic_statements(
+        _seismic_bundle(), _briefing("No building data is held, so damage is not estimated."))
+    assert ok == []
+
+
+def test_a_seam_in_the_published_map_must_be_said_somewhere_in_the_briefing():
+    from bih_agents import verifier
+    caveat = "No building data is held, so damage is not estimated."
+    silent = verifier.check_seismic_statements(_seismic_bundle(jump=True), _briefing(caveat))
+    assert len(silent) == 1 and "separate regional models are joined" in silent[0]["problem"]
+    said = verifier.check_seismic_statements(
+        _seismic_bundle(jump=True),
+        _briefing(caveat, bullets=("The published map changes abruptly across the north of the city.",)))
+    assert said == []
+
+
+def test_the_seam_check_does_not_fire_where_the_map_does_not_jump():
+    from bih_agents import verifier
+    caveat = "No building data is held, so damage is not estimated."
+    assert verifier.check_seismic_statements(_seismic_bundle(jump=False), _briefing(caveat)) == []
+
+
+def test_other_topics_are_never_held_to_the_earthquake_statements():
+    from bih_agents import verifier
+    assert verifier.check_seismic_statements({"topic": "heat", "heat": {}}, _briefing("A point forecast.")) == []
+
+
+def test_the_seismic_checks_run_as_part_of_verify(monkeypatch):
+    from bih_agents import verifier
+    monkeypatch.setattr(verifier, "check_claims", lambda *a, **k: [])
+    problems = verifier.verify(_seismic_bundle(), _briefing("This is a design level."))
+    assert any("no building data" in p["problem"] for p in problems)
+
+
+def test_a_ground_class_that_is_almost_everyone_is_not_rounded_up_to_everyone():
+    from bih_agents import facts
+    ex = {"available": True, "people_in_area": 5900000, "rock_pga_g": {"lowest": 0.02, "highest": 0.04},
+          "design_level": {"chance_of_being_exceeded_percent": 10, "within_years": 50,
+                           "return_period_years": 475},
+          "people_by_intensity": [{"intensity": 5, "people": 5000000}], "intensity_most_people_feel": 5,
+          "intensity_on_firm_rock": 4, "ground_amplifies_by": 1.47, "scatter_in_intensity": 0.66,
+          "ground": {"vs30_typical": 261, "vs30_most_people_from": 218, "vs30_most_people_to": 312,
+                     "classes": [{"class": "D", "described_as": "stiff soil", "share_of_people": 0.996},
+                                 {"class": "C", "described_as": "very dense soil or soft rock",
+                                  "share_of_people": 0.004}]}}
+    bundle = {}
+    facts.add_seismic(bundle, ex)
+    pct = {c["class"]: c["percent"] for c in bundle["seismic"]["the_ground"]["share_of_people_by_class"]}
+    assert pct == {"D": 99.6, "C": 0.4}

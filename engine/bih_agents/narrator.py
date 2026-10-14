@@ -62,14 +62,16 @@ Hard rules, each of which is checked afterwards by a separate agent:
    never stated the unit and it is inferred.
 8. If the JSON has pooling/flood data, the caveat must say that this is a terrain screening at the
    stated grid size, and that stormwater drains are not in the data. If the JSON is about a single
-   topic (population, heat, air quality or wind) and has no pooling data, say what the data's limits
+   topic (population, heat, air quality, wind or earthquake) and has no pooling data, say what the data's limits
    are instead - for population, that it is a modelled estimate by area, and, when the findings compare
    a list of areas, that the rest of the city was not measured so a more populated part may lie
    outside them; for heat, that the forecast is
    a point forecast, and when your answer rests on "surface_heat" the caveat is about THAT: it is a
    typical season rather than today, and the satellite sees patches a few blocks across, not single
    buildings; for air quality, that it is a regional reading; for wind, that it is a point forecast
-   and the wind between buildings, trees and water differs from it.
+   and the wind between buildings, trees and water differs from it; for an earthquake, that this is the
+   published design-level shaking and not a forecast of any earthquake, that the ground is estimated
+   coarsely, and that no building data is held so damage and casualties are not estimated.
 
 The JSON may include heat and air quality data alongside the flood findings. If they are present
 and relevant to the question, mention them briefly - but keep the hazards separate, never blend
@@ -116,14 +118,45 @@ folds in humidity, wind and sunshine: never set it beside an air temperature or 
 though they were the same reading, and never average or compare the two. Say it is measured, and say
 when a station sits outside this area.
 
+If the JSON has "seismic", it is the shaking the published models give this ground at the design level,
+and how many people stand on each level of it. Rules for it:
+  - Say what it is in the headline or first bullet: the design-level shaking, with a 10 percent chance
+    of being exceeded in 50 years (the figures are in "design_level"; write them as "10 percent" and "50
+    years", or in words, never as "1 in 10"). It is a hazard level, never "a forecast", "a prediction",
+    "what will happen", or "an earthquake". If you give an intensity, give it in the Roman numeral with the word for
+    how it is felt, as the JSON does ("intensity V, moderate shaking").
+  - NEVER write damage, collapse, injuries, casualties, deaths, "affected", "at risk", "vulnerable" or "in
+    danger" about people or buildings. The JSON holds nothing about buildings, and the people figure is
+    how many people STAND on a level of shaking. "About N people live where shaking reaches intensity V"
+    is right. "N people would be affected" is not. Say once, plainly, that no building data is held so
+    damage and casualties are not estimated, using "not_in_the_data".
+  - If "the_magnitude_the_question_gave" is there, say the question named a magnitude, that a magnitude
+    alone does not fix the shaking at a place (it depends on distance and depth), and that what you are
+    giving is the published design level and not that earthquake. Never work out what that magnitude
+    would do here.
+  - Say how soft the ground is where people live, from "the_ground", in plain words, and how much it
+    multiplies the shaking ("about 1.5 times what firm rock would give"). If "the_ground_map_is_coarse"
+    is there, say in one clause that the ground is estimated coarsely and cannot see a pocket of soft
+    clay. Never claim to know which street or building is on soft ground.
+  - Give the intensity bands as bands: where "scatter_note" says the edge between two is soft, say so.
+  - If "the_published_map_jumps_here" is there you MUST say, in a bullet or the caveat, that the published
+    map changes abruptly across the area and that the line is where separate models meet, not a line on
+    the ground. It is checked. Never describe the people on the lower side of that jump as living on
+    ground that shakes less: the ground has not changed, the map has.
+  - Never write "all", "everyone" or "100 percent" about the ground class when the JSON shows more than
+    one class: write the percentages as given ("99.6 percent").
+  - If "people_where_the_ground_map_has_no_estimate" is there, say those people are left out of the
+    bands because the ground map has no estimate for them (it marks water).
+  - Name the source of the shaking and of the ground, from "where_each_part_comes_from".
+
 If the JSON has "wind", it is the forecast for the middle of this box. Say which way the wind blows
 FROM and which way the air is going, in the words given ("from the south-west, towards the
 north-east"), never as a bearing or a number of degrees. Give the speed and the gusts as given, say
 how it changes later if the readings under "later" differ, and say when it is strongest. It does not
 say anything about flooding, health effects, or what anyone should do.
 
-If the JSON has a "topic" field set to "population", "heat", "air_quality" or "wind", the question is
-about that one thing only. Answer about that topic. Do not mention floods, pooling, or drainage -
+If the JSON has a "topic" field set to "population", "heat", "air_quality", "wind" or "earthquake", the
+question is about that one thing only. Answer about that topic. Do not mention floods, pooling, or drainage -
 the engine was not run and there is no flood data in the JSON.
 
 Answer the question in the JSON. At most {MAX_BULLETS} bullets, one claim each, plainest English,

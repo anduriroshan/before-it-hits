@@ -52,7 +52,7 @@ decoration; this one shows a forecast outage, a model that could not be reached,
 The Narrator writes from the bundle and nothing else, and the Verifier's hard check is simply: **a number may
 appear in the briefing only if it appears in the bundle.** Sections: `area`, `rainfall`, `pooling`,
 `roads_through_the_worst_spots`, `confidence`, `limits`, `official`, `people`, `agreement`, `heat`,
-`heat_exposure`, `measured_heat_stress`, `surface_heat`, `air_quality`. Topic bundles (population, heat,
+`heat_exposure`, `measured_heat_stress`, `seismic`, `surface_heat`, `air_quality`. Topic bundles (population, heat,
 air quality) carry only what was fetched.
 
 `heat_exposure` is the one block whose whole value is an attribution: the threshold belongs to the city's
@@ -62,6 +62,15 @@ imply the local authority rated anything. Where the criterion can only be half c
 (`this_threshold_is_only_half_checked`) the Narrator may not declare the hazard at all. `people_living_here`
 is who lives in the area, never who is harmed — the Verifier's `unsupported` rule names health claims
 explicitly, because that is the most dangerous sentence the model could write.
+
+`seismic` follows the same shape and goes further, because it is the block where the temptation is greatest:
+the limit travels *with* the figures (`not_in_the_data`: no building data, so no damage, injury or death), the
+design level is carried as the dataset's own numbers (10% in 50 years, the 475-year level), and a magnitude in
+the question is the asker's own or dropped and is answered with why a magnitude does not fix shaking at a
+place. Two statements are **checked, not hoped for** (`verifier.check_seismic_statements`, like the drain
+caveat): the caveat must say no building data is held, and where the published hazard map jumps across the
+area the briefing must say so. A city-wide answer is a sum over everyone (`CITY_SUM_COVER`), not a reading at
+a point like heat and wind.
 
 ### Things kept out of the bundle, on purpose
 

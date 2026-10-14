@@ -309,6 +309,94 @@ def add_heat_exposure(bundle: dict, ex: dict) -> None:
     bundle["heat_exposure"] = block
 
 
+ROMAN = {1: "I", 2: "II", 3: "III", 4: "IV", 5: "V", 6: "VI", 7: "VII", 8: "VIII", 9: "IX", 10: "X"}
+# USGS ShakeMap's words for how the shaking is felt. Only what people feel, never what it does to a
+# building: this product holds nothing about buildings, so it has no standing to name a damage level.
+FELT_AS = {1: "not felt", 2: "weak", 3: "weak", 4: "light", 5: "moderate", 6: "strong",
+           7: "very strong", 8: "severe", 9: "violent", 10: "extreme"}
+
+
+def add_seismic(bundle: dict, ex: dict, magnitude: float | None = None) -> None:
+    """Append the published design-level shaking for the ground, and who stands on each level of it.
+
+    Written so the limit travels with the figures. The numbers say how hard the ground is shaken by
+    the level the published models call a one in ten chance in fifty years, and how many people stand
+    on each level; the prose says what that is NOT (a forecast, a scenario, a damage estimate), because
+    a briefing that read these as a prediction of harm would be the most dangerous thing this product
+    could write. The prose is digit-free, for the reason the heat notes are."""
+    if not ex or not ex.get("available"):
+        return
+
+    def level(k: int) -> dict:
+        return {"intensity": ROMAN[k], "felt_as": FELT_AS[k]}
+
+    ground = ex["ground"]
+    block = {
+        "what_this_is": "The shaking that the published national hazard models give this ground at the "
+                        "design level: the level with a one in ten chance of being exceeded in fifty "
+                        "years. It is a hazard level for planning. It is not a forecast, it is not an "
+                        "earthquake that has happened, and it is not a scenario of any particular one.",
+        # The same definition as numbers, because "a 10% chance in 50 years" is the standard way to write
+        # it and the digits have to be in the findings for a briefing to be allowed to use them.
+        "design_level": {
+            "chance_of_being_exceeded_percent": tidy(ex["design_level"]["chance_of_being_exceeded_percent"]),
+            "within_years": tidy(ex["design_level"]["within_years"]),
+            "also_called_the_return_period_in_years": tidy(ex["design_level"]["return_period_years"]),
+        },
+        "where_each_part_comes_from": {
+            "shaking_on_firm_rock": "GEM Global Seismic Hazard Map, GEM Foundation",
+            "how_soft_the_ground_is": "USGS global Vs30 map, estimated from the shape of the land "
+                                      "(Allen and Wald; Heath and others 2020)",
+            "ground_to_shaking": "Borcherdt (1994), as USGS tabulate it",
+            "shaking_to_intensity": "Worden and others (2012), as USGS ShakeMap implements it",
+        },
+        "firm_rock_shaking_as_a_fraction_of_gravity": {"lowest": tidy(ex["rock_pga_g"]["lowest"]),
+                                                       "highest": tidy(ex["rock_pga_g"]["highest"])},
+        "people_in_the_area": tidy(ex["people_in_area"]),
+        "people_by_intensity_on_this_ground": [
+            {**level(b["intensity"]), "people": tidy(b["people"])} for b in ex["people_by_intensity"]],
+        "intensity_most_people_feel": level(ex["intensity_most_people_feel"]),
+        "intensity_on_firm_rock_for_comparison": level(ex["intensity_on_firm_rock"]),
+        "ground_makes_shaking_this_many_times_what_firm_rock_would": tidy(ex["ground_amplifies_by"]),
+        "the_ground": {
+            "typical_speed_m_per_s": tidy(ground["vs30_typical"]),
+            "most_people_stand_on_ground_between_m_per_s": [tidy(ground["vs30_most_people_from"]),
+                                                            tidy(ground["vs30_most_people_to"])],
+            # One decimal, not a whole number: 99.6% rounded to 100 hides the few who stand on firmer
+            # ground and reads as "everyone", which is a different claim.
+            "share_of_people_by_class": [
+                {"class": c["class"], "described_as": c["described_as"],
+                 "percent": tidy(round(100 * c["share_of_people"], 1))} for c in ground["classes"]],
+        },
+        "typical_scatter_in_intensity_units": tidy(ex["scatter_in_intensity"]),
+        "scatter_note": "Turning shaking into an intensity is accurate to about this many units either "
+                        "way, so the edge between two intensity bands is soft and a place near one could "
+                        "fall either side.",
+        "the_ground_map_is_coarse": "The ground is estimated from the shape of the land at a scale of "
+                                    "about nine hundred metres. In a flat city nearly everything looks "
+                                    "alike to that method, and it cannot see a pocket of soft clay or "
+                                    "made ground. It separates one part of a city from another only "
+                                    "where the land itself differs.",
+        "not_in_the_data": "What buildings stand here and how they are built. This product holds none, "
+                           "so it says nothing about damage, injury or death, and no magnitude can be "
+                           "turned into a casualty count here. Shaking is as far as it goes.",
+    }
+    if ex.get("published_map_steps_here"):
+        block["the_published_map_jumps_here"] = (
+            "Across part of this area the published hazard map changes abruptly, from one level to about "
+            "double it. A jump that sharp is not the ground: the map is joined from separate regional "
+            "models, and the line between two levels is where they meet. Treat it as a feature of the map.")
+    if ex.get("people_with_no_ground_estimate"):
+        block["people_where_the_ground_map_has_no_estimate"] = tidy(ex["people_with_no_ground_estimate"])
+    if magnitude is not None:
+        block["the_magnitude_the_question_gave"] = tidy(magnitude)
+        block["why_that_does_not_give_shaking_here"] = (
+            "How hard the ground shakes at a place depends on how far away the earthquake is and how "
+            "deep, which a magnitude alone does not say. Nothing here is a scenario of that earthquake; "
+            "the shaking shown is the published design level, which is a different thing.")
+    bundle["seismic"] = block
+
+
 def add_measured_heat(bundle: dict, obs: dict) -> None:
     """Append the authority's own measured heat-stress readings, where a city has a station network.
 

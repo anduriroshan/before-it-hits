@@ -30,7 +30,7 @@ WITHHELD_FAILED = ("The briefing was withheld: its main claim was not supported 
 NEEDS_AREA = ("I answer about a specific place, so I need one first. Draw a box on the map, pick "
               "an area below, or name a place and I will find it.")
 # Topics answered from their own data, without the terrain engine or the rain forecast.
-TOPIC_ONLY = ("population", "heat", "air_quality", "wind")
+TOPIC_ONLY = ("population", "heat", "air_quality", "wind", "earthquake")
 
 # What a message with no analysis to show carries, so every kind of reply has the same shape.
 def _reply(question, spec, trace, **kw) -> dict:
@@ -101,7 +101,7 @@ def _default_spec(slider_mm: float, return_period: int | None, question: str) ->
     return {
         "reading": "Read from the controls on screen, not from the question: "
                    "the scenario agent could not be reached.",
-        "heat_c": None, "earlier_area": "",
+        "heat_c": None, "magnitude": None, "earlier_area": "",
         "focus": question, "audience": "officer", "mode": "whatif",
         "rainfall_mm": float(slider_mm), "rainfall_source": "the rainfall already set on screen",
         "duration_h": None, "return_period_years": return_period, "ignored_figure": False,
@@ -288,6 +288,28 @@ def _add_heat_exposure(bundle: dict, region, box, hours: list, spec: dict, trace
         trace.add("Measured heat stress", "unavailable", 0, str(exc)[:120])
 
 
+def _add_seismic(bundle: dict, region, box, spec: dict, trace: Trace) -> None:
+    """The published design-level shaking for the ground in the box, and who stands on each level.
+    Best-effort and honest about absence: a city with nothing staged says so in the trace and the
+    bundle stays empty, so the briefing has nothing to say about shaking rather than something invented."""
+    if region is None:
+        return
+    from bih_engine import seismic
+    try:
+        t0 = time.perf_counter()
+        ex = seismic.exposure(region, tuple(box))
+        if not ex.get("available"):
+            trace.add("Seismic exposure", "unavailable", 0, ex.get("reason", "")[:120])
+            return
+        facts.add_seismic(bundle, ex, magnitude=spec.get("magnitude"))
+        trace.add("Seismic exposure", "ok", int((time.perf_counter() - t0) * 1000),
+                  f"Design-level shaking: most people at intensity "
+                  f"{facts.ROMAN[ex['intensity_most_people_feel']]} on this ground "
+                  f"(firm rock would give {facts.ROMAN[ex['intensity_on_firm_rock']]}).")
+    except Exception as exc:
+        trace.add("Seismic exposure", "unavailable", 0, str(exc)[:120])
+
+
 def _add_wind(bundle: dict, lat: float, lon: float, trace: Trace) -> None:
     """The wind forecast at the middle of the box: speed, gusts, and which way it blows."""
     try:
@@ -385,6 +407,9 @@ def _people_by_preset(region, trace) -> dict:
 
 CITY_COVER = ("the whole city. Each reading is taken once, at the middle of the city, so where a "
               "note says 'this box' it means the whole city.")
+# Shaking is not a reading at one point: a city's answer is the sum over everyone who lives in it.
+CITY_SUM_COVER = ("the whole city, summed over every part of it where people live. Where a note says "
+                  "'this area' or 'this box' it means the whole city.")
 
 
 def _run_topic(question, spec, topic, bbox, region, trace, city=False) -> dict:
@@ -403,7 +428,8 @@ def _run_topic(question, spec, topic, bbox, region, trace, city=False) -> dict:
     bundle: dict = {
         "question": question,
         "topic": topic,
-        "area": ({"what_these_findings_cover": CITY_COVER, "the_city": region_title} if city else {
+        "area": ({"what_these_findings_cover": CITY_SUM_COVER if topic == "earthquake" else CITY_COVER,
+                  "the_city": region_title} if city else {
             "what_these_findings_cover": "one box drawn on the map",
             "box_km2": round(area_km2, 2),
             "the_box_is_inside": region_title,
@@ -478,6 +504,9 @@ def _run_topic(question, spec, topic, bbox, region, trace, city=False) -> dict:
 
     elif topic == "wind":
         _add_wind(bundle, lat, lon, trace)
+
+    elif topic == "earthquake":
+        _add_seismic(bundle, region, (w, s, e, n), spec, trace)
 
     out = _reply(question, spec, trace, kind="analysis", facts=bundle, result=None)
 

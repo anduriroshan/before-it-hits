@@ -114,6 +114,21 @@ def raster(region, bbox: tuple, cells: int | None = None) -> dict:
     }
 
 
+def cell_people(r: dict) -> np.ndarray:
+    """People in each cell of a density raster (what `density_for` returns), south row first.
+
+    For anything that has to split a box's people by some other map - which ground they stand on, how
+    hard it shakes there. The density is stored whole, so a cell's people are that density times the
+    cell's own area, which shrinks towards the poles."""
+    w, s, e, n = r["bbox"]
+    rows, cols = r["rows"], r["cols"]
+    lat_c = s + (np.arange(rows) + 0.5) * ((n - s) / rows)
+    km2 = ((n - s) / rows * M_PER_DEG_LAT) * ((e - w) / cols * M_PER_DEG_LON
+                                              * np.cos(np.radians(lat_c))) / 1e6
+    dens = np.array([0.0 if v is None else v for v in r["values"]], float).reshape(rows, cols)
+    return dens * km2[:, None]
+
+
 def density_for(region, bbox: tuple, cells: int | None = None) -> dict:
     """The density raster for a box by whichever method this region has: the grid where one is staged,
     else the published total spread over mapped footprints. One door, so the map layer and the agent
