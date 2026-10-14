@@ -6,6 +6,7 @@ lives here" and "we have no footprint here" are different statements and only on
 to make. And the ramp is cut at the 95th percentile, so one dense block cannot flatten a city.
 """
 import importlib
+import math
 import sys
 from pathlib import Path
 
@@ -98,4 +99,14 @@ def test_the_method_travels_with_the_numbers():
     out = density.raster(BBOX, POP, _buildings_in(*BBOX), cells=8)
     assert "approximation by area" in out["method"]
     assert "never a count" in out["method"]
-    assert out["source"] == "a census" and out["people_total"] == 100000
+    assert out["source"] == "a census" and out["city_people"] == 100000
+
+
+def test_the_people_in_an_area_are_the_area_s_share_not_the_city_total():
+    """A box answered '2 million people' for 19 km2 because the city's whole total was reported."""
+    one = [box(76.305, 10.005, 76.3058, 10.0058)]                  # 0.0008 degrees square
+    roof_m2 = (0.0008 * 110574) * (0.0008 * 111320 * math.cos(math.radians(10.0054)))
+    out = density.raster(BBOX, POP, one, cells=10)
+    expected = roof_m2 * POP["people"] / POP["built_footprint_m2"]  # that roof's share of the city
+    assert abs(out["people_in_area"] - expected) / expected < 0.03   # two figures: a few percent either way
+    assert out["people_in_area"] < out["city_people"]

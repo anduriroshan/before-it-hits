@@ -89,6 +89,9 @@ def raster(bbox: tuple, population: dict, buildings, cells: int | None = None) -
     filled = dens[roof > 0]
     if not filled.size:
         return {"available": False, "reason": "no buildings fall inside this area"}
+    # What lives in *this* area, as opposed to the city's total: the footprint share, to two figures
+    # because a modelled count should not look precise.
+    in_area = int(float(f"{float((roof * (people / region_fp)).sum()):.2g}"))
 
     values = [None if r <= 0 else round(float(d))
               for r, d in zip(roof.ravel(), dens.ravel())]
@@ -102,7 +105,8 @@ def raster(bbox: tuple, population: dict, buildings, cells: int | None = None) -
         "values": values,
         "max": round(float(filled.max())),
         "p95": round(float(np.percentile(filled, 95))),
-        "people_total": people,
+        "people_in_area": in_area,
+        "city_people": people,                 # the whole city's published total, never this area's
         "source": population.get("source", ""),
         "method": "The city's published population spread across OpenStreetMap building footprints "
                   "by area. An approximation by area, never a count of any street or home.",

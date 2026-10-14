@@ -1,0 +1,162 @@
+{
+  "name": "singapore",
+  "title": "Singapore",
+  "country": "Singapore",
+  "bbox_wsen": [
+    103.6,
+    1.21,
+    104.05,
+    1.48
+  ],
+  "note": "About 2,300 mm of rain a year in short, intense convective bursts. The interesting case for this product: Singapore has one of the best drainage networks in the world, and we have no drainage data for it at all. Our screening should therefore overstate pooling here more than anywhere else \u2014 which is exactly the limit we disclose on every run, now visible rather than theoretical.",
+  "presets": [
+    {
+      "label": "Orchard Road",
+      "bbox": [
+        103.825,
+        1.295,
+        103.845,
+        1.312
+      ]
+    },
+    {
+      "label": "Bukit Timah Rd",
+      "bbox": [
+        103.8,
+        1.32,
+        103.825,
+        1.34
+      ]
+    },
+    {
+      "label": "Geylang / Kallang",
+      "bbox": [
+        103.86,
+        1.305,
+        103.885,
+        1.325
+      ]
+    },
+    {
+      "label": "Jurong East",
+      "bbox": [
+        103.73,
+        1.325,
+        103.755,
+        1.345
+      ]
+    }
+  ],
+  "staged": "2026-10-12",
+  "terrain": {
+    "file": "dtm.tif",
+    "source": "DeltaDTM v1.1 (Pronk et al. 2024), via Earth Engine community catalog",
+    "asset": "projects/sat-io/open-datasets/DELTARES/deltadtm_v1-1",
+    "band": "b1",
+    "licence": "CC BY 4.0",
+    "grid": "native 1 arcsec, not resampled",
+    "cap_value": 30.0,
+    "bbox_wsen": [
+      103.59986111111112,
+      1.2098611111111102,
+      104.0501388888889,
+      1.480138888888888
+    ],
+    "shape": [
+      973,
+      1621
+    ],
+    "fetched": "2026-10-11",
+    "note": "Raw band. Non-finite is sea or outside coverage; the value 30 is the model's cap."
+  },
+  "vectors": {
+    "format": "FlatGeobuf",
+    "crs": "EPSG:4326",
+    "counts": {
+      "water": 1983,
+      "waterways": 3720,
+      "roads": 187367,
+      "buildings": 158230
+    },
+    "source": "OpenStreetMap via Overpass API",
+    "licence": "ODbL 1.0, attribution: OpenStreetMap contributors",
+    "fetch_seconds": {
+      "water": "7s",
+      "roads": "68s",
+      "buildings": "89s"
+    }
+  },
+  "not_available": [
+    "storm-drain network (not public anywhere)",
+    "bathymetry (neither terrain source has it)"
+  ],
+  "population": {
+    "people": 5917648,
+    "extent": "Singapore, total population mid-2023 (SingStat)",
+    "source": "https://www.singstat.gov.sg/ (Singapore total population, mid-2023)",
+    "built_footprint_m2": 95911957,
+    "note": "Total population spread across near-complete OSM footprints. The staged box includes a thin strip of Johor across the strait, which slightly dilutes the ratio - a conservative bias. An order of magnitude for who is exposed, by area."
+  },
+  "news_query": "Singapore (flood OR flooding OR \"flash flood\" OR \"heavy rain\" OR ponding OR waterlogging)",
+  "news_place": "Singapore",
+  "live_rainfall": {
+    "source": "nea_sg",
+    "label": "NEA rain gauges (data.gov.sg)",
+    "cadence": "5-minute totals"
+  },
+  "timezone": "Asia/Singapore",
+  "surface_heat": {
+    "file": "lst.tif",
+    "source": "Landsat 8 and 9 Collection 2 Level 2 surface temperature (USGS), via Earth Engine",
+    "collections": [
+      "LANDSAT/LC08/C02/T1_L2",
+      "LANDSAT/LC09/C02/T1_L2"
+    ],
+    "band": "ST_B10",
+    "licence": "USGS Landsat data are public domain",
+    "season": "all months of the year, as Singapore has no dry season",
+    "months": [
+      1,
+      12
+    ],
+    "dates": [
+      "2022-01-01",
+      "2026-04-30"
+    ],
+    "scenes": 56,
+    "max_scene_cloud_pct": 40,
+    "min_views_per_pixel": 5,
+    "views_per_pixel": {
+      "median": 30,
+      "max": 48
+    },
+    "passes_about_local_hour": 11.3,
+    "composite": "median of every clear view; cloud, cirrus, shadow and water masked",
+    "native_res_m": 100,
+    "resolution": "the thermal sensor resolves patches about 100 m across; USGS delivers it resampled to a 30 m grid, and this is on the terrain's 1 arcsec grid",
+    "grid": "the staged terrain's own 1 arcsec grid, nearest neighbour from Landsat's 30 m",
+    "unit": "degrees C of the SURFACE, not the air",
+    "land_share": 0.551,
+    "p2_c": 32.4,
+    "median_c": 39.3,
+    "p98_c": 47.0,
+    "bbox_wsen": [
+      103.59986111111112,
+      1.2098611111111102,
+      104.0501388888889,
+      1.480138888888888
+    ],
+    "shape": [
+      973,
+      1621
+    ],
+    "fetched": "2026-10-14",
+    "caveats": [
+      "A typical-season picture, not a forecast and not today.",
+      "Surface temperature, the skin of roofs, roads and leaves. In sun it runs well above air temperature and is not comparable with a forecast figure.",
+      "Landsat passes at mid-morning. Afternoon surfaces run hotter and spread further apart.",
+      "The thermal sensor sees patches about 100 m across, so this shows a few blocks at best and never a single building or roof.",
+      "Water is masked: this is a picture of land."
+    ]
+  }
+}

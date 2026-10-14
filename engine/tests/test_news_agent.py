@@ -195,6 +195,44 @@ def test_when_every_claim_fails_the_check_the_reader_gets_the_fixed_message_and_
     assert len(out["removed"]) == 2                       # shown to the reader, not hidden
 
 
+# ---- a place: the link from a news answer to the screening, and back --------------------------
+
+def test_a_claims_place_survives_only_if_a_cited_headline_names_it():
+    data = {"claims": [
+        {"text": "Water stood at the junction.", "sources": [1], "place": "Edappally"},
+        {"text": "A control room opened.", "sources": [2], "place": "Edappally"},      # headline 2 never says it
+        {"text": "Rain continues across the city.", "sources": [2], "place": "Kochi"},  # the city is not a place
+        {"text": "Rain.", "sources": [1], "place": "Edapp"}], "not_covered": ""}         # part of a word is not a name
+    claims, _, _ = news_agent.ground(data, items(), "Kochi, Kerala")
+    assert [c["place"] for c in claims] == ["Edappally", None, None, None]
+    assert claims[0]["topic"] == "flood"           # set from the headline, never by the model
+
+
+def test_a_place_in_a_run_marks_the_headlines_that_name_it_and_says_whether_any_did(monkeypatch):
+    stub_news(monkeypatch, {"kochi": ARTS})
+    seen = []
+    stub_model(monkeypatch, {"topics": ["flood"], "window": "recent", "claims": [], "not_covered": ""}, calls=seen)
+    out = news_agent.run("what is reported?", region="kochi", title="Kochi, Kerala", place="Edappally")
+    assert "Place asked about: Edappally" in seen[-1] and "[names Edappally]" in seen[-1]
+    assert out["place"] == "Edappally" and out["place_note"].startswith("Some headlines name Edappally")
+    out = news_agent.run("what is reported?", region="kochi", title="Kochi, Kerala", place="Vyttila")
+    assert out["place_note"] == "No headline names Vyttila, so this is what was reported about Kochi as a whole."
+    assert "place" not in news_agent.run("what is reported?", region="kochi", title="Kochi, Kerala")
+
+
+def test_a_place_never_reaches_the_search_query(monkeypatch):
+    queries = []
+
+    def get(key, title, *, query=None, wait_s=0.0, fetch_kw=None):
+        queries.append((key, query))
+        return {"status": "ok", "data": {"articles": ARTS}, "age_s": 0, "stale": False}
+    monkeypatch.setattr(news_agent.news, "get", get)
+    stub_model(monkeypatch, {"topics": ["flood"], "window": "recent", "claims": [], "not_covered": ""})
+    news_agent.run("q", region="kochi", title="Kochi, Kerala", place="Edappally")
+    news_agent.run("q", region="kochi", title="Kochi, Kerala")
+    assert queries[0] == queries[1] and "Edappally" not in str(queries)
+
+
 def test_history_is_bounded_and_typed():
     raw = ["junk", {"q": ""}] + [{"q": f"q{i}", "a": "a"} for i in range(9)] + [{"q": "x" * 999, "a": "y" * 999}]
     out = news_agent.clean_history(raw)

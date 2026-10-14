@@ -50,7 +50,7 @@ Environment switches: `BIH_NO_NEWS_WARM`, `BIH_NO_DENSITY_WARM`, `BIH_FAST_MODEL
 From the repo root:
 
 ```powershell
-& .\.venv\Scripts\python.exe -m pytest engine -q          # expect: 285 passed, about 10 to 20 s
+& .\.venv\Scripts\python.exe -m pytest engine -q          # expect: 289 passed, about 10 to 30 s
 & .\.venv\Scripts\python.exe -m pytest engine/tests/test_surface_heat.py -q
 ```
 
@@ -214,6 +214,10 @@ gcloud run services logs read before-it-hits --region asia-south1 --project befo
 | **DeltaDTM 30 m cap** | Singapore's interior reads as a flat plateau ringed by false depressions | capped cells are masked and counted per box |
 | **GDELT** | 429/503, 10 to 20 s a call, one call per ~5 s per IP | cached, paced, warmed; the endpoint answers `pending` |
 | **A prompt change "does nothing"** | module-level constants | restart the server |
+| **Headless Chrome serves the old `app.js`** | the profile caches static files; a probe finds `typeof newFunction === 'undefined'` | `Network.enable` then `Network.setCacheDisabled {cacheDisabled: true}` before navigating |
+| **`?region=singapore` does not switch city** | the page loads Kochi whatever the query string says | set the `#region` select and dispatch `change`, or call `selectRegion('singapore')` |
+| **`Runtime.evaluate` "Object reference chain is too long"** | a predicate such as `until("!l.loading && l.instance")` returned a Maps object | coerce with `!!` |
+| **A layer's `instance` is truthy but nothing paints** | the air-quality tiles were 403, `ERR_BLOCKED_BY_ORB` in `Network.loadingFailed` | listen for `Network.loadingFailed` and `responseReceived`, not just the layer state |
 | **A new string with digits in the facts bundle** | the digits become quotable figures | write descriptive text without digits (05) |
 
 ## Skills and tools

@@ -21,7 +21,7 @@ Legend: ✅ built and live, ◐ partly built, ☐ not built.
 | F10 | Before / after | ✅ | Computed by the engine, always labelled a best case |
 | F11 | Write it up | ✅ | Narrator briefing, checked. ☐ Malayalam |
 | F12 | Say what we don't know | ✅ | Resolution caveat and per-layer confidence on every selection; limits on every run |
-| F13 | What's being reported | ✅ | News tab and news chat. ☐ Cross-links to the engine |
+| F13 | What's being reported | ✅ | News tab and news chat. Cross-links both ways (built 15 Oct, **not yet deployed**): a screening answer offers "What is being reported in <place>?"; a news claim whose cited headline names a place offers "Screen <place>". The index stays city-wide: a place only picks the headlines that name it, and `place_note` says whether any did |
 | F14 | Watch and warn | ☐ | Cut on purpose (first on the cut list) |
 | F15 | Replay what happened | ✅ | 28 May 2024 Kochi cloudburst; honest negative, shown in full |
 | F16 | Test without waiting for rain | ☐ | Harness and synthetic worlds not built |
@@ -45,8 +45,9 @@ L15 rainfall forecast ✅, L16 observations ◐ (NEA gauges, Singapore only), L1
 | `lst.tif` | **Landsat surface-temperature median composite**, on the terrain's own grid | 55 scenes, Jan to Apr | 56 scenes, all months |
 | `region.json` | bounds, presets, sources, licences, staged dates, population, news queries, preparedness budget, `surface_heat` provenance | ✅ | ✅ |
 
-Staged data is gitignored (large, third-party, reproducible) except **Kochi's `region.json`** and the OSM
-vectors that were committed early. **Singapore's directory, manifest included, is not in git.** See 03.
+Staged data is gitignored (large, third-party, reproducible) except **each city's `region.json`** (Singapore's
+was whitelisted in `.gitignore` on 15 Oct and is waiting to be committed) and the OSM vectors that were
+committed early. Singapore's rasters and vectors stay out of git on purpose.
 
 ## 3. The engine (`engine/bih_engine/`): deterministic, no model
 
@@ -173,7 +174,7 @@ same moment. Scrubbing never re-runs the engine.
   the most-vegetated quarter of pixels is 1.6 °C and 3.3 °C cooler.
 - News agent resisted a planted prompt-injection headline.
 
-## 9. Tests: 285, all offline
+## 9. Tests: 289, all offline
 
 | File | Tests | Covers |
 |---|---|---|
@@ -181,12 +182,12 @@ same moment. Scrubbing never re-runs the engine.
 | `test_conversation.py` | 33 | history, named places, guide, scenario settle |
 | `test_preparations.py` | 27 | ranking, budget, quiet-day gate, planner note |
 | `test_surface_heat.py` | 20 | raster, ranking gates, facts bundle, coordinator step |
-| `test_news_agent.py` | 20 | topic routing, citation, deletion of uncited claims |
+| `test_news_agent.py` | 23 | topic routing, citation, deletion of uncited claims, a claim's verified place |
 | `test_analyse.py` | 13 | screening, no depth leak |
 | `test_weather_grid.py` | 12 | time cube, null hours, colour bounds |
 | `test_news_cache.py` | 12 | cache, pacing, pending |
 | `test_air_quality.py` | 11 | parsing, units |
-| `test_density.py` | 11 | raster, null, p95 cut |
+| `test_density.py` | 12 | raster, null, p95 cut, people in an area (not the city total) |
 | `test_forecast.py` / `test_official.py` | 10 / 10 | forecast peaks; official clip and enrichment |
 | `test_hydrology.py` / `test_replay.py` | 9 / 9 | depression fill; replay scoring |
 | `test_osm.py` / `test_routes.py` | 8 / 8 | |
@@ -216,3 +217,7 @@ Dockerfile by Cloud Build (no local Docker). Three env vars on the service: `MAP
   fixed it; the Verifier's hard-coded "caveat must mention drains" check now applies only to flood answers.
 - Surface heat was first described as "30 m"; the thermal sensor is about 100 m. Corrected everywhere.
 - Mojibake across `app.js` from a PowerShell round trip; repaired. **Do not repeat** (see README rule 4).
+- **A population question reported the whole city's population as the box's** ("roughly 2,117,990 people" for
+  a 19 km² box, live on rev 00029). `density.raster` returned the city total as `people_total` and the
+  topic path labelled it "in the whole box". Now `people_in_area` (the footprint share, two figures) is what
+  the answer uses, and the city total is `city_people`. Found on the 15 Oct live check; fixed locally, **not yet deployed**.

@@ -4,6 +4,17 @@ Written at the end of **Wed 14 Oct**. **Submission is Sun 18 Oct.** The standing
 "after the hackathon". Everything below has a day, a "done means", and a place on the cut list.
 Sizes are rough estimates (S under 1 h, M 1 to 3 h, L half a day or more), not measurements.
 
+## Status after the Thursday list (15 Oct)
+
+| Item | State |
+|---|---|
+| P0.1 live check | **Done in headless Chrome against the live URL, both cities**: nine layers load, surface heat on a box and the Heat-tab *Show*, the time bar plays, the ordinary-day card at 10 mm and the ₹22,80,000 plan at 120 mm, Singapore switch, agent on population / heat / flood / whole-city. **One failure: the live air-quality tiles are blank.** The browser key (`before-it-hits web (dev)`) allows only `maps-backend` and `geocoding-backend`, so Google answers 403 `API_KEY_SERVICE_BLOCKED` for `airquality.googleapis.com` and Chrome drops the tile (`ERR_BLOCKED_BY_ORB`). Fix, not yet applied (it changes a key's restrictions): `gcloud services api-keys update 33d387e4-9f83-4567-b70f-ae9f739899dc --project before-it-hits --api-target=service=maps-backend.googleapis.com --api-target=service=geocoding-backend.googleapis.com --api-target=service=airquality.googleapis.com` |
+| **New bug, found by the live check** | A population question for a box answered with the **whole city's** population ("roughly 2,117,990 people" for 19 km²). Fixed (`density.people_in_area`, test added); the live site still has it until the next deploy. A local Edappally box now says about 72,000 |
+| P0.4 Singapore in git | `.gitignore` whitelists `data/regions/singapore/region.json` only (the rasters stay out). **Needs the user's commit** |
+| P1.1 cross-links | Built both ways, 3 tests, driven in headless Chrome locally; **not deployed** (Friday). Direction "screen it" was driven with a hand-built news answer, because GDELT answered 503 for Singapore that day; the grounding of the place was checked with the real model on canned headlines |
+| P1.4 truthfulness | (a) heat entry in `hazards.py` now mentions the satellite; (b) Narrator wording for a place with no named road, and the Heat tab's tag, now say "no named road close by"; (c) Guide reference mentions the cross-links |
+| P0.3 README | Refreshed (heat, air, layers, clock, routing, cross-links, counts, data table). Still to do Saturday: measured timings, and the air-quality layer sentence assumes the key fix above |
+
 ## Where we are against the 13 Oct plan (`plan/MULTI_HAZARD.md`)
 
 The plan was Wed: heat engine; Thu: heat tab and layer switch; Fri: compound answer, cross-links; Sat: freeze.

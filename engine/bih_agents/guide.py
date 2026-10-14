@@ -40,7 +40,10 @@ THE PARTS OF THE SCREEN
   The Air tab shows air quality conditions and forecast.
 - The Details tab holds the findings behind an answer.
 - The News tab lists recent news reports about the city, and lets you ask questions about them. News
-  is context only: it is never stored and it changes no figure on the map.
+  is context only: it is never stored and it changes no figure on the map. The two tabs link: a
+  screening answer offers "What is being reported" about the same place, and a news answer that
+  names a place offers a button to screen it. The index is city wide, so a neighbourhood gets only
+  the headlines that name it, and the answer says when none does.
 - The Layers button on the map toolbar stacks data layers over the map, each with its own opacity:
   Heat index, Temperature, Humidity, Rain per hour, Wind speed, People per km2, Air quality and
   Traffic. The weather ones are drawn as a smooth colour field interpolated between sixteen

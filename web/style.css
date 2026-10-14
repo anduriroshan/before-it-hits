@@ -714,6 +714,8 @@ details.block > :not(summary) { margin: 2px 0 8px; }
   text-decoration: none; vertical-align: 1px;
 }
 .src-chip:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+/* The one chip that is not a source: it leaves the news for the screening, so it is drawn solid. */
+.screen-chip { font-family: inherit; cursor: pointer; background: #fff; border-color: var(--accent); font-weight: 600; }
 div.work { display: flex; align-items: center; gap: 8px; font-size: 12.5px; margin: 0; }
 .work-label { color: var(--muted); }
 

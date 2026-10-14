@@ -1216,15 +1216,16 @@ function showRect(bbox, fit = true) {
    heavier or different storm than the forecast. */
 const DEFAULT_PREDICT_Q =
   'Using the live rainfall forecast, what could happen to this area and its roads over the coming day?';
+const DRAWN_BOX = 'Drawn box';     // the label of an area that has no name
 
 function predictBox(bbox, label) {
   setTab('agent');
   if (state.agents) {
-    setArea(bbox, label || 'Drawn box');
+    setArea(bbox, label || DRAWN_BOX);
     sendQuestion(DEFAULT_PREDICT_Q, { auto: true });
   } else {
     state.lastBbox = bbox;
-    state.areaLabel = label || 'Drawn box';
+    state.areaLabel = label || DRAWN_BOX;
     state.whatif = false;
     analyse(bbox);         // no agent layer configured: fall back to a direct screening
   }
@@ -1860,7 +1861,7 @@ function renderSurfaceHeat(d) {
   const row = (p, hot) => {
     const road = p.nearest_road
       ? `beside <b>${esc(p.nearest_road.name)}</b> <span class="muted">(about ${p.nearest_road.distance_m} m)</span>`
-      : '<span class="muted">not near a named road</span>';
+      : '<span class="muted">no named road close by</span>';
     const gap = Math.abs(p.vs_box_median_c);
     return `<li><span class="sh-temp ${hot ? 'hot' : 'cool'}">${p.surface_c}°C</span>`
       + `<span class="sh-where">${road}<span class="muted tiny"> · ${gap}°C ${hot ? 'above' : 'below'} `
@@ -2338,10 +2339,22 @@ function renderNewsAnswer(b, ev) {
         a.title = `${s.title}${s.seen ? ' · ' + s.seen : ''}`;
         li.appendChild(a);
       }
+      // The server only sets `place` where a headline it cites names it, and `topic` from that headline.
+      // The question comes from the hazard list, so a hazard added there is offered here for free.
+      const hz = (state.hazards || []).find((h) => h.id === (c.topic === 'traffic' ? 'flood' : c.topic));
+      if (c.place && hz) {
+        const s = mk('button', 'src-chip screen-chip');
+        s.type = 'button';
+        s.textContent = `Screen ${c.place}`;
+        s.title = `Run the terrain screening for ${c.place}: ${hz.label.toLowerCase()}`;
+        s.onclick = () => { setTab('agent'); sendQuestion(hz.example.replace('{place}', c.place)); };
+        li.appendChild(s);
+      }
       ul.appendChild(li);
     }
     b.appendChild(ul);
   }
+  if (ev.place_note) b.insertBefore(mk('p', 'muted small', esc(ev.place_note)), b.firstChild);
   if (ev.not_covered) b.appendChild(mk('p', claims.length ? 'muted small' : '', esc(ev.not_covered)));
   if (ev.missing && ev.missing.length) {
     b.appendChild(mk('p', 'muted tiny', `Not back in time: ${esc(ev.missing.join(', '))}. Ask again in a minute.`));
@@ -2363,7 +2376,7 @@ function renderNewsAnswer(b, ev) {
   b.appendChild(link);
 }
 
-async function askNews(q) {
+async function askNews(q, place) {
   q = (q || '').trim();
   if (!q || newsChat.busy || !state.agents || !state.region) return;
   const um = mk('div', 'msg msg-user', '<div class="bubble"></div>');
@@ -2382,7 +2395,7 @@ async function askNews(q) {
   try {
     const res = await fetch('/api/news-ask', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctl.signal,
-      body: JSON.stringify({ question: q, region: state.region.name, history: newsChat.history }),
+      body: JSON.stringify({ question: q, region: state.region.name, place: place || null, history: newsChat.history }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -2964,6 +2977,25 @@ function renderAnswer(turn, ev) {
   a.appendChild(actionsRow(turn, { details: true }));
 }
 
+/* The other half of the link: from a screening answer to what is being reported about the same place
+   and hazard. It only opens the News tab with a question, so the news stays labelled as reported and
+   moves no number. A drawn box has no name, so its question is about the city, and says so. */
+const REPORT_TOPICS = { overview: ['flood', 'heat', 'air'], flood: ['flood'], population: ['flood'],
+                        heat: ['heat'], air_quality: ['air'] };
+
+function reportedChip(topic, place) {
+  const names = (REPORT_TOPICS[topic] || ['flood'])
+    .map((id) => ((state.newsTopics || []).find((t) => t.id === id) || {}).label)
+    .filter(Boolean).map((l) => l.toLowerCase());
+  if (!names.length || !state.agents) return null;
+  const where = place || state.region.title.split(',')[0];
+  const what = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+  const c = mk('button', 'chip chip-alt', `What is being reported in ${esc(where)}?`);
+  c.type = 'button';
+  c.onclick = () => { setTab('news'); askNews(`What is being reported about ${what} in ${where}?`, place); };
+  return c;
+}
+
 function addFollowups(turn, ev) {
   const sc = ev.scenario || {};
   const hasOfficial = Boolean(state.region && state.region.official
@@ -2985,6 +3017,9 @@ function addFollowups(turn, ev) {
   w.type = 'button';
   w.onclick = () => toggleWhatIf(turn, sc);
   box.appendChild(w);
+  const place = state.areaLabel && state.areaLabel !== DRAWN_BOX ? state.areaLabel : null;
+  const rep = reportedChip(sc.topic || 'overview', place);
+  if (rep) box.appendChild(rep);
   turn.answer.appendChild(box);
 }
 
@@ -3126,6 +3161,8 @@ function finishCityOverview(turn, ev) {
   hint.textContent = 'Tap an area to look closer:';
   a.appendChild(hint);
   a.appendChild(areaChips(state.region));
+  const rep = reportedChip('overview', null);
+  if (rep) a.appendChild(mk('div', 'followups')).appendChild(rep);
 
   turn.text = ev.answer || '';
   remember({

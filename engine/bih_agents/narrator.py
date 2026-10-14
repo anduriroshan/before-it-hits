@@ -72,7 +72,8 @@ source here that can say which parts of the box run hotter than others. Rules fo
     The surface is far hotter than the air in the sun, so "the surface is hotter than the heat
     index" is a meaningless comparison and must not appear.
   - Use it to name places: "the hottest ground is beside Stadium Round", from "hottest_places".
-    Say "about" for any distance. If a place has no named road, say it is not near a named road.
+    Say "about" for any distance. A place with no named road close by is "a patch of ground with no
+    named road close by", not "a spot that is not near a named road".
   - It does not say anything about flooding, health effects, or what anyone should do.
 
 If the JSON has a "topic" field set to "population", "heat", or "air_quality", the question is

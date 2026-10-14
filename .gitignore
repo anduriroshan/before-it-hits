@@ -16,3 +16,6 @@ data/regions/*
 !data/regions/kochi
 data/regions/kochi/*
 !data/regions/kochi/region.json
+!data/regions/singapore
+data/regions/singapore/*
+!data/regions/singapore/region.json

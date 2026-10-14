@@ -19,7 +19,8 @@ HAZARDS = [
         "id": "heat",
         "label": "Heat stress",
         "what": "current and forecast heat index, temperature and humidity conditions, "
-                "and whether the heat level is in a caution, warning or danger zone",
+                "whether the heat level is in a caution, warning or danger zone, and which parts "
+                "of an area run hotter at the ground, from a satellite",
         "example": "How hot will {place} be today?",
     },
     {

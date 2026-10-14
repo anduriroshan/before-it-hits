@@ -1,13 +1,15 @@
 # Before It Hits
 
-**Live: https://before-it-hits-1019287218541.asia-south1.run.app** — pick a city, draw a box, or just ask about the whole city.
+**Live: https://before-it-hits-z5r5gsxkza-el.a.run.app** — pick a city, draw a box, name a place, or just ask about the whole city.
 
 Two cities are staged: **Kochi** (where an authority publishes a depth map to check against) and **Singapore** (where none does). Adding a city is a config entry plus the staging tools — no engine change.
 
 Cities get a rainfall forecast and issue a warning for the whole city. The water still gathers in
 the same low spots it gathered in last year. Draw a box on the map and ask what happens *there*:
 which places the ground traps water in, why, which roads run through them, and what the official
-depth map says about the same ground.
+depth map says about the same ground. The same box also answers for **heat** (which parts of it run
+hotter, from a satellite) and **air quality**, and shows what is being **reported** about it, each
+kept in its own lane and never blended into one score.
 
 ---
 
@@ -69,9 +71,14 @@ discriminating return period: the KSDMA agreement above, 1.25–3.26×. The repl
 ## Ask it in plain language — and watch something check the answer
 
 Ask about a whole city ("what's the rainfall in Kochi tomorrow?") and the agent runs the engine on
-every preset area and ranks them by risk — no box needed. Ask about a specific place and it zooms
-in. Draw a box and type a question, and five agents run in about ten seconds with every step
-streamed to the screen as it finishes.
+every preset area and ranks them by risk — no box needed. Name a place ("will Edappally flood
+tonight?") and the browser finds it and zooms in. Draw a box and type a question, and the agents run
+in about ten to twenty seconds with every step streamed to the screen as it finishes.
+
+The Scenario agent also reads *what the question is about*. A question about people, heat or air
+quality runs only what it needs (about four steps, no flood engine); a flood question adds the heat,
+satellite-heat and air-quality findings to the same checked briefing; "what does this mean?" goes to a
+Guide that answers from a written reference and analyses nothing.
 
 > *"Which spots fill first here, and how does it compare with the official map?"*
 
@@ -84,8 +91,11 @@ The division of labour is the whole design:
 | A2 | Scenario | question → parameters: what-if, forecast, which rainfall, which official layer |
 | A3 | Forecast | the real 48 h forecast, only when the question is actually about what is coming |
 | A4 | Engine | **not a model.** The only thing here that produces a figure |
+| A5 | Planner | a short plain read on the costed preparations; may use no number the list lacks |
 | A6 | Narrator | writes the briefing from a facts bundle, and nothing else |
 | A7 | Verifier | checks every word of it against the findings, and removes what does not hold |
+| A8 | Guide | answers questions about the product from a written reference; runs no analysis |
+| A13 | News | answers from live headlines only, every claim cited (see below) |
 
 ### The Verifier is the point
 
@@ -133,6 +143,37 @@ Because terrain differs, the physics already differs city to city. The softer, r
 deterministic findings *and* recent local news and writes a short qualitative note. It invents no
 measurement: every figure is checked against the findings and it fails closed.
 
+## Heat and air, each in its own lane
+
+**Heat has two sources, and the product refuses to compare them.** The *forecast* (Google Weather API)
+gives the air: heat index, temperature, humidity, wind, a level (caution, extreme caution, danger) and
+the peak in the next two days, at one point per box. The *satellite* says which parts of the box run
+hotter than the rest: Landsat 8 and 9 surface temperature, a median of every clear pass (55 scenes for
+Kochi, January to April; 56 for Singapore, all months), drawn as a layer and ranked into the hottest and
+coolest places, each named by the road beside it ("the ground beside Stadium Round runs 4 °C above the rest
+of the box"). It is a **typical mid-morning in that season — not today and not a forecast**; it is the
+**surface**, not the air, so it is never set beside the heat index; the sensor sees patches about 100 m
+across, so it shows a few blocks at best and never a roof. Before building on it we checked it against
+vegetation: Spearman −0.33 (Kochi) and −0.32 (Singapore), and the most-vegetated quarter of pixels is
+1.6 °C and 3.3 °C cooler, which is what a real surface-temperature signal should show.
+
+**Air quality** is the provider's reading (Google Air Quality API), attributed and never rewritten: the
+current index, dominant pollutant, concentrations with units, an hourly forecast and the provider's own
+health recommendations. A regional reading, and said to be.
+
+## The map: nine layers and one clock
+
+The Layers panel stacks nine layers, each with its own opacity and a one-line note on what it is drawn
+from: heat index, **surface heat (satellite)**, temperature, humidity, rain per hour, wind, people per km²,
+air quality and traffic. The weather fields follow the box you drew (finer inside a small box, and the note
+states how little a forecast actually varies across one), and every active field gets a colour scale drawn
+from the same ramp as the picture. The people layer is a smooth field, null where there is no footprint at
+all, because "nobody lives here" and "we have no footprint here" are different statements.
+
+**One thin clock** at the bottom of the map drives everything time-shaped: the weather fields morph between
+forecast hours, and the road playback lights roads at the rainfall that has fallen by the same moment.
+Scrubbing never re-runs the engine.
+
 ## Who is nearby, and what the city is saying
 
 **People (F7).** For each box we model roughly how many people are in the worst spots by spreading
@@ -153,6 +194,14 @@ advises. It is **display-only by contract**: never stored, never scored, and it 
 the page. It is prompt-injection resistant — a planted "ignore previous instructions" headline cannot
 become a claim, because a claim needs a citation and a traceable figure to survive.
 
+The News tab and the screening **link both ways**, and the link only ever moves a question across. A
+screening answer offers "What is being reported in Edappally?", which asks the news agent about the same
+place and hazard. A news claim that names a place offers "Screen *place*", which runs the screening for
+it — but only where a headline the claim cites actually contains the place (code checks that, not the
+model). The news index is city-wide and thin at street level, so a neighbourhood gets only the headlines
+that name it, and when none does the answer says exactly that ("No headline names Edappally, so this is
+what was reported about Kochi as a whole") rather than pretend otherwise.
+
 **Before / after (F10).** Under the preparation plan, the same box is run twice: as it is, and with the
 spots the plan acts on taken out of the exposed set. The difference in worst spots, people and road
 through them is computed by the engine, not estimated. It is labelled a **best case** every time: it
@@ -167,9 +216,13 @@ Written down before building, because each is a question a judge could ask on st
 - **No absolute depths from our model.** At 30 m the vertical error equals the depth we would report.
 - **No clock on the fill sequence.** It is an order, not arrival times. Timing needs drainage data.
 - **No per-building claims.** Buildings only route water and spread population.
+- **No indoor heat.** It needs roof, floor and ventilation data that does not exist for Indian cities.
 - **No dispatch or evacuation routing.** Planning and preparedness only.
 - **No drainage network, no tides.** Storm-drain networks are not public anywhere, so **pooling is
   overstated where drains work**. This is shown on every single run, not buried in an appendix.
+- **Surface heat is a typical season, not a forecast and not today; it is the surface, not the air; and
+  it is blocks, not buildings.** It is never set beside the forecast, and the checker removes a claim that
+  does.
 
 ## Architecture
 
@@ -222,10 +275,16 @@ One trap worth recording: DeltaDTM is a *coastal* model that caps at 30 m, writi
 | Bare-earth terrain | DeltaDTM v1.1 (Pronk et al. 2024), via the Earth Engine community catalog | CC BY 4.0 |
 | Water, roads, buildings | OpenStreetMap via Overpass | ODbL 1.0 — © OpenStreetMap contributors |
 | Official flood depth | KSDMA, produced with UNEP | published for public use; terms not stated |
+| Surface temperature | Landsat 8 and 9 Collection 2 Level 2 (USGS), via Earth Engine | public domain |
+| Population | 2011 Census (Kochi urban agglomeration); SingStat mid-2023 (Singapore) | published totals, spread by area |
+| Rainfall, heat, air quality (live) | Google Maps Platform Weather and Air Quality APIs | provider's figures, attributed |
+| Live rain gauges (Singapore) | NEA via data.gov.sg | keyless, 5-minute totals |
+| News | GDELT DOC 2.0 | open index, shown as headlines with their publishers, never stored |
 | Basemap | Google Maps | display only — nothing measured or traced from it |
 
-Staged data is **not committed** — it is large, third-party and fully reproducible. Only
-`region.json` is kept, because it carries the provenance and licence of every layer.
+Staged data is **not committed** — it is large, third-party and fully reproducible. Only each city's
+`region.json` is kept (Kochi's and Singapore's), because it carries the provenance and licence of every
+layer, the population it used, and for surface heat the scenes, dates and caveats.
 
 Two things worth knowing about the KSDMA data, both found by checking rather than assuming:
 
@@ -242,15 +301,17 @@ Two things worth knowing about the KSDMA data, both found by checking rather tha
 python -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -r service/requirements.txt geopandas pytest
 
-# Stage the region (needs network; Overpass is slow and rate-limited)
-python engine/tools/fetch_deltadtm_kochi.py      # terrain, via your gcloud login
-python engine/tools/stage_region.py --buildings  # OSM water, roads, buildings
-python engine/tools/stage_official.py <dir-with-ksdma-tifs>
+# Stage a city (needs network; Overpass is slow and rate-limited)
+python engine/tools/fetch_terrain.py kochi              # terrain, via your gcloud login
+python engine/tools/stage_region.py kochi --buildings   # OSM water, roads, buildings
+python engine/tools/fetch_lst.py kochi                  # Landsat surface temperature (Earth Engine)
+python engine/tools/stage_official.py <dir-with-ksdma-tifs>   # Kochi only
 
 # Three keys, three different jobs, none interchangeable
 cat > .env.local <<'KEYS'
-MAPS_API_KEY=...      # browser key, referrer-restricted. Public by design: it ships in the page
-WEATHER_API_KEY=...   # server key. A referrer-restricted key cannot work server-side
+MAPS_API_KEY=...      # browser key, referrer-restricted. Public by design: it ships in the page.
+                      # Allowed APIs: Maps JavaScript, Geocoding, and Air Quality (the heatmap tiles)
+WEATHER_API_KEY=...   # server key (Weather + Air Quality). A referrer-restricted key cannot work server-side
 GEMINI_API_KEY=...    # server key, restricted to generativelanguage.googleapis.com
 KEYS
 ./run_dev.sh                                      # http://localhost:8080
@@ -259,7 +320,7 @@ KEYS
 Without `GEMINI_API_KEY` the agent layer reports itself unavailable and the ask box does not
 appear. Everything else works unchanged.
 
-Tests: `./.venv/Scripts/python.exe -m pytest engine` — 215 tests, all offline, no network, no
+Tests: `./.venv/Scripts/python.exe -m pytest engine` — 289 tests, all offline, no network, no
 staged data and no model. The agent tests stub both models out on purpose: what is worth testing
 there is the part that holds when the model is wrong, and that part is deterministic by design.
 
@@ -269,21 +330,24 @@ Cloud Build builds the image). Add the service URL to the API key's allowed refe
 ## Layout
 
 ```
-engine/bih_engine/   terrain, hydrology, osm, routes, official, store  — no I/O beyond reads
-engine/bih_agents/   scenario, narrator, verifier, coordinator, news, and the facts bundle
-engine/bih_engine/   ...terrain, hydrology, osm, routes, official, exposure, preparations, replay, store
-engine/tools/        staging jobs: the only code that talks to Overpass or a data portal
-engine/tests/        215 tests on synthetic terrain where the answer is known
-service/             FastAPI: bbox + rainfall in, screening + official layer out
-web/                 map, modal tool palette, and the right-hand panel: Agent (chat with memory), Rain, Details, News
+engine/bih_engine/   deterministic, no model: terrain, hydrology, osm, routes, official, exposure,
+                     preparations, heat, surface_heat, density, air_quality, weather_grid, replay, store
+engine/bih_agents/   scenario, narrator, verifier, guide, planner, news and news_agent, coordinator, facts
+engine/tools/        staging jobs: the only code that talks to Overpass, Earth Engine or a data portal
+engine/tests/        289 tests, mostly on synthetic data where the answer is known
+service/             FastAPI: every /api route, and the static web files
+web/                 map, layers and one clock, and the right-hand panel: Agent (chat with memory),
+                     Rain, Details, Heat, Air, News
 plan/                the design written before building
 PROGRESS.md          what is done and what is not
 ```
 
 ## Status
 
-The engine, both tiers, the map, the agent layer, population and exposure, the news-grounded road
-outlook, preparations within the city's budget with a best-case before/after, the news agent, and the
-28 May 2024 replay work end to end. Not yet built: the seeded synthetic harness, and the further
-hazards (heat, air quality) that `plan/MULTI_HAZARD.md` schedules. `PROGRESS.md` tracks all of it
+The engine, both tiers, the map and its nine layers and clock, the agent layer with topic routing,
+heat (forecast and satellite), air quality, population and exposure, the news-grounded road outlook,
+preparations within the city's budget with a best-case before/after, the news agent with its links to
+the screening, and the 28 May 2024 replay work end to end, on two cities. Not built, and said so: the
+seeded synthetic harness, push alerts, Malayalam briefings, persistence of runs, and a hospital-and-school
+layer (which is why "areas cut off from a hospital" is not claimed). `PROGRESS.md` tracks all of it
 honestly.

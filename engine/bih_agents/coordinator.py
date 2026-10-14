@@ -321,9 +321,11 @@ def _run_topic(question, spec, topic, bbox, region, trace) -> dict:
             if not buildings:
                 raise ValueError("no buildings are staged for this area")
             r = density.raster((w, s, e, n), pop, buildings)
+            if not r.get("available"):
+                raise ValueError(r.get("reason", "no population estimate for this area"))
             ms = int((time.perf_counter() - t0) * 1000)
             bundle["people"] = {
-                "roughly_in_the_whole_box": r.get("people_total"),
+                "roughly_in_the_whole_box": r["people_in_area"],
                 "density_max_per_km2": r.get("max"),
                 "density_p95_per_km2": r.get("p95"),
                 "source": r.get("source", "unknown"),
@@ -332,7 +334,7 @@ def _run_topic(question, spec, topic, bbox, region, trace) -> dict:
                         "by area only, never a claim about a street or a home.",
             }
             trace.add("Population", "ok", ms,
-                      f"~{r.get('people_total', '?')} people in {area_km2} km².")
+                      f"~{r['people_in_area']} people in {area_km2} km².")
         except Exception as exc:
             trace.add("Population", "failed", 0, str(exc)[:120])
 

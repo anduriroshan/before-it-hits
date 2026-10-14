@@ -356,6 +356,7 @@ class NewsTurn(BaseModel):
 class NewsAskRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=400)
     region: str | None = None
+    place: str | None = Field(None, max_length=80)      # the area on the map, when the question is about one
     history: list[NewsTurn] = Field(default_factory=list, max_length=8)
 
 
@@ -378,7 +379,7 @@ def news_ask(req: NewsAskRequest) -> StreamingResponse:
         try:
             out = news_agent.run(req.question, region=r.name, title=r.manifest.get("title") or r.name,
                                  place_query=r.manifest.get("news_query"),
-                                 news_place=r.manifest.get("news_place"),
+                                 news_place=r.manifest.get("news_place"), place=req.place,
                                  history=[t.model_dump() for t in req.history],
                                  emit=lambda step: events.put({"event": "step", **step}))
             events.put({"event": "done", **out})
