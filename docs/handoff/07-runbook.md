@@ -50,7 +50,7 @@ Environment switches: `BIH_NO_NEWS_WARM`, `BIH_NO_DENSITY_WARM`, `BIH_FAST_MODEL
 From the repo root:
 
 ```powershell
-& .\.venv\Scripts\python.exe -m pytest engine -q          # expect: 289 passed, about 10 to 30 s
+& .\.venv\Scripts\python.exe -m pytest engine -q          # expect: 301 passed, about 10 to 30 s
 & .\.venv\Scripts\python.exe -m pytest engine/tests/test_surface_heat.py -q
 ```
 
@@ -63,6 +63,8 @@ All offline. The agent tests stub both models out. There are no browser or route
 & .\.venv\Scripts\python.exe engine\tools\stage_region.py    <city> --buildings # Overpass → FlatGeobuf + region.json
 & .\.venv\Scripts\python.exe engine\tools\stage_region.py    <city> --manifest-only   # rewrite manifest, no Overpass
 & .\.venv\Scripts\python.exe engine\tools\fetch_lst.py       <city>              # Landsat surface temperature
+& .\.venv\Scripts\python.exe engine\tools\fetch_population.py <city>             # GHS-POP grid -> pop.tif (about a minute)
+& .\.venv\Scripts\python.exe engine\tools\validate_population_sg.py             # Singapore census check -> manifest
 & .\.venv\Scripts\python.exe engine\tools\stage_official.py  <dir of KSDMA rasters>   # Kochi only (hard-wired)
 & .\.venv\Scripts\python.exe engine\tools\replay_kochi.py                       # the 28 May 2024 replay
 ```

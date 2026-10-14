@@ -491,21 +491,17 @@ def population_density(region: str | None = None, bbox: str | None = None) -> di
 
     A box gets a finer grid than a city does, because the cells are sized to the area asked about
     rather than fixed: the method is the same, the picture is simply drawn at a useful scale."""
-    from bih_engine import density
+    from bih_engine import popgrid
     r = region_or_404(region)
-    pop = r.manifest.get("population")
-    if not pop:
-        return {"available": False, "reason": "no population figure is staged for this city"}
     box = parse_bbox(bbox)
     area = box if (box and r.covers(box)) else r.bounds
     key = (r.name, tuple(round(v, 5) for v in area))
     hit = _density_cache.get(key)
     if hit is not None:
         return hit
-    osm = r.read_osm(area)
-    if not osm.buildings:
-        return {"available": False, "reason": "no buildings are staged for this area"}
-    out = density.raster(area, pop, osm.buildings)
+    out = popgrid.density_for(r, area)
+    if not out.get("available"):
+        return out
     out["scope"] = "box" if area is box else "city"
     # The footprints are staged and never change, so this is worth keeping for the session. A
     # city-wide grid is the slow one and the one most likely to be asked for twice.

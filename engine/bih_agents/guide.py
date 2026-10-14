@@ -78,9 +78,13 @@ HOW TO READ WHAT IT SHOWS
 - A road is marked where it runs through a spot that fills at the rainfall being looked at.
 - The road playback shows how the marked roads grow as rain accumulates, assuming none of it drains
   away, which is the worst case. It is not traffic and not a forecast of standing water hours later.
-- The people figure spreads the city's published population over its mapped building footprints by
-  area, then adds up the footprint inside the worst spots. It is rough, by area only, and never a
-  statement about one building or home.
+- The people figure starts from a modelled population grid of about a hundred metres, made from
+  satellite and census data, scaled so the city adds up to its published population. Inside the worst
+  spots, each cell's people are placed on the mapped buildings in it, so open ground holds nobody;
+  where a cell has people but no mapped building they are spread evenly over it. It is rough, by area
+  only, and never a statement about one building or home. Against Singapore's 2020 census by planning
+  area it places people far better than spreading a total over building footprints did, and Kochi has
+  no such check, which is said.
 - For Kochi, the Kerala State Disaster Management Authority publishes flood depth maps. They can be
   shown alongside our ranking, as published, and are never merged into it.
 - For Kochi, a preparation plan ranks measures a city can afford from its documented budget lines.

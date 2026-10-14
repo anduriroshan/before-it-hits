@@ -519,7 +519,7 @@ async function loadDensityField(id) {
   const l = dataLayers[id];
   const my = ++l.token;
   l.loading = true;
-  layerNote(id, 'counting building footprints…');
+  layerNote(id, 'reading the population grid…');
   try {
     const box = layerArea('density');
     const url = `/api/population-density?region=${encodeURIComponent(state.region.name)}`
@@ -530,8 +530,7 @@ async function loadDensityField(id) {
     l.src = rasterSource(d, RAMPS.population);
     l.instance = new FieldOverlay(l);
     l.instance.setMap(state.map);
-    layerNote(id, `${box ? 'The box you drew' : 'The whole city'}, in about ${d.cell_m} m cells. `
-      + 'An approximation by area from building footprints — never a count of a street or a home.');
+    layerNote(id, `${box ? 'The box you drew' : 'The whole city'}, in about ${d.cell_m} m cells. ${d.method}`);
     renderFieldScales();
   } catch {
     if (my !== l.token) return;

@@ -15,7 +15,7 @@ Legend: ✅ built and live, ◐ partly built, ☐ not built.
 | F4 | Where water collects | ✅ | `analyse.py` + `hydrology.py` (numba), 10 m grid, relative rank 1 to 5, fill order |
 | F5 | Validated depth layer | ✅ Kochi only | KSDMA rasters shown as published, with agreement stated against its baseline |
 | F6 | Heat by area | ✅ | Forecast heat, five weather fields, Landsat surface-heat layer with hottest/coolest places. ☐ "people in the hottest parts" |
-| F7 | Who is nearby | ✅ | People in the worst spots (by area), population density field |
+| F7 | Who is nearby | ✅ | People in the worst spots (by area), population density field. **Since 15 Oct from a modelled 100 m grid (GHS-POP 2020) scaled to the published total**, placed on buildings inside a spot; checked against Singapore's census (see 05) |
 | F8 | What gets cut off | ◐ | Roads through pooling spots + a rain-driven playback ✅. "Areas cut off" is **deliberately not claimed**: it needs somewhere to be cut off *from* (critical places, L13, not built); without that it returns graph noise (~400 "islands" on a 35 km² box) |
 | F9 | Prepare within what the city has | ✅ | Ranked, capped by the real budget line; has a real "nothing to buy" branch |
 | F10 | Before / after | ✅ | Computed by the engine, always labelled a best case |
@@ -43,6 +43,7 @@ L15 rainfall forecast ✅, L16 observations ◐ (NEA gauges, Singapore only), L1
 | `buildings.fgb` | OSM footprints (154,506 in Kochi; near-complete in Singapore) | ✅ | ✅ |
 | `official/` | KSDMA depth rasters, 6 return periods (10 to 500 yr), about 92 m | ✅ | none exists |
 | `lst.tif` | **Landsat surface-temperature median composite**, on the terrain's own grid | 55 scenes, Jan to Apr | 56 scenes, all months |
+| `pop.tif` | **GHS-POP 2020 population count**, 100 m source resampled (through people per m²) onto a 3 arcsecond grid; staged total checked against the source's own | 2.47 M in the box, scale to published 0.857; 34% of its people in cells with no mapped building | 6.26 M, scale 0.946; 19% |
 | `region.json` | bounds, presets, sources, licences, staged dates, population, news queries, preparedness budget, `surface_heat` provenance | ✅ | ✅ |
 
 Staged data is gitignored (large, third-party, reproducible) except **each city's `region.json`** (Singapore's
@@ -59,20 +60,22 @@ committed early. Singapore's rasters and vectors stay out of git on purpose.
 | `analyse.py` | the screening: pooling spots, rank 1 to 5, fill order, `rain_to_fill_mm`, nearest named road, road flood thresholds | **never returns a depth** from our model |
 | `osm.py`, `routes.py` | OSM parsing and rasterising; road graph built **per request** (not stored) | bridges and tunnels are excluded from "flooded": water does not run along them |
 | `official.py` | clips the published raster to the box; bands for display; **enrichment** vs chance | shown under the screening, never merged |
-| `exposure.py` | people in the worst spots: published population spread over footprints by area | self-consistent ratio, so OSM under-mapping cancels; by area, never per home |
+| `exposure.py` | people in the worst spots. Grid method (`popgrid.people_in`) where a city has `pop.tif`; the older published-total-over-footprints method is the fallback | by area, never per home. `people_in_box` comes from the same grid, so the layer, the Details card and the agent agree |
+| `popgrid.py` | **the population grid**: `raster` (density for a box, area-averaged), `people_in` (a cell's people on its mapped buildings by footprint; spread evenly where a cell has none), `density_for` (the one door: grid if staged, else footprints) | scaled so the staged box adds up to the published total; a modelled zero draws as nothing |
 | `preparations.py` | greedy ranking under the city's real budget; the **ordinary-day gate** | gate uses IMD daily rainfall classes (light rain up to 15.5 mm); returns ₹0 and says why |
 | `forecast.py` | Google Weather API rainfall for a box, 48 h, peak windows | a tool, not a model |
 | `heat.py` | heat index, temperature, humidity, wind; five classification levels; peak | |
 | `weather_grid.py` | 16 points × 24 hours time cube for the map fields; five variables; stable colour bounds | cached 10 min; a missing hour stays `None`, never 0 |
 | `surface_heat.py` | **the Landsat picture of a box**: block-averaged raster, hottest/coolest places, city-scale ramp | about 0.3 s a box; see 05 for what it may claim |
-| `density.py` | people per km² as a raster (vectorised numpy) | about 150 m cells for a box, about 600 m for a city; null where there is no footprint |
+| `density.py` | the footprint-only density raster (vectorised numpy), now the **fallback** for a city with no grid | about 150 m cells for a box, about 600 m for a city; null where there is no footprint; also owns the cell-size rule `popgrid` uses |
 | `air_quality.py` | Google Air Quality API: current, hourly forecast, readable units | provider's figures, never rewritten |
 | `rainfall_obs.py` | live NEA rain gauges (Singapore, keyless) | observed rain, not a forecast |
 | `replay.py` | scores the screening against a real past storm | |
 
 Staging tools (`engine/tools/`): `fetch_terrain.py`, `fetch_deltadtm_kochi.py`, `fetch_osm_kochi.py`,
 `stage_region.py` (Overpass → FlatGeobuf, writes `region.json`), `stage_official.py` (KSDMA),
-`fetch_lst.py` (**Landsat via Earth Engine**), `replay_kochi.py`.
+`fetch_lst.py` (**Landsat via Earth Engine**), `fetch_population.py` (**GHS-POP via Earth Engine**),
+`validate_population_sg.py` (Singapore census check, writes its result into the manifest), `replay_kochi.py`.
 
 Measured: 7 km² warm total **0.78 s**, 35 km² about 1.3 s, 75 km² about 1.6 s. Cold start about 8 s, which is
 why the service runs with `--min-instances 1`.
@@ -156,7 +159,7 @@ every active field gets a colour scale on the right built from the same ramp as 
 | Heat index (forecast) | Weather API, 16 points × 24 h | 9.3 km city, 1.5 km box | ✅ | animated; the note states the box's own spread |
 | **Surface heat (satellite)** | Landsat composite | sensor about 100 m, grid 30 m | ✅ | typical season, surface not air, city-scale colours |
 | Temperature, Humidity, Rain per hour, Wind speed | Weather API | as above | ✅ | animated |
-| People per km² | census total over OSM footprints | about 150 m box / 600 m city | ✅ | approximation by area; null where no footprint |
+| People per km² | GHS-POP 2020 grid scaled to the census total | about 150 m box / 600 m city | ✅ | approximation by area; null where the grid holds nobody |
 | Air quality | Google's own heatmap tiles | provider's | n/a | shown as published; see 03 (unverified on the live site) |
 | Traffic | Google TrafficLayer | | n/a | display only |
 
@@ -174,7 +177,7 @@ same moment. Scrubbing never re-runs the engine.
   the most-vegetated quarter of pixels is 1.6 °C and 3.3 °C cooler.
 - News agent resisted a planted prompt-injection headline.
 
-## 9. Tests: 289, all offline
+## 9. Tests: 301, all offline
 
 | File | Tests | Covers |
 |---|---|---|
@@ -188,6 +191,7 @@ same moment. Scrubbing never re-runs the engine.
 | `test_news_cache.py` | 12 | cache, pacing, pending |
 | `test_air_quality.py` | 11 | parsing, units |
 | `test_density.py` | 12 | raster, null, p95 cut, people in an area (not the city total) |
+| `test_popgrid.py` | 12 | grid scaling, people follow the roof, open ground holds nobody, unmapped cells spread evenly, exposure and fallback |
 | `test_forecast.py` / `test_official.py` | 10 / 10 | forecast peaks; official clip and enrichment |
 | `test_hydrology.py` / `test_replay.py` | 9 / 9 | depression fill; replay scoring |
 | `test_osm.py` / `test_routes.py` | 8 / 8 | |

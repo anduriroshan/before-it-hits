@@ -32,10 +32,12 @@ REGIONS: dict[str, dict] = {
         # The same place expression without the flood terms, so the other news topics (heat, traffic,
         # air) are searched for the same city the same way.
         "news_place": '(Kochi OR Ernakulam) Kerala',
-        # For F7 exposure: a published population and the total mapped building footprint it is
-        # spread across. `built_footprint_m2` is measured from the staged buildings.fgb (sum of
-        # footprint areas in metres), so the ratio is self-consistent - the same partial OSM
-        # footprints sit in both the city total and any one spot, so even under-mapping cancels.
+        # Where people live: the GHS-POP 100 m grid (tools/fetch_population.py), scaled so the staged
+        # box adds up to the published total below. The grid says where, the census says how many.
+        "population_grid": {"year": 2020},
+        # The published total, and the mapped building footprint it used to be spread across. That
+        # footprint-only spreading is now the fallback for a city with no grid: measured against
+        # Singapore's census it misplaced about a third of the city (tools/validate_population_sg.py).
         "population": {
             "people": 2117990,
             "extent": "Kochi urban agglomeration, 2011 Census of India",
@@ -76,18 +78,21 @@ REGIONS: dict[str, dict] = {
         # No other staged city has an open feed like this; surfaced as observed rain, not forecast.
         "live_rainfall": {"source": "nea_sg", "label": "NEA rain gauges (data.gov.sg)",
                           "cadence": "5-minute totals"},
-        # For F7 exposure. OSM building coverage in Singapore is near-complete (unlike an Indian
-        # city), so the self-consistency ratio is unusually strong here: footprint stands in well
-        # for where people are. `built_footprint_m2` is measured from the staged buildings.fgb
-        # (158,230 footprints, summed in EPSG:32648 / UTM 48N).
+        # Where people live: the GHS-POP 100 m grid, scaled to the published total below. The staged
+        # box includes a thin strip of Johor, which takes a little of the total: small, and said.
+        "population_grid": {"year": 2020},
+        # The published total. OSM footprints here are near-complete, and still footprint area is not
+        # people: spread over footprints alone, the 2020 census by planning area was misplaced by a
+        # third (industrial Tuas got 6.5% of the city and has no residents). `built_footprint_m2` is
+        # the footprint-only fallback (158,230 footprints, summed in EPSG:32648 / UTM 48N).
         "population": {
             "people": 5917648,
             "extent": "Singapore, total population mid-2023 (SingStat)",
             "source": "https://www.singstat.gov.sg/ (Singapore total population, mid-2023)",
             "built_footprint_m2": 95911957,
-            "note": "Total population spread across near-complete OSM footprints. The staged box "
-                    "includes a thin strip of Johor across the strait, which slightly dilutes the "
-                    "ratio - a conservative bias. An order of magnitude for who is exposed, by area.",
+            "note": "Total population placed by a modelled grid. The census check is of residents "
+                    "only, so the dormitory workers in the published total are spread like residents. "
+                    "An order of magnitude for who is exposed, by area.",
         },
         # Places with a documented flash-flood history.
         "presets": [

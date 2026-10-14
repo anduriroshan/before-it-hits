@@ -95,7 +95,7 @@
     "extent": "Singapore, total population mid-2023 (SingStat)",
     "source": "https://www.singstat.gov.sg/ (Singapore total population, mid-2023)",
     "built_footprint_m2": 95911957,
-    "note": "Total population spread across near-complete OSM footprints. The staged box includes a thin strip of Johor across the strait, which slightly dilutes the ratio - a conservative bias. An order of magnitude for who is exposed, by area."
+    "note": "Total population placed by a modelled grid. The census check is of residents only, so the dormitory workers in the published total are spread like residents. An order of magnitude for who is exposed, by area."
   },
   "news_query": "Singapore (flood OR flooding OR \"flash flood\" OR \"heavy rain\" OR ponding OR waterlogging)",
   "news_place": "Singapore",
@@ -158,5 +158,60 @@
       "The thermal sensor sees patches about 100 m across, so this shows a few blocks at best and never a single building or roof.",
       "Water is masked: this is a picture of land."
     ]
+  },
+  "population_grid": {
+    "file": "pop.tif",
+    "source": "GHS-POP R2023A, 2020 epoch, 100 m population count (European Commission JRC), via Earth Engine",
+    "asset": "JRC/GHSL/P2023A/GHS_POP/2020",
+    "band": "population_count",
+    "year": 2020,
+    "licence": "CC BY 4.0",
+    "native_res_m": 100,
+    "resolution": "100 m equal-area source, resampled through people per square metre onto a 3 arcsecond (about 93 m) lat/lon grid; a modelled estimate, not a head count",
+    "unit": "people per pixel (a count, not a density)",
+    "raster_sum": 6257012,
+    "source_sum": 6264387,
+    "resampling_difference": -0.001,
+    "published_total": 5917648,
+    "scale_to_published": 0.946,
+    "pixels_with_people": 52021,
+    "people_in_cells_with_no_mapped_building_share": 0.187,
+    "bbox_wsen": [
+      103.6,
+      1.21,
+      104.05,
+      1.48
+    ],
+    "shape": [
+      324,
+      540
+    ],
+    "fetched": "2026-10-14",
+    "caveats": [
+      "A modelled estimate of where people live, at about 100 m. It is not a head count.",
+      "Scaled so the staged area adds up to the published figure: the grid says where, the census says how many.",
+      "Inside a spot, people are placed on the mapped buildings in their cell, so a spot over open ground holds nobody. Where a cell has people and no mapped building they are spread evenly over the cell instead."
+    ],
+    "validation": {
+      "against": "Singapore Census of Population 2020, resident population by planning area (SingStat, via data.gov.sg), with Master Plan 2019 planning area boundaries",
+      "datasets": [
+        "d_7f243956483d5901f237e6f87b096636",
+        "d_4765db0e87b9c86336792efe8a1f7a66"
+      ],
+      "planning_areas": 48,
+      "judged_on": "each method's share of the city in each planning area, so where people are placed and not how many",
+      "caveat": "The census counts residents only (about 4.0 million of about 5.9 million people), so dormitory workers are missing from the truth and no method can score perfectly.",
+      "footprint_only": {
+        "share_of_people_in_the_wrong_planning_area": 0.336,
+        "median_planning_area_error_pct": 62,
+        "rank_correlation": 0.512
+      },
+      "grid": {
+        "share_of_people_in_the_wrong_planning_area": 0.07,
+        "median_planning_area_error_pct": 12,
+        "rank_correlation": 0.964
+      },
+      "measured": "2026-10-14"
+    }
   }
 }

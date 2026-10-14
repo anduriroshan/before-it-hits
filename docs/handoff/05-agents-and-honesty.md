@@ -101,7 +101,7 @@ question ran the 8 s flood engine, heat and air quality, then printed "What-if Â
 | `heat` | a point forecast for the air, not a map | |
 | `surface_heat` | "surface"; typical of a dry-season morning, **not today, not a forecast**; patches a few blocks across | compare it with the heat index or air temperature; call it "the temperature" or "how hot it is"; describe a single building or roof |
 | `air_quality` | a regional reading, the provider's figures | a health effect for a person |
-| `people` | roughly, by area | a number for one building or home |
+| `people` | roughly, by area. The method may be named: a modelled satellite-and-census grid scaled to the published total, with a measured check against Singapore's census (about 7% of people in the wrong planning area, against about 34% for footprint-only). **Kochi has no such check; say so if asked** | a number for one building or home; "a head count"; the check as a claim about Kochi |
 | anything | the box, not the city ("in this box") | "across Kochi" about a box's findings |
 
 ## Other agents

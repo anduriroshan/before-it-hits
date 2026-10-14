@@ -311,16 +311,11 @@ def _run_topic(question, spec, topic, bbox, region, trace) -> dict:
 
     if topic == "population":
         try:
-            from bih_engine import density
+            from bih_engine import popgrid
             t0 = time.perf_counter()
-            pop = region.manifest.get("population", 0) if region else 0
-            if not pop:
-                raise ValueError("no population figure is staged for this city")
-            osm = region.read_osm((w, s, e, n)) if region else None
-            buildings = osm.buildings if osm else []
-            if not buildings:
-                raise ValueError("no buildings are staged for this area")
-            r = density.raster((w, s, e, n), pop, buildings)
+            if region is None:
+                raise ValueError("no city is selected")
+            r = popgrid.density_for(region, (w, s, e, n))
             if not r.get("available"):
                 raise ValueError(r.get("reason", "no population estimate for this area"))
             ms = int((time.perf_counter() - t0) * 1000)
@@ -329,9 +324,8 @@ def _run_topic(question, spec, topic, bbox, region, trace) -> dict:
                 "density_max_per_km2": r.get("max"),
                 "density_p95_per_km2": r.get("p95"),
                 "source": r.get("source", "unknown"),
-                "method": r.get("method", "footprint area ratio"),
-                "note": "Population spread across building footprints by area — an approximation "
-                        "by area only, never a claim about a street or a home.",
+                "method": r.get("method", ""),
+                "note": "A modelled estimate by area only, never a claim about a street or a home.",
             }
             trace.add("Population", "ok", ms,
                       f"~{r['people_in_area']} people in {area_km2} km².")

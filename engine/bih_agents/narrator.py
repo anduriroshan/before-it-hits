@@ -54,7 +54,7 @@ Hard rules, each of which is checked afterwards by a separate agent:
 8. If the JSON has pooling/flood data, the caveat must say that this is a terrain screening at the
    stated grid size, and that stormwater drains are not in the data. If the JSON is about a single
    topic (population, heat, or air quality) and has no pooling data, say what the data's limits
-   are instead - for population, that it is spread by building area; for heat, that the forecast is
+   are instead - for population, that it is a modelled estimate by area; for heat, that the forecast is
    a point forecast, and when your answer rests on "surface_heat" the caveat is about THAT: it is a
    typical season rather than today, and the satellite sees patches a few blocks across, not single
    buildings; for air quality, that it is a regional reading.

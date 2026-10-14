@@ -293,5 +293,39 @@
       "The thermal sensor sees patches about 100 m across, so this shows a few blocks at best and never a single building or roof.",
       "Water is masked: this is a picture of land."
     ]
+  },
+  "population_grid": {
+    "file": "pop.tif",
+    "source": "GHS-POP R2023A, 2020 epoch, 100 m population count (European Commission JRC), via Earth Engine",
+    "asset": "JRC/GHSL/P2023A/GHS_POP/2020",
+    "band": "population_count",
+    "year": 2020,
+    "licence": "CC BY 4.0",
+    "native_res_m": 100,
+    "resolution": "100 m equal-area source, resampled through people per square metre onto a 3 arcsecond (about 93 m) lat/lon grid; a modelled estimate, not a head count",
+    "unit": "people per pixel (a count, not a density)",
+    "raster_sum": 2471989,
+    "source_sum": 2470895,
+    "resampling_difference": 0.0,
+    "published_total": 2117990,
+    "scale_to_published": 0.857,
+    "pixels_with_people": 57228,
+    "people_in_cells_with_no_mapped_building_share": 0.342,
+    "bbox_wsen": [
+      76.2,
+      9.85,
+      76.45,
+      10.1
+    ],
+    "shape": [
+      300,
+      300
+    ],
+    "fetched": "2026-10-14",
+    "caveats": [
+      "A modelled estimate of where people live, at about 100 m. It is not a head count.",
+      "Scaled so the staged area adds up to the published figure: the grid says where, the census says how many.",
+      "Inside a spot, people are placed on the mapped buildings in their cell, so a spot over open ground holds nobody. Where a cell has people and no mapped building they are spread evenly over the cell instead."
+    ]
   }
 }

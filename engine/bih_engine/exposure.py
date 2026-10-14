@@ -40,17 +40,71 @@ def _round2(x: float) -> int:
     return int(round(x / mag) * mag)
 
 
+def _grid_estimate(features: list[dict], population: dict, treated: set, region, bbox) -> dict:
+    """The same answer from the population grid (popgrid.py): who lives on the ground the worst spots
+    cover, with a cell's people placed on its mapped buildings and spread evenly where it has none."""
+    from . import popgrid
+    spots = [shape(f["geometry"]) for f in features
+             if f["properties"]["pooling_index"] >= TOP_RANK
+             and f["properties"].get("fills_at_rainfall")
+             and f["properties"].get("id") not in treated]
+    got = popgrid.people_in(region, spots)
+    box = popgrid.raster(region, tuple(bbox))
+    meta = region.manifest["population_grid"]
+    check = meta.get("validation")
+    if check:
+        # Said at the point of use, with the number, so the reader is not left to find the README.
+        wrong = round(check["grid"]["share_of_people_in_the_wrong_planning_area"] * 100)
+        was = round(check["footprint_only"]["share_of_people_in_the_wrong_planning_area"] * 100)
+        checked = (f"Checked against the {check['against'].split(',')[0]} by planning area: about {wrong}% of "
+                   f"the city's people land in the wrong planning area, against about {was}% for spreading "
+                   "the total over building footprints. The census counts residents only.")
+    else:
+        checked = ("Not checked against a census by small area: none is staged for this city, so how "
+                   "well the grid places people here is unverified.")
+    return {
+        "available": True,
+        "people_in_worst_spots": _round2(got["people"]),
+        "people_in_box": box["people_in_area"] if box.get("available") else 0,
+        "buildings_in_worst_spots": got["buildings"],
+        "affected_footprint_m2": round(got["footprint_m2"]),
+        "method": "grid",
+        "basis": {
+            "population": population["people"],
+            "population_extent": population.get("extent"),
+            "source": population.get("source"),
+            "grid": meta["source"],
+        },
+        "caveats": [
+            "A modelled distribution, not a count of residents: a satellite-and-census population grid "
+            "of about 100 m, scaled so the city adds up to its published population.",
+            "By area only. No number is attached to any individual building.",
+            "Inside a spot, a cell's people are placed on its mapped buildings by footprint, so open "
+            "ground holds nobody; where a cell has people but no mapped building they are spread evenly "
+            "over the cell. OpenStreetMap maps only part of the buildings in some cities.",
+            checked,
+        ],
+    }
+
+
 def estimate(features: list[dict], buildings, crs, population: dict,
-             treated: set | None = None) -> dict:
+             treated: set | None = None, region=None, bbox=None) -> dict:
     """`features` are the screening's pooling-spot geojson (lon/lat); `buildings` are shapely
     footprints in lon/lat; `population` is the region manifest block with `people` and
     `built_footprint_m2`. Returns a modelled exposure, or an honest 'not available'.
 
     `treated` is a set of spot ids to leave out of the exposed set - the spots a preparation plan
     would deal with, for the best-case "after" of F10. It changes which footprint is summed and
-    nothing else: the population, the denominator and the method are the same as the "before"."""
+    nothing else: the population, the denominator and the method are the same as the "before".
+
+    With `region` and `bbox`, and a staged population grid for that region, the people come from the
+    grid (see popgrid.py). Without one, from the published total spread over footprints as before."""
     people = population.get("people")
     region_fp = population.get("built_footprint_m2")
+    if region is not None and bbox is not None and people:
+        from . import popgrid
+        if popgrid.available(region):
+            return _grid_estimate(features, population, treated or set(), region, bbox)
     if not people or not region_fp:
         return {"available": False,
                 "reason": "no published population is configured for this region"}
@@ -88,6 +142,7 @@ def estimate(features: list[dict], buildings, crs, population: dict,
         "people_in_box": _round2(box_footprint * scale),
         "buildings_in_worst_spots": buildings_touched,
         "affected_footprint_m2": round(affected_footprint),
+        "method": "footprint",
         "basis": {
             "population": people,
             "population_extent": population.get("extent"),

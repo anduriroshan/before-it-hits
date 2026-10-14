@@ -167,8 +167,8 @@ The Layers panel stacks nine layers, each with its own opacity and a one-line no
 from: heat index, **surface heat (satellite)**, temperature, humidity, rain per hour, wind, people per km²,
 air quality and traffic. The weather fields follow the box you drew (finer inside a small box, and the note
 states how little a forecast actually varies across one), and every active field gets a colour scale drawn
-from the same ramp as the picture. The people layer is a smooth field, null where there is no footprint at
-all, because "nobody lives here" and "we have no footprint here" are different statements.
+from the same ramp as the picture. The people layer is the population grid drawn as a smooth field, left
+blank where the grid holds nobody rather than painted as the bottom of the scale.
 
 **One thin clock** at the bottom of the map drives everything time-shaped: the weather fields morph between
 forecast hours, and the road playback lights roads at the rainfall that has fallen by the same moment.
@@ -176,13 +176,21 @@ Scrubbing never re-runs the engine.
 
 ## Who is nearby, and what the city is saying
 
-**People (F7).** For each box we model roughly how many people are in the worst spots by spreading
-the city's published population across mapped building footprints by area, then summing the
-footprint inside the top-ranked spots. The ratio is written so it is self-consistent — the same
-partial OSM footprints sit in both the numerator and the denominator — so even OSM's under-mapping
-of buildings cancels to first order. It is reported *by area, never per building*, with no floor
-counts (footprint stands in for floor area), rounded hard, and shown with its caveats every time.
-A modelled distribution, not a roll call.
+**People (F7).** For each box we model roughly how many people are in the worst spots. The first
+version spread a city's published population over its mapped building footprints. We then checked that
+against the one place with an official count by small area, **Singapore's 2020 census by planning area**,
+and it was wrong: it put **34% of the city's people in the wrong planning area** (the median area was off
+by 62%), because roof area is not people. Factories and malls have roof and nobody home. Industrial Tuas
+got 6.5% of everyone and has no residents. So it was replaced by a modelled population grid
+(**GHS-POP 2020, about 100 m**, satellite and census), scaled so the city still adds up to its published
+total: the grid says *where*, the census says *how many*. On the same test it puts **7% in the wrong area
+(median 12%)**. Inside a flood spot a cell's people are shared over the mapped buildings in it, so a spot
+over a canal or a field holds nobody; where a cell has people and OpenStreetMap has no building (a third
+of Kochi's people live in such cells) they are spread evenly over the cell instead. It is reported *by area, never per building*,
+rounded hard, and shown with its caveats every time. The check is for Singapore only: **Kochi has no
+small-area census staged, so its placement is unchecked, and the "How is this estimated?" fold says so.** The census counts
+residents only, so the check is a fair test but not a perfect one
+(`engine/tools/validate_population_sg.py` reproduces it). A modelled distribution, not a roll call.
 
 **News (A13).** The News tab pulls live headlines about the city from GDELT's open index,
 de-duplicates them, and — when a model is available — writes a two-line grounded digest. Under the
@@ -276,7 +284,9 @@ One trap worth recording: DeltaDTM is a *coastal* model that caps at 30 m, writi
 | Water, roads, buildings | OpenStreetMap via Overpass | ODbL 1.0 — © OpenStreetMap contributors |
 | Official flood depth | KSDMA, produced with UNEP | published for public use; terms not stated |
 | Surface temperature | Landsat 8 and 9 Collection 2 Level 2 (USGS), via Earth Engine | public domain |
-| Population | 2011 Census (Kochi urban agglomeration); SingStat mid-2023 (Singapore) | published totals, spread by area |
+| Population | 2011 Census (Kochi urban agglomeration); SingStat mid-2023 (Singapore) | published totals, placed by the grid below |
+| Where people live | GHS-POP R2023A, 2020 epoch, 100 m (European Commission JRC), via Earth Engine | CC BY 4.0 |
+| Census check (Singapore) | SingStat Census 2020 by planning area; URA Master Plan 2019 boundaries, via data.gov.sg | open data, used only to score the grid |
 | Rainfall, heat, air quality (live) | Google Maps Platform Weather and Air Quality APIs | provider's figures, attributed |
 | Live rain gauges (Singapore) | NEA via data.gov.sg | keyless, 5-minute totals |
 | News | GDELT DOC 2.0 | open index, shown as headlines with their publishers, never stored |
@@ -305,6 +315,7 @@ python -m venv .venv
 python engine/tools/fetch_terrain.py kochi              # terrain, via your gcloud login
 python engine/tools/stage_region.py kochi --buildings   # OSM water, roads, buildings
 python engine/tools/fetch_lst.py kochi                  # Landsat surface temperature (Earth Engine)
+python engine/tools/fetch_population.py kochi           # GHS-POP population grid (Earth Engine)
 python engine/tools/stage_official.py <dir-with-ksdma-tifs>   # Kochi only
 
 # Three keys, three different jobs, none interchangeable
@@ -320,7 +331,7 @@ KEYS
 Without `GEMINI_API_KEY` the agent layer reports itself unavailable and the ask box does not
 appear. Everything else works unchanged.
 
-Tests: `./.venv/Scripts/python.exe -m pytest engine` — 289 tests, all offline, no network, no
+Tests: `./.venv/Scripts/python.exe -m pytest engine` — 301 tests, all offline, no network, no
 staged data and no model. The agent tests stub both models out on purpose: what is worth testing
 there is the part that holds when the model is wrong, and that part is deterministic by design.
 
@@ -331,10 +342,10 @@ Cloud Build builds the image). Add the service URL to the API key's allowed refe
 
 ```
 engine/bih_engine/   deterministic, no model: terrain, hydrology, osm, routes, official, exposure,
-                     preparations, heat, surface_heat, density, air_quality, weather_grid, replay, store
+                     preparations, heat, surface_heat, popgrid, density, air_quality, weather_grid, replay, store
 engine/bih_agents/   scenario, narrator, verifier, guide, planner, news and news_agent, coordinator, facts
 engine/tools/        staging jobs: the only code that talks to Overpass, Earth Engine or a data portal
-engine/tests/        289 tests, mostly on synthetic data where the answer is known
+engine/tests/        301 tests, mostly on synthetic data where the answer is known
 service/             FastAPI: every /api route, and the static web files
 web/                 map, layers and one clock, and the right-hand panel: Agent (chat with memory),
                      Rain, Details, Heat, Air, News

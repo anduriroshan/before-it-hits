@@ -10,6 +10,7 @@ Sizes are rough estimates (S under 1 h, M 1 to 3 h, L half a day or more), not m
 |---|---|
 | P0.1 live check | **Done in headless Chrome against the live URL, both cities**: nine layers load, surface heat on a box and the Heat-tab *Show*, the time bar plays, the ordinary-day card at 10 mm and the ₹22,80,000 plan at 120 mm, Singapore switch, agent on population / heat / flood / whole-city. **One failure: the live air-quality tiles are blank.** The browser key (`before-it-hits web (dev)`) allows only `maps-backend` and `geocoding-backend`, so Google answers 403 `API_KEY_SERVICE_BLOCKED` for `airquality.googleapis.com` and Chrome drops the tile (`ERR_BLOCKED_BY_ORB`). Fix, not yet applied (it changes a key's restrictions): `gcloud services api-keys update 33d387e4-9f83-4567-b70f-ae9f739899dc --project before-it-hits --api-target=service=maps-backend.googleapis.com --api-target=service=geocoding-backend.googleapis.com --api-target=service=airquality.googleapis.com` |
 | **New bug, found by the live check** | A population question for a box answered with the **whole city's** population ("roughly 2,117,990 people" for 19 km²). Fixed (`density.people_in_area`, test added); the live site still has it until the next deploy. A local Edappally box now says about 72,000 |
+| **P1.5 population grid (decided and built 15 Oct)** | `engine/tools/fetch_population.py` stages `pop.tif` (GHS-POP 2020, 100 m, through people per m²; the staged total matches the source's own to 0.1%); `bih_engine/popgrid.py` reads it; exposure, the density layer and the population answer all go through it, with the footprint method as the fallback. **Measured, not argued**: `validate_population_sg.py` scores both against SingStat's Census 2020 by planning area, 48 areas: footprint-only puts **33.6% of the city in the wrong planning area (median area off 62%, rank correlation 0.51)**, the grid **7.0% (12%, 0.96)**. WorldPop was tried first and lost to GHS-POP on both the census (median 18%) and on landing on mapped buildings. Two honest limits: the census counts residents only, and Kochi has no small-area truth. About a third of Kochi's grid people sit in cells with no mapped building (OSM is partial), so inside a spot they are spread evenly over the cell |
 | P0.4 Singapore in git | `.gitignore` whitelists `data/regions/singapore/region.json` only (the rasters stay out). **Needs the user's commit** |
 | P1.1 cross-links | Built both ways, 3 tests, driven in headless Chrome locally; **not deployed** (Friday). Direction "screen it" was driven with a hand-built news answer, because GDELT answered 503 for Singapore that day; the grounding of the place was checked with the real model on canned headlines |
 | P1.4 truthfulness | (a) heat entry in `hazards.py` now mentions the satellite; (b) Narrator wording for a place with no named road, and the Heat tab's tag, now say "no named road close by"; (c) Guide reference mentions the cross-links |
@@ -51,7 +52,7 @@ If behind, cut in the order in "Cut list" below. **Never cut P0.**
 | P1.2 | **Compound question with a "reported" section** | M | "What is the risk in Edappally tomorrow, all things considered?" already runs flood, heat, surface heat and air quality in one verified briefing (`topic: overview`). Missing: the news. Add a separate, labelled "reported" block, built by the news agent, **never blended into a ranking or the Narrator's bundle**. Done: one question, one briefing plus a clearly separate reported block |
 | P1.3 | **News topics from the hazard registry (cheap version)** | S/M | News topics are a list owned by `news_agent.py`; the welcome, the Guide and the intro read `hazards.py`. Make a hazard added to `hazards.py` get its news topic and Guide text for free. **Do not** do the full registry refactor in the 13 Oct plan (`screen`/`facts`/`limits` per hazard); there is no time and no benefit for a demo |
 | P1.4 | **Small truthfulness fixes** | S | (a) `hazards.py`'s "heat" entry describes only the forecast; add "and which parts of an area run hotter, from a satellite" so the welcome message and Guide match what exists. (b) Narrator phrasing when a place has no named road reads awkwardly ("a spot that is not near a named road"): tighten the prompt example. (c) Update the Guide reference for anything P1 changes |
-| P1.5 | **Per-area population (decision needed)** | L | Today density is a city total spread over OSM footprints. The upgrade is a WorldPop or GHS-POP raster (about 100 m) staged through Earth Engine like the terrain: about a day. It would replace the weakest data claim in the product. **Offered to the user on 14 Oct, not decided.** If yes, do it Thursday or Friday, not later |
+| P1.5 | ~~Per-area population~~ **DONE 15 Oct** | L | Built and measured: GHS-POP 2020 grid scaled to the published total, placed on buildings inside a spot. Against Singapore's census by planning area it misplaces 7% of the city against 34% for the footprint method it replaced. Kochi has no such check. See the status table |
 | P1.6 | People in the hottest parts | M | The footprint-share method (`exposure.estimate`) fed the surface-heat hot patches. In the original plan, not built. Only if P1.5 is skipped and time remains |
 
 ## P2: polish found while testing
@@ -81,7 +82,7 @@ event; measuring (not asserting) the Singapore drainage bias; a second news sour
 ## Cut list (what can still be cut, in order, if behind)
 
 1. P1.6 people in the hottest parts
-2. P1.5 per-area population (keep the current honest city-total method)
+2. ~~P1.5 per-area population~~ (done)
 3. P1.3 hazard-driven news topics
 4. P1.2 the "reported" block in the compound answer (keep each answer on its own)
 5. P2 polish
@@ -106,7 +107,7 @@ A flood answer that never fails on stage is worth more than three that sometimes
 
 ## Decisions needed from the user
 
-1. **Per-area population (P1.5):** build it (about a day) or keep the city-total method?
+1. ~~Per-area population (P1.5)~~: decided yes on 15 Oct and built.
 2. **Singapore in git (P0.4):** whitelist its `region.json`, and its rasters or not?
 3. **Backup recording (P0.5):** record one, and who narrates?
 4. **Demo emphasis:** lead with Kochi (validated tier, the replay) or Singapore (news, live gauges, the drainage

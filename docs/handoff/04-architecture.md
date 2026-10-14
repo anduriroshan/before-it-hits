@@ -127,10 +127,11 @@ topic run (population, heat, air) is about 4 to 8 s. Cold start about 8 s, which
 ## How to add things
 
 **A city.** Add an entry to `engine/regions.py` (bbox, title, timezone, presets, news queries, population block
-with a measured `built_footprint_m2`, `surface_heat` months). Then, with `gcloud` authenticated:
-`fetch_terrain.py <city>`, `stage_region.py <city> --buildings`, optionally `stage_official.py`,
-`fetch_lst.py <city>`. No engine change: the screening is terrain physics, not city-specific. Mind the
-`.gitignore`, which whitelists only Kochi.
+with a measured `built_footprint_m2`, `surface_heat` months, `population_grid` year). Then, with `gcloud`
+authenticated: `fetch_terrain.py <city>`, `stage_region.py <city> --buildings`, optionally `stage_official.py`,
+`fetch_lst.py <city>`, `fetch_population.py <city>`. No engine change: the screening is terrain physics, not
+city-specific. Mind the `.gitignore`, which whitelists only Kochi's and Singapore's `region.json`; a new city
+needs its own two lines. A city with no `pop.tif` falls back to spreading its published total over footprints.
 
 **A map layer.** Add an entry to `LAYER_DEFS`, a ramp in `RAMPS`, a `loadXField` loader and a branch in
 `createLayer`; add its kind to `layerArea` and to `refreshAreaLayers` if it follows the box; give it a one-line

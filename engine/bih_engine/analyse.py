@@ -301,7 +301,7 @@ def analyse_area(
         t0 = time.perf_counter()
         res["exposure"] = exposure.estimate(res["geojson"]["features"], data.buildings,
                                              grid.crs, region.manifest["population"],
-                                             treated=kw.get("treated"))
+                                             treated=kw.get("treated"), region=region, bbox=bbox)
         res["timings_s"]["exposure_s"] = time.perf_counter() - t0
     if region is not None and return_period is not None:
         t0 = time.perf_counter()

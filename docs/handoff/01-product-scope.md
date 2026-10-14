@@ -90,7 +90,7 @@ Three guard rails enforced in the architecture:
 | Flood | screening tier on any box; validated tier where staged; roads through pooling spots with a rain playback; people in the worst spots (by area); preparations within the city's real budget; before/after (best case) |
 | Heat | live forecast heat index, temperature, humidity; five animated weather fields; Landsat surface-heat layer with hottest/coolest places |
 | Air | current AQI, pollutant concentrations, hourly forecast, health recommendations (the provider's), Google's heatmap tiles |
-| People | population density as a smooth field by area; exposure in the worst flood spots |
+| People | population density as a smooth field by area (a modelled 100 m grid scaled to the published total); exposure in the worst flood spots |
 | News | per-hazard headline lists and a news chat that cites only the headlines it was shown |
 | Agents | scenario reading, topic routing, forecast tool, narrator, verifier, guide, planner, road outlook, news agent |
 | Cities | Kochi, Singapore. Adding a city is a config entry plus the staging tools: no engine change |

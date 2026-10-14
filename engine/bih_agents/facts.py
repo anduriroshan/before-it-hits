@@ -215,9 +215,10 @@ def build(result: dict, *, question: str, rainfall: dict, region_title: str | No
         bundle["people"] = {
             "roughly_in_the_worst_spots_that_fill_at_this_rainfall": exposure["people_in_worst_spots"],
             "roughly_in_the_whole_box": exposure["people_in_box"],
-            "note": "A modelled distribution - the city's published population spread across "
-                    "building footprints by area, then summed inside the worst spots. Rough and "
-                    "by area only; never a claim about any one building or home.",
+            "note": "A modelled distribution - a satellite-and-census population grid scaled to the "
+                    "city's published population, placed on the mapped buildings in each cell, then "
+                    "summed inside the worst spots. Rough and by area only; never a claim about any "
+                    "one building or home.",
         }
 
     agreement = result.get("agreement")
