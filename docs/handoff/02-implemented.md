@@ -193,7 +193,7 @@ same moment. Scrubbing never re-runs the engine.
   the most-vegetated quarter of pixels is 1.6 °C and 3.3 °C cooler.
 - News agent resisted a planted prompt-injection headline.
 
-## 9. Tests: 405, all offline
+## 9. Tests: 573, all offline
 
 | File | Tests | Covers |
 |---|---|---|

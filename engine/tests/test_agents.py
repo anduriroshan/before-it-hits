@@ -422,3 +422,94 @@ def test_a_ground_class_that_is_almost_everyone_is_not_rounded_up_to_everyone():
     facts.add_seismic(bundle, ex)
     pct = {c["class"]: c["percent"] for c in bundle["seismic"]["the_ground"]["share_of_people_by_class"]}
     assert pct == {"D": 99.6, "C": 0.4}
+
+
+# --- a road the question names is looked up in full, not in the short list ---------------------------------------
+
+def _road_rows(*rows):
+    """roads_timeline rows as the engine writes them: (name, highway, rain to fill in mm, pooling rank, metres)."""
+    return {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "geometry": None,
+         "properties": {"name": n, "highway": h, "length_m": m, "rain_to_flood_mm": mm, "severity": s}}
+        for n, h, mm, s, m in rows]}
+
+
+def _long_list_of_roads():
+    """Seven roads through spots that fill, longest first, so the bundle's five-road list cuts the last two."""
+    return [{"road": f"Long Rd {i}", "highway": "primary", "segments": 2, "length_m": 900 - 100 * i}
+            for i in range(5)] + [{"road": "Bendemeer Road", "highway": "primary", "segments": 1, "length_m": 72},
+                                  {"road": "Kitchener Road", "highway": "primary", "segments": 1, "length_m": 22}]
+
+
+def _asked(question, rows, mm=2.8, routes=None):
+    r = result_fixture(roads_timeline=_road_rows(*rows))
+    if routes is not None:
+        r["screening"]["routes_affected"] = routes
+    return facts.build(r, question=question, region_title="Singapore",
+                       rainfall={"mm": mm, "over_hours": 24, "where_this_figure_came_from": "forecast",
+                                 "is_a_real_forecast": True})
+
+
+FILLS = "a_real_length_of_it_is_in_low_spots_that_fill_at_this_rainfall"
+LEAST = "least_rain_that_fills_low_spots_along_a_real_length_of_it_mm"
+SOONER = "shorter_bits_of_it_may_fill_with_less_rain_but_the_terrain_data_cannot_resolve_them"
+
+
+def test_a_road_cut_from_the_short_list_is_still_found_and_the_list_is_marked_short():
+    b = _asked("Will Bendemeer Road flood?", [("Bendemeer Road", "primary", 1.7, 5, 100), ("Bendemeer Road", "primary", 12.7, 4, 50)],
+               routes=_long_list_of_roads())
+    assert "Bendemeer Road" not in [r["road"] for r in b["roads_through_the_worst_spots"]]    # the cap cuts it...
+    assert "worst_spots_and_roads_are_short_lists" in b                                       # ...and the bundle says so
+    [named] = b["roads_the_question_names"]                                                  # ...but it is not lost
+    assert named[FILLS] is True and named[LEAST] == 1.7 and SOONER not in named
+    assert named["highest_pooling_rank_of_the_low_spots_on_it"] == 5 and named["a_real_length_is_at_least_metres"] == 90
+
+
+@pytest.mark.parametrize("rows, expect", [
+    # Bendemeer Road in five of the eight box positions tried: a 55-70 m pit that fills first, then 160-190 m at 11-13 mm
+    ([(1.5, 55), (11.2, 162), (114.1, 149)], 11.2), ([(2.2, 63), (13.2, 189), (48.5, 68)], 13.2),
+    # and in the others the pit is simply not there
+    ([(11.7, 21), (12.6, 174), (87.2, 76)], 12.6), ([(14.6, 174), (41.6, 40)], 14.6)])
+def test_a_pit_too_short_to_resolve_does_not_set_the_roads_threshold(rows, expect):
+    b = _asked("will bendemeer rd flood tonight?", [("Bendemeer Road", "primary", mm, 4, m) for mm, m in rows], routes=[])
+    [named] = b["roads_the_question_names"]                                          # "rd" is read as "road"
+    assert named[FILLS] is False and named[LEAST] == expect
+    assert expect in facts.allowed_numbers(b)                                        # so the briefing may quote it
+
+
+def test_the_shorter_bit_that_fills_sooner_is_flagged_not_dropped():
+    [named] = _asked("Will Bendemeer Road flood?", [("Bendemeer Road", "primary", 1.5, 5, 55),
+                                                     ("Bendemeer Road", "primary", 11.2, 4, 162)])["roads_the_question_names"]
+    assert named[SOONER] is True
+
+
+def test_a_road_only_short_bits_of_which_cross_low_spots_gets_no_threshold():
+    [named] = _asked("Is Orchard Road at risk?", [("Orchard Road", "primary", 2.0, 5, 30), ("Orchard Road", "primary", 3.0, 4, 20)]
+                     )["roads_the_question_names"]
+    assert named[FILLS] is False and LEAST not in named and named[SOONER] is True
+
+
+def test_a_question_that_names_no_road_here_gets_no_road_block_and_a_complete_list_is_not_called_short():
+    b = _asked("Which roads will be affected first?", [("Bendemeer Road", "primary", 9.6, 4, 200)])
+    assert "roads_the_question_names" not in b and "worst_spots_and_roads_are_short_lists" not in b
+
+
+def test_the_longer_road_name_wins_and_does_not_also_match_the_shorter_one():
+    b = _asked("Is Kim Keat Road East flooding?", [("Kim Keat Road", "primary", 3.0, 4, 200), ("Kim Keat Road East", "primary", 8.0, 5, 200)])
+    assert [r["road"] for r in b["roads_the_question_names"]] == ["Kim Keat Road East"]
+
+
+def test_the_verifier_rejects_calling_a_road_clear_when_a_real_length_of_it_fills():
+    b = _asked("Will Bendemeer Road flood?", [("Bendemeer Road", "primary", 1.7, 5, 120)], routes=_long_list_of_roads())
+    bad = {"headline": "Bendemeer Road is not among the roads running through the worst low spots.", "bullets": []}
+    [p] = verifier.check_named_roads(b, bad)
+    assert p["part"] == "headline" and "real length" in p["problem"]
+    good = {"headline": "Low spots on Bendemeer Road fill at about 1.7 mm, below the 2.8 mm forecast.", "bullets": []}
+    assert verifier.check_named_roads(b, good) == []
+
+
+def test_the_verifier_lets_a_road_that_needs_more_rain_be_called_unaffected_at_this_rainfall():
+    b = _asked("Will Bendemeer Road flood?", [("Bendemeer Road", "primary", 9.6, 4, 200)], routes=[])
+    ok = {"headline": "Bendemeer Road is not among the roads through low spots that fill at 2.8 mm; they fill at 9.6 mm.",
+          "bullets": []}
+    assert verifier.check_named_roads(b, ok) == []

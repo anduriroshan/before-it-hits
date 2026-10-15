@@ -22,6 +22,13 @@ message + history
 A2 Scenario  ── model ──▶  spec {intent, topic, scope, mode, rainfall, duration, place, audience}
    │                        settle(): a figure only survives if its exact words are in the question
    │
+   ├─ (A2 reply unusable in ANY way, not only unreachable ──▶ degrade to the controls on screen, say why in the trace)
+   ├─ out_of_range figure / decline ∈ DECLINE_ONLY  ──▶ declines.py fixed text, 1 model call, 3 s
+   ├─ decline ∈ {news, history}  ──▶ handoff to the News tab and its own agent
+   ├─ decline == preparations    ──▶ Details tab (needs a documented budget and an area)
+   ├─ decline == comparison      ──▶ what each city lets the product see, from manifests, never a score
+   ├─ topic == traffic & scope city ──▶ asks for an area (traffic is read for one area at a time)
+   │   (a decline ∈ DECLINE_AND_ANSWER travels into the findings instead: `asked_for_but_not_given`)
    ├─ scope=city & analyse & topic ∈ {population, heat, air_quality, wind}
    │                         ──▶ _run_topic(city=True): people compared across the presets, the rest
    │                             read once at the city centre; `area` in the bundle says "whole city"

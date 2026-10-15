@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 from . import facts, llm
 
@@ -84,7 +85,13 @@ Report a part only if it breaks one of these rules:
   checked. For "seismic" the findings hold nothing at all about buildings, so any statement about
   damage, collapse or casualties - or what a stated magnitude "would do" - is unsupported. A sentence
   that says damage is NOT estimated is fine; a sentence that estimates it is not. Naming a band is
-  fine; naming a consequence is not.
+  fine; naming a consequence is not. For "traffic" the findings hold no traffic data at all, so any
+  statement that a road will be, or is likely to be, slow, jammed, congested, blocked or closed, any
+  travel time, delay or speed, and any freeway figure applied to a road that is not a freeway, is
+  unsupported; so is a figure or an event "like this one" that is not in the findings. A road that is only
+  missing from "worst_spots" or "roads_through_the_worst_spots" (short lists, when
+  "worst_spots_and_roads_are_short_lists" is present) is not shown to be clear: saying it is not among them,
+  not affected, clear or safe is unsupported unless "roads_the_question_names" says so for that road.
 - own_depth: gives a depth for one of our own pooling spots, or attaches a depth from the
   "official" block to one of our spots. Our spots are ranked against each other and have no depth.
   The official figures are a separate authority's and describe their own flood layer.
@@ -178,9 +185,9 @@ def check_seismic_statements(bundle: dict, briefing: dict) -> list[dict]:
     of people in danger. And where the published hazard map jumps across the area, the briefing must say
     so: otherwise a band of people on the lower side of the jump reads as ground that shakes less, when it
     is the join between two models and nothing to do with the ground."""
-    seismic = (bundle or {}).get("seismic")
-    if not seismic:
+    if "seismic" not in (bundle or {}):          # key presence, not truthiness: an empty block still counts
         return []
+    seismic = bundle["seismic"]
     out = []
     if "building" not in (briefing.get("caveat") or "").lower():
         out.append({"part": "caveat", "rule": "unsupported", "found_by": "arithmetic",
@@ -198,6 +205,70 @@ def check_seismic_statements(bundle: dict, briefing: dict) -> list[dict]:
                                    "ground that shakes less, when it is the join between two models",
                         "text": briefing.get("caveat", "")})
     return out
+
+
+_NEGATION = re.compile(r"\b(no|not|never|without|none|nothing)\b|n't", re.I)
+
+
+def check_traffic_statements(bundle: dict, briefing: dict) -> list[dict]:
+    """A traffic answer must say the product holds no traffic data. Checked in code, as the drain caveat
+    is: without that sentence, rain figures and road names read as a traffic forecast, which is the one
+    thing this product cannot give and a model would otherwise be glad to supply."""
+    if "traffic" not in (bundle or {}):       # key presence, not truthiness: an empty block still counts
+        return []
+    sentences = re.split(r"[.!?]", " ".join(t for _, t in parts(briefing)))
+    if any("traffic" in s.lower() and _NEGATION.search(s) for s in sentences):
+        return []
+    return [{"part": "headline", "rule": "unsupported", "found_by": "arithmetic",
+             "problem": "a question about traffic must say plainly that this product holds no traffic data; "
+                        "without that, the rain figures and road names read as a traffic forecast",
+             "text": briefing.get("headline", "")}]
+
+
+_CALLED_CLEAR = re.compile(r"\bnot (?:among|listed|affected|on the list)\b|\bdoes not (?:appear|run|cross|pass)\b|"
+                           r"\bno low spots?\b|\bis (?:clear|safe)\b", re.I)
+
+
+def check_named_roads(bundle: dict, briefing: dict) -> list[dict]:
+    """A road whose own entry says a real length of it lies in low spots that fill at this rainfall must not be
+    called clear. Checked in code because it was seen: "not among the worst low spots" for a road the engine had
+    filling below the forecast."""
+    for r in (bundle or {}).get("roads_the_question_names") or []:
+        if not r.get("a_real_length_of_it_is_in_low_spots_that_fill_at_this_rainfall"):
+            continue
+        for part, text in parts(briefing):
+            if any(r["road"].lower() in s.lower() and _CALLED_CLEAR.search(s) for s in re.split(r"[.!?]", text)):
+                return [{"part": part, "rule": "unsupported", "found_by": "arithmetic",
+                         "problem": f"calls {r['road']} clear or not affected, but the findings have a real length of it "
+                                    f"in low spots that fill at this rainfall",
+                         "text": text}]
+    return []
+
+
+_NUMBER_WORD = (r"(?:\d+(?:\.\d+)?|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+                r"twenty[- ]four|forty[- ]eight)")
+_NEXT_N_HOURS = re.compile(rf"\bnext\s+{_NUMBER_WORD}[- ]hours?\b|\bcoming\s+{_NUMBER_WORD}[- ]hours?\b", re.I)
+
+
+def check_window_wording(bundle: dict, briefing: dict) -> list[dict]:
+    """'The next N hours' is only true of hours that start now. A forecast window that starts later (the
+    wettest stretch of the next two days, tonight, tomorrow) must not be called that, which is what the
+    product did for every question before it knew when its window began. Checked in code because it is
+    exactly checkable: the findings say when the window starts, and the wording either contradicts it or
+    does not."""
+    rain = (bundle or {}).get("rainfall") or {}
+    starts = rain.get("window_starts_in_hours")
+    if not rain.get("is_a_real_forecast") or not starts:
+        return []
+    for part, text in parts(briefing):
+        m = _NEXT_N_HOURS.search(text)
+        if m:
+            return [{"part": part, "rule": "certainty", "found_by": "arithmetic",
+                     "problem": f"says \"{m.group(0)}\", but the rain being described starts in about "
+                                f"{starts} hours - say when it starts, or that it is the wettest stretch of "
+                                f"the forecast, not the next hours",
+                     "text": text}]
+    return []
 
 
 def check_official_units(bundle: dict, briefing: dict) -> list[dict]:
@@ -270,4 +341,5 @@ def verify(bundle: dict, briefing: dict, *, model: str = llm.CAREFUL_MODEL) -> l
     allowed = facts.allowed_numbers(bundle)
     return (check_numbers(briefing, allowed) + check_caveat(briefing, bundle)
             + check_official_units(bundle, briefing) + check_seismic_statements(bundle, briefing)
-            + check_claims(bundle, briefing, model=model))
+            + check_window_wording(bundle, briefing) + check_traffic_statements(bundle, briefing)
+            + check_named_roads(bundle, briefing) + check_claims(bundle, briefing, model=model))

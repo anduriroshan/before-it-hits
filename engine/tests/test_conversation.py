@@ -554,6 +554,7 @@ def test_a_rainfall_and_a_temperature_do_not_contaminate_each_other():
 
 def test_a_heat_question_carries_the_exposure_block_and_names_the_authority(monkeypatch):
     seen = city_topic(monkeypatch, "heat")
+    read_returns(monkeypatch, scope="area", topic="heat")      # an AREA question: people are counted for it
     monkeypatch.setattr(coordinator, "_add_surface_heat", lambda *a, **k: None)
     from bih_engine import heat as heat_mod, popgrid
     monkeypatch.setattr(heat_mod, "fetch", lambda lat, lon, hours=48: type("H", (), {
@@ -573,6 +574,7 @@ def test_a_heat_question_carries_the_exposure_block_and_names_the_authority(monk
 
 def test_a_city_whose_authority_cannot_be_read_from_a_forecast_says_so_in_the_findings(monkeypatch):
     seen = city_topic(monkeypatch, "heat")
+    read_returns(monkeypatch, scope="area", topic="heat")      # an area question, so people are asked for
     monkeypatch.setattr(coordinator, "_add_surface_heat", lambda *a, **k: None)
     from bih_engine import heat as heat_mod, popgrid
     monkeypatch.setattr(heat_mod, "fetch", lambda lat, lon, hours=48: type("H", (), {
@@ -740,3 +742,20 @@ def test_the_standard_way_to_write_the_design_level_is_traceable_to_the_findings
     for phrase in ("a 10 percent chance of being exceeded in 50 years", "the 475-year level"):
         assert facts.untraceable_numbers(phrase, allowed) == [], phrase
     assert seen["seismic"]["design_level"]["within_years"] == 50
+
+
+def test_a_whole_city_heat_question_does_not_count_the_citys_people_against_one_point(monkeypatch):
+    """The forecast is read once, at the middle of the city. Setting all of a city's people against it,
+    as 'who lives here', claimed a precision the reading does not have."""
+    seen = city_topic(monkeypatch, "heat")                     # scope city
+    monkeypatch.setattr(coordinator, "_add_surface_heat", lambda *a, **k: None)
+    from bih_engine import heat as heat_mod, popgrid
+    monkeypatch.setattr(heat_mod, "fetch", lambda lat, lon, hours=48: type("H", (), {
+        "as_dict": lambda self: {"current": {"heat_index_c": 33}, "current_level": {"label": "x"},
+                                 "hours": [{"temperature_c": 38, "heat_index_c": 42}]}})())
+    monkeypatch.setattr(popgrid, "density_for", lambda region, bbox, cells=None: {
+        "available": True, "people_in_area": 5900000, "source": "a grid"})
+    coordinator.run(question="how hot is it in the city?", bbox=None, region=RegionWithHeatStandard())
+    ex = seen["heat_exposure"]
+    assert "people_living_here" not in ex and "people_unavailable" not in ex
+    assert ex["band_the_forecast_reaches"] == "the temperature IMD wants"      # the band is still given

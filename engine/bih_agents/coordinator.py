@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from bih_engine import analyse_area, forecast
 from bih_engine.forecast import ForecastUnavailable
 
-from . import facts, guide, llm, narrator, scenario, verifier
+from . import declines, facts, guide, llm, narrator, scenario, verifier
 
 # A briefing nobody checked is worse than no briefing, so these are the only two outcomes.
 WITHHELD_UNCHECKED = ("The briefing was withheld: the checking agent could not be reached, and "
@@ -37,9 +37,105 @@ def _reply(question, spec, trace, **kw) -> dict:
     base = {"kind": "analysis", "question": question, "scenario": spec, "facts": None, "result": None,
             "rain_profile": None, "rain_profile_start": None, "forecast_meta": None,
             "briefing": None, "withheld": None, "removed": [], "answer": None,
-            "answer_checked": False, "place": None, "trace": trace.steps}
+            "answer_checked": False, "place": None, "handoff": None, "headline": None,
+            "trace": trace.steps}
     base.update(kw)
     return base
+
+
+# How long a window is when the asker named a time but not a length, and how each reads in the findings.
+DEFAULT_WINDOW_H = {"now": 24, "tonight": 12, "tomorrow": 24, "wettest": 24, "later": 1}
+WINDOW_SOURCE = {
+    "now": "the next {n} h from now",
+    "tonight": "tonight, {n} h from the evening",
+    "tomorrow": "tomorrow, {n} h from midnight",
+    "wettest": "the wettest {n} h stretch in the next {total} h",
+    "later": "{n} h starting at the time the question named",
+}
+# Digit-free, so the words cannot smuggle a figure into the findings.
+WINDOW_WORDS = {
+    "now": "the first hours of the forecast, starting now",
+    "tonight": "tonight, from the evening",
+    "tomorrow": "tomorrow, from midnight",
+    "wettest": "the wettest stretch of that length anywhere in the forecast, which may start hours from now",
+    "later": "the hours starting at the time the question named",
+}
+
+
+def _apply_window(spec: dict, f: dict, region) -> dict | None:
+    """Settle which hours of the forecast the question is about, and say so on the spec.
+
+    The forecast reduced to its worst stretch answers "how bad could it get", and that was served for
+    every question: "the next 3 hours" got the wettest 3 hours anywhere in two days. The asker's own time
+    ("now", "tonight", "tomorrow") now picks the hours, and only a question with no time, or one that asks
+    for the worst, gets the worst. A time beyond the forecast falls back to the worst stretch and says so
+    rather than being answered as if it were covered."""
+    anchor = spec.get("window_from") or "wettest"
+    tz = region.manifest.get("timezone") if region is not None else None
+    asked = spec.get("duration_h")
+    length = asked or DEFAULT_WINDOW_H[anchor]
+    if anchor == "wettest":
+        length = min(length, 24)       # the worst STRETCH: a "wettest 48 hours" is the whole forecast, and
+                                       # a total over two days hides the burst that floods a street
+    start, has_passed = None, False
+    if anchor == "later":
+        at = spec["starts_at"]
+        start = forecast.hours_until(f, tz, hour=at.get("hour"), day=at.get("day", "none"),
+                                     in_hours=at.get("in_hours"))
+        if start is None:                       # "at 9am" asked at noon: that time has gone
+            has_passed, anchor, start = True, "now", None
+    w = forecast.pick_window(f, length, anchor, tz, start=start)
+    fell_back = False
+    if w is None and anchor != "wettest":
+        w, fell_back = forecast.pick_window(f, length, "wettest", tz), True
+    if w is None:
+        return None
+    spec.update(window_time_has_passed=has_passed, window_rounded_up=bool(asked and asked < 1),
+                rainfall_mm=w["mm"], duration_h=float(w["hours"]), mode="forecast",
+                window_anchor=w["anchor"], window_starts_in_hours=w["starts_in_hours"],
+                window_cut_short=w["truncated"], window_fell_back=fell_back,
+                rainfall_source=WINDOW_SOURCE[w["anchor"]].format(n=w["hours"], total=f["hours_ahead"]))
+    return w
+
+
+def _rain_outlook(f: dict) -> dict:
+    """Whether it rains at all in the forecast and when it first does, so "when will the rain start" and
+    "is it going to rain" are answered from the hours and not from whichever window was picked ("starts
+    now" is true of every window picked to start now, wet or dry). A tenth of a millimetre in the hour is
+    this product's own line for "some rain"; it is named as such and claims no standard."""
+    hs = f.get("hours") or []
+    wet = [i for i, h in enumerate(hs) if h["mm"] >= 0.1]
+    return {
+        "forecast_hours_looked_at": len(hs),
+        "hours_with_at_least_a_tenth_of_a_millimetre": len(wet),
+        "first_such_hour_is_in_hours": wet[0] if wet else None,
+        "last_such_hour_is_in_hours": wet[-1] if wet else None,
+        "whole_forecast_total_mm": f.get("total_mm"),
+    }
+
+
+def window_phrase(spec: dict) -> str:
+    """The window as a sentence can state it truthfully. 'The next 6 hours' is only said of hours that
+    start now."""
+    n = int(round(spec.get("duration_h") or 24))
+    a, k = spec.get("window_anchor"), spec.get("window_starts_in_hours")
+    if a == "wettest":
+        return (f"in the wettest {n}-hour stretch of the next two days, starting in about {k} hours" if k
+                else f"in the wettest {n}-hour stretch of the next two days, which starts now")
+    if a == "later":
+        return (f"in the hour starting in about {k} hours" if n == 1
+                else f"over {n} hours starting in about {k} hours")
+    if a == "tonight":
+        return f"tonight, over {n} hours"
+    if a == "tomorrow":
+        return f"tomorrow, over {n} hours"
+    return f"over the next {n} hours"
+
+
+def _note_limit(bundle: dict, spec: dict) -> None:
+    """A limit that is part of the question travels into the findings, so the Narrator says it first."""
+    if spec.get("limit_note"):
+        bundle["asked_for_but_not_given"] = spec["limit_note"]
 
 
 def _choose_window(requested, peaks: dict) -> str | None:
@@ -101,7 +197,9 @@ def _default_spec(slider_mm: float, return_period: int | None, question: str) ->
     return {
         "reading": "Read from the controls on screen, not from the question: "
                    "the scenario agent could not be reached.",
-        "heat_c": None, "magnitude": None, "earlier_area": "",
+        "heat_c": None, "heat_asked_as": "", "magnitude": None, "earlier_area": "",
+        "window_from": "wettest", "decline": "none", "declined_detail": "", "out_of_range": None,
+        "rainfall_asked_as": "", "starts_at": None,
         "focus": question, "audience": "officer", "mode": "whatif",
         "rainfall_mm": float(slider_mm), "rainfall_source": "the rainfall already set on screen",
         "duration_h": None, "return_period_years": return_period, "ignored_figure": False,
@@ -132,20 +230,15 @@ def _run_city_overview(question, spec, region, trace, return_period) -> dict:
             lng = (region.bounds[0] + region.bounds[2]) / 2
             d = 0.01
             f = forecast.for_bbox((lng - d, lat - d, lng + d, lat + d), hours=48).as_dict()
-            window = _choose_window(spec.get("duration_h"), f["peaks"])
-            if window:
-                peak = f["peaks"][window]
-                spec["rainfall_mm"] = peak["mm"]
-                spec["duration_h"] = float(window)
-                spec["rainfall_source"] = f"the wettest {window} h in the next {f['hours_ahead']} h"
-                spec["mode"] = "forecast"
-                rain_profile = _profile_for(f.get("hours", []), peak["starts"], int(window))
-                profile_start = peak["starts"]
-                forecast_meta = {"source": f["source"], "window_hours": int(window),
+            w = _apply_window(spec, f, region)
+            if w:
+                rain_profile = _profile_for(f.get("hours", []), w["starts"], int(w["hours"]))
+                profile_start = w["starts"]
+                forecast_meta = {"source": f["source"], "window_hours": int(w["hours"]),
                                  "fetched_at": datetime.now(timezone.utc).isoformat(
                                      timespec="seconds")}
             trace.add("A3 Forecast", "ok", int((time.perf_counter() - t0) * 1000),
-                      f"City-wide: wettest {window} h: {spec['rainfall_mm']} mm.",
+                      f"City-wide: {spec['rainfall_mm']} mm {window_phrase(spec)}.",
                       detail=f["peaks"])
         except ForecastUnavailable as exc:
             trace.add("A3 Forecast", "failed", int((time.perf_counter() - t0) * 1000),
@@ -185,7 +278,7 @@ def _run_city_overview(question, spec, region, trace, return_period) -> dict:
 
     answer = _build_city_answer(spec, preset_results, region_title)
     return _reply(question, spec, trace, kind="city_overview", answer=answer,
-                  answer_checked=True, presets=preset_results,
+                  headline=answer.split("\n")[0], answer_checked=True, presets=preset_results,
                   rain_profile=rain_profile, rain_profile_start=profile_start,
                   forecast_meta=forecast_meta)
 
@@ -196,7 +289,7 @@ def _build_city_answer(spec, preset_results, region_title):
     is_forecast = spec["mode"] == "forecast"
 
     if is_forecast:
-        lines = [f"About {mm:g} mm of rain is expected over the next {dur:g} hours in {region_title}."]
+        lines = [f"About {mm:g} mm of rain is expected {window_phrase(spec)} in {region_title}."]
     else:
         lines = [f"At {mm:g} mm over {dur:g} hours in {region_title}:"]
 
@@ -254,7 +347,8 @@ def _add_surface_heat(bundle: dict, region, bbox, trace: Trace) -> None:
         trace.add("Surface heat", "unavailable", 0, str(exc)[:120])
 
 
-def _add_heat_exposure(bundle: dict, region, box, hours: list, spec: dict, trace: Trace) -> None:
+def _add_heat_exposure(bundle: dict, region, box, hours: list, spec: dict, trace: Trace,
+                       people: bool = True) -> None:
     """Who is exposed to heat here, against the city's own authority's threshold, plus that
     authority's live readings where it runs a station network. Best-effort: a heat answer without
     the exposure block is still a heat answer, but one with a figure nobody published is not."""
@@ -263,7 +357,7 @@ def _add_heat_exposure(bundle: dict, region, box, hours: list, spec: dict, trace
     from bih_engine import heat_exposure, heat_obs
     try:
         t0 = time.perf_counter()
-        ex = heat_exposure.assess(region, box, hours, stated_c=spec.get("heat_c"))
+        ex = heat_exposure.assess(region, box if people else None, hours, stated_c=spec.get("heat_c"))
         facts.add_heat_exposure(bundle, ex)
         if ex.get("available"):
             who = f"~{ex['people_living_here']} people here; " if "people_living_here" in ex else ""
@@ -344,7 +438,7 @@ def _add_supplementary_hazards(bundle: dict, region, bbox, trace: Trace) -> None
         t0 = time.perf_counter()
         hf = heat_mod.fetch(lat, lon, hours=48)
         hdata = hf.as_dict()
-        facts.add_heat(bundle, hdata)
+        facts.add_heat(bundle, hdata, tz=region.manifest.get("timezone"))
         trace.add("Heat", "ok", int((time.perf_counter() - t0) * 1000),
                   f"Heat index {hdata['current'].get('heat_index_c')}°C, "
                   f"level: {hdata['current_level'].get('label')}.")
@@ -475,14 +569,15 @@ def _run_topic(question, spec, topic, bbox, region, trace, city=False) -> dict:
             t0 = time.perf_counter()
             hf = heat_mod.fetch(lat, lon, hours=48)
             hdata = hf.as_dict()
-            facts.add_heat(bundle, hdata)
+            facts.add_heat(bundle, hdata, tz=region.manifest.get("timezone") if region else None)
             trace.add("Heat", "ok", int((time.perf_counter() - t0) * 1000),
                       f"Heat index {hdata['current'].get('heat_index_c')}°C, "
                       f"level: {hdata['current_level'].get('label')}.")
         except Exception as exc:
             hdata = {}
             trace.add("Heat", "unavailable", 0, str(exc)[:120])
-        _add_heat_exposure(bundle, region, (w, s, e, n), hdata.get("hours") or [], spec, trace)
+        # A whole city's people against the forecast at its centre is not "who lives where this applies".
+        _add_heat_exposure(bundle, region, (w, s, e, n), hdata.get("hours") or [], spec, trace, people=not city)
         # The forecast says how hot the air is at one point; the satellite says which parts of the
         # box run hotter than others, so a heat question gets both, and the briefing keeps them apart.
         _add_surface_heat(bundle, region, (w, s, e, n), trace)
@@ -508,6 +603,7 @@ def _run_topic(question, spec, topic, bbox, region, trace, city=False) -> dict:
     elif topic == "earthquake":
         _add_seismic(bundle, region, (w, s, e, n), spec, trace)
 
+    _note_limit(bundle, spec)
     out = _reply(question, spec, trace, kind="analysis", facts=bundle, result=None)
 
     # Narrator + Verifier: the same two-trip loop as the full pipeline, just with a smaller bundle.
@@ -564,9 +660,59 @@ def _run_topic(question, spec, topic, bbox, region, trace, city=False) -> dict:
     return out
 
 
+def _decline_or_route(question, spec, region, bbox, trace, all_regions) -> dict | None:
+    """Answer, without running the analysis, a question that asks for what the product does not do or
+    keeps elsewhere. Returns None when the question is one it can screen.
+
+    Costs one model call (A2's) instead of the 20-second rain pipeline, and answers from fixed reviewed
+    text (declines.py) rather than from a model that has been handed irrelevant flood figures and asked
+    to talk around them."""
+    decline = spec.get("decline", "none")
+
+    def done(kind, answer, step_note, **kw):
+        trace.add("Scope check", "ok", 0, step_note)
+        return _reply(question, spec, trace, kind=kind, answer=answer, answer_checked=True, **kw)
+
+    if spec.get("out_of_range"):
+        o = spec["out_of_range"]
+        return done("declined", declines.out_of_range(o["asked"], o["limit_mm"]),
+                    "That rainfall is past anything this product runs; it was not run.")
+    if decline in scenario.DECLINE_ONLY:
+        return done("declined", declines.only(decline, spec.get("declined_detail", "")),
+                    "Asks for something this product does not do; answered without running the analysis.")
+    if decline in ("news", "history"):
+        return done("handoff", declines.ROUTED[decline],
+                    "That is reported news, which has its own agent; the question was handed to it.",
+                    handoff={"tab": "news", "question": spec.get("focus") or question,
+                             "place": spec.get("place") or ""})
+    if decline == "comparison":
+        return done("declined", declines.compare(all_regions or ([region] if region is not None else [])),
+                    "A comparison of what each city lets this product see, read from their own manifests.")
+    if decline == "preparations":
+        title = (region.manifest.get("title") or "this city").split(",")[0] if region is not None else "this city"
+        if region is None or not region.manifest.get("preparations"):
+            return done("declined", declines.NO_BUDGET.format(city=title),
+                        "No documented budget is staged for this city, so no plan can be built.")
+        if bbox is None:
+            return done("needs_area", declines.NEEDS_AREA_FOR_PLAN,
+                        "A preparation plan is built for one area, so one is needed first.")
+        return done("handoff", declines.ROUTED["preparations"],
+                    "The preparation plan has its own place in the Details tab; it was opened.",
+                    handoff={"tab": "details", "question": question, "place": ""})
+    if spec.get("topic") == "traffic" and spec.get("scope") == "city" and spec.get("intent") == "analyse":
+        return done("declined", declines.TRAFFIC_NEEDS_AN_AREA,
+                    "Traffic is read for one area at a time, so a whole-city question asks for an area.")
+    if decline in scenario.DECLINE_AND_ANSWER and spec.get("scope") == "city":
+        return done("declined", declines.partial_only(decline),
+                    "Asks for something this product does not give; a whole-city answer cannot carry "
+                    "that limit, so it says so and asks for an area.")
+    return None
+
+
 def run(*, question: str, bbox, region, slider_mm: float = 100.0,
         return_period: int | None = 50, res_m: float = 10.0, emit=None,
-        history=None, area_label: str | None = None, place_resolved: str | None = None) -> dict:
+        history=None, area_label: str | None = None, place_resolved: str | None = None,
+        all_regions: list | None = None) -> dict:
     """Answer one message in a conversation. Never raises for a model failure.
 
     `bbox` may be None: the message may be about the product rather than an area, or name a place
@@ -599,9 +745,13 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
             trace.add("A2 Scenario", "guarded", 0,
                       "A rainfall figure was proposed that is not in your words, so it was "
                       "dropped and the figure on screen used instead.")
-    except llm.LlmUnavailable as exc:
+    except Exception as exc:
+        # Not only LlmUnavailable. A reply that parses but is the wrong shape (a list, a word where a number
+        # goes) used to crash `settle` and end the turn with "something went wrong". This is the trust
+        # boundary for model output, so anything odd degrades to what is on screen, and the trace says why.
         spec = _default_spec(slider_mm, return_period, question)
-        trace.add("A2 Scenario", "failed", int((time.perf_counter() - t0) * 1000), str(exc))
+        why = str(exc) if isinstance(exc, llm.LlmUnavailable) else f"unusable reply: {type(exc).__name__}: {exc}"
+        trace.add("A2 Scenario", "failed", int((time.perf_counter() - t0) * 1000), why[:200])
 
     if spec["return_period_years"] is None:
         spec["return_period_years"] = return_period
@@ -611,6 +761,11 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
     earlier = spec.get("earlier_area")
     if earlier and not spec["place"] and earlier != area_label:
         spec["place"], spec["scope"] = earlier, "area"
+
+    # --- the question asks for something this product does not do, or keeps elsewhere -----------
+    routed = _decline_or_route(question, spec, region, bbox, trace, all_regions)
+    if routed is not None:
+        return routed
 
     # --- city-wide question: analyse each preset instead of one box -------------------------
     if spec.get("scope") == "city" and spec["intent"] == "analyse":
@@ -635,6 +790,16 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
     if spec["place"] and not place_resolved:
         return _reply(question, spec, trace, kind="place_needed", place=spec["place"])
 
+    # A limit that belongs to a question about an area needs the area to give the rest for.
+    if spec.get("decline") in scenario.DECLINE_AND_ANSWER:
+        if bbox is None:
+            return _reply(question, spec, trace, kind="declined",
+                          answer=declines.partial_only(spec["decline"]), answer_checked=True)
+        spec["limit_note"] = declines.partial_note(spec["decline"])
+        trace.add("Scope check", "noted", 0,
+                  f"Asks for {spec['limit_note']['asked_for']}: that cannot be given, and the answer will "
+                  f"say so before giving what the data supports.")
+
     if bbox is None:
         return _reply(question, spec, trace, kind="needs_area", answer=NEEDS_AREA)
 
@@ -644,6 +809,7 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
         return _run_topic(question, spec, topic, bbox, region, trace)
 
     # --- A3 Forecast: a tool, not a model, until we have bulletins worth reading -----------
+    f_all = None            # the whole forecast, for "when does it start" and "will it rain at all"
     rain_profile = None     # the forecast's real hourly shape, when forecast mode succeeds
     profile_start = None    # when that window starts (ISO, UTC), so the UI can label real hours
     forecast_meta = None    # where it came from and when it was fetched, shown beside the playback
@@ -657,20 +823,17 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
         t0 = time.perf_counter()
         try:
             f = forecast.for_bbox(tuple(bbox), hours=48).as_dict()
-            window = _choose_window(spec.get("duration_h"), f["peaks"])
-            if window:
-                peak = f["peaks"][window]
-                spec["rainfall_mm"] = peak["mm"]
-                spec["duration_h"] = float(window)
-                spec["rainfall_source"] = f"the wettest {window} h in the next {f['hours_ahead']} h"
+            f_all = f
+            w = _apply_window(spec, f, region)
+            if w:
                 # The hourly amounts of exactly this window, so the road playback ends on the
                 # same total the engine ran on instead of on a different slice of the forecast.
-                rain_profile = _profile_for(f.get("hours", []), peak["starts"], int(window))
-                profile_start = peak["starts"]
-                forecast_meta = {"source": f["source"], "window_hours": int(window),
+                rain_profile = _profile_for(f.get("hours", []), w["starts"], int(w["hours"]))
+                profile_start = w["starts"]
+                forecast_meta = {"source": f["source"], "window_hours": int(w["hours"]),
                                  "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
             trace.add("A3 Forecast", "ok", int((time.perf_counter() - t0) * 1000),
-                      f"Wettest {window} h window: {spec['rainfall_mm']} mm.", detail=f["peaks"])
+                      f"{spec['rainfall_mm']} mm {window_phrase(spec)}.", detail=f["peaks"])
             observed = _observed_now(region, bbox, trace)
         except ForecastUnavailable as exc:
             trace.add("A3 Forecast", "failed", int((time.perf_counter() - t0) * 1000),
@@ -690,16 +853,51 @@ def run(*, question: str, bbox, region, slider_mm: float = 100.0,
               detail={"rainfall_mm": spec["rainfall_mm"], "return_period_years": rp,
                       "res_m": res_m})
 
+    outlook = _rain_outlook(f_all) if f_all else {}
     rainfall_facts = {"mm": spec["rainfall_mm"], "over_hours": spec["duration_h"],
                       "where_this_figure_came_from": spec["rainfall_source"],
                       "is_a_real_forecast": spec["mode"] == "forecast"}
     if observed:
         rainfall_facts["falling_now_at_gauges"] = observed
+    elif not (region is not None and region.manifest.get("live_rainfall")):
+        rainfall_facts["this_city_has_no_live_rain_gauge_so_whether_it_is_raining_now_is_not_observed"] = True
+    if spec["mode"] == "forecast" and spec.get("window_anchor"):
+        # When the rain falls is part of the finding. "Over the next 6 hours" is only true of hours that
+        # start now; the wettest stretch of the next two days can start tomorrow.
+        rainfall_facts["window_is"] = WINDOW_WORDS[spec["window_anchor"]]
+        rainfall_facts["window_starts_in_hours"] = spec["window_starts_in_hours"]
+        if spec.get("window_cut_short"):
+            rainfall_facts["window_is_cut_short_by_the_end_of_the_forecast"] = True
+        if spec.get("window_fell_back"):
+            rainfall_facts["the_time_asked_about_is_beyond_the_forecast_so_this_is_the_wettest_stretch"] = True
+        if spec.get("window_time_has_passed"):
+            rainfall_facts["the_time_asked_about_has_already_passed_so_this_is_the_forecast_from_now"] = True
+        if spec.get("window_rounded_up"):
+            rainfall_facts["the_forecast_is_hourly_so_this_is_the_whole_next_hour_not_a_shorter_stretch"] = True
+        rainfall_facts.update(outlook)
+    elif spec["mode"] == "whatif" and not spec.get("rainfall_asked_as"):
+        # Rain nobody forecast and nobody asked for: the rainfall left on the slider. Said so, below.
+        rainfall_facts["this_is_a_what_if_at_the_rainfall_set_on_the_slider_not_a_forecast"] = True
+    if spec["mode"] == "whatif" and spec.get("rainfall_asked_as"):
+        rainfall_facts["the_asker_wrote"] = spec["rainfall_asked_as"]
     bundle = facts.build(result, question=question, rainfall=rainfall_facts,
                          region_title=region_title)
+    _note_limit(bundle, spec)
+    if topic == "traffic":
+        from bih_engine import traffic
+        mix = None
+        try:
+            mix = traffic.road_mix(region.read_osm(tuple(bbox)).roads, tuple(bbox))
+        except Exception:                   # without the road mix both effects are offered, which is cautious
+            pass
+        facts.add_traffic(bundle, traffic.assess(
+            spec["rainfall_mm"], spec.get("duration_h"), rain_profile,
+            result["screening"].get("routes_affected", []), mix))
 
-    # --- supplementary hazards: heat + air quality, best-effort -------------------------
-    _add_supplementary_hazards(bundle, region, bbox, trace)
+    # --- supplementary hazards: heat + air quality, best-effort, and ONLY for a general question. A
+    # question about water is not answered with the heat index; that was noise and ~6 s of waiting.
+    if topic == "overview":
+        _add_supplementary_hazards(bundle, region, bbox, trace)
 
     out = _reply(question, spec, trace, kind="analysis", facts=bundle, result=result,
                  rain_profile=rain_profile, rain_profile_start=profile_start,

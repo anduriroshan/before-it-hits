@@ -1385,7 +1385,7 @@ function showRect(bbox, fit = true) {
    shape - no slider involved. The what-if slider below is an explicit override, for testing a
    heavier or different storm than the forecast. */
 const DEFAULT_PREDICT_Q =
-  'Using the live rainfall forecast, what could happen to this area and its roads over the coming day?';
+  'Using the live rainfall forecast, where would rain water collect in this area and which roads would it reach, taking the wettest 24 hours of the next two days?';
 const DRAWN_BOX = 'Drawn box';     // the label of an area that has no name
 
 function predictBox(bbox, label) {
@@ -3006,7 +3006,7 @@ function setArea(bbox, label) {
    one that has already run: drawing a box asks for it straight away and it is never behind a button. */
 const OPTION_LAYER = { heat: 'heat', wind: 'wind', air: 'airquality', people: 'population' };
 const TOPIC_HAZARD = { flood: 'flood', overview: 'flood', heat: 'heat', wind: 'wind',
-  air_quality: 'air', population: 'people', earthquake: 'earthquake' };
+  air_quality: 'air', population: 'people', earthquake: 'earthquake', traffic: 'traffic' };
 
 function turnOnLayer(id) {
   const l = dataLayers[id];
@@ -3125,7 +3125,7 @@ function factChips(ev) {
   const topic = sc.topic || 'overview';
   const out = [];
   /* Rainfall and pooling chips only when the engine actually ran (flood or overview topic). */
-  if (r.screening && (topic === 'flood' || topic === 'overview')) {
+  if (r.screening && (topic === 'flood' || topic === 'overview' || topic === 'traffic')) {
     if (sc.rainfall_mm != null) {
       out.push(`<b>${sc.mode === 'forecast' ? 'Live forecast' : 'What-if'}</b> · ${fmtMm(sc.rainfall_mm)} mm`
         + (sc.duration_h ? ` over ${Math.round(sc.duration_h)} h` : ''));
@@ -3205,7 +3205,8 @@ function renderAnswer(turn, ev) {
    moves no number. A drawn box has no name, so its question is about the city, and says so. */
 const REPORT_TOPICS = { overview: ['flood', 'heat', 'air'], flood: ['flood'], population: ['flood'],
                         heat: ['heat'], air_quality: ['air'], wind: [],     // no wind news topic: no chip
-                        earthquake: [] };                                    // nor an earthquake one
+                        earthquake: [],                                      // nor an earthquake one
+                        traffic: ['traffic'] };                              // but there is one for traffic
 
 function reportedChip(topic, place) {
   const names = (REPORT_TOPICS[topic] || ['flood'])
@@ -3363,9 +3364,9 @@ function finishCityOverview(turn, ev) {
   const isForecast = sc.mode === 'forecast';
 
   const head = mk('p', 'a-head');
-  head.textContent = isForecast
+  head.textContent = ev.headline || (isForecast
     ? `About ${fmtMm(mm)} mm of rain is expected over the next ${dur} hours.`
-    : `At ${fmtMm(mm)} mm over ${dur} hours:`;
+    : `At ${fmtMm(mm)} mm over ${dur} hours:`);
   a.appendChild(head);
 
   if (ev.forecast_meta) {
@@ -3412,6 +3413,34 @@ function finishCityOverview(turn, ev) {
   else if (stick) toBottom();
 }
 
+/* A reply that is its own answer: something the product does not do, said plainly with what it can do
+   instead, or a comparison of the cities. No analysis ran, so there is nothing to open in Details. */
+function finishDeclined(turn, ev) {
+  finishText(turn, `Answered without running an analysis · ${(turn.ms / 1000).toFixed(1)} s`,
+    ev.answer, { followups: true, areas: !state.lastBbox });
+  remember({ q: turn.question, area: state.areaLabel, headline: String(ev.answer || '').slice(0, 160) });
+}
+
+/* A question that belongs to another part of the product: what is being reported goes to the News tab and
+   its own agent (which cites its sources and removes what it cannot support), and the preparation plan is
+   in the Details tab, which only has one once the rain has been analysed for the area. */
+function finishHandoff(turn, ev) {
+  const h = ev.handoff || {};
+  finishText(turn, 'Handed to the part that owns it', ev.answer, { followups: false });
+  remember({ q: turn.question, area: state.areaLabel, headline: String(ev.answer || '').slice(0, 160) });
+  if (h.tab === 'news') {
+    setTab('news');
+    askNews(h.question || turn.question, h.place || null);
+  } else if (h.tab === 'details') {
+    if ($('prep').hidden) {
+      state.openDetailsAfterRain = true;
+      setTimeout(() => sendQuestion(DEFAULT_PREDICT_Q, { auto: true }), 50);
+    } else {
+      setTab('details');
+    }
+  }
+}
+
 function onAskEvent(turn, ev) {
   if (ev.event === 'step') { addTraceRow(turn, ev); return null; }
   if (ev.event === 'error') { errorTurn(turn, ev.detail); return null; }
@@ -3420,6 +3449,8 @@ function onAskEvent(turn, ev) {
     if (ev.kind === 'explain') finishExplain(turn, ev);
     else if (ev.kind === 'needs_area') finishNeedsArea(turn, ev);
     else if (ev.kind === 'city_overview') finishCityOverview(turn, ev);
+    else if (ev.kind === 'declined') finishDeclined(turn, ev);
+    else if (ev.kind === 'handoff') finishHandoff(turn, ev);
     else {
       // The agent settled a rainfall and a window (from the live forecast, or the figure in the
       // question). The map, the result list and the road playback follow that, not the slider.
@@ -3433,6 +3464,7 @@ function onAskEvent(turn, ev) {
         try { render(ev.result, driver); notifyDetails(); } catch (err) { setStatus(`Could not draw the result: ${err.message}`, true); }
       }
       finishTurn(turn, ev);
+      if (state.openDetailsAfterRain) { state.openDetailsAfterRain = false; setTab('details'); }
     }
   }
   return null;

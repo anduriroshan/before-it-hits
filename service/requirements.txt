@@ -13,3 +13,5 @@ networkx==3.7
 # The agent layer. Absent, bih_agents reports itself unavailable and the
 # screening still serves - the import is guarded for exactly that reason.
 google-genai==2.29.0
+# Time zones for "tonight" and "tomorrow". python:3.12-slim does not reliably ship the system zone files.
+tzdata==2026.5

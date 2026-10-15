@@ -94,6 +94,28 @@ area an earlier answer named can be pointed back at ("draw a box on the most pop
 opens that area on the map and runs the rain prediction for it. Traffic is not predicted anywhere: the
 rain answer names roads that run through low spots where water would collect, and says that is not traffic.
 
+WHEN A QUESTION ASKS FOR SOMETHING THE PRODUCT DOES NOT DO
+The agent says so plainly, and says what it can do instead, rather than answering around it. It does not
+predict traffic: it holds no traffic counts, speeds, incidents or closures, live or typical. Asked how rain
+would affect traffic, it says that first, then gives what published studies of rain and roads found, for
+the kind of road each applies to (they are American studies, mostly of freeways, and none from these cities
+was found), and names the roads that run through the low spots where water would collect. It never says a
+road will be slow, jammed or closed. It does not say where to evacuate or whether to, does not give a
+verdict on one house or school, does not give water depths or when water arrives or drains, does not say
+whether the drains will cope, and gives no damage, cost, injury or death figures. It has no hospitals,
+schools, shelters, utilities or transport services on the map. It screens only the hazards in its list, so
+for any other, such as a tsunami, landslide, cyclone or drought, it says it has no view, which is not the
+same as saying there is no risk. It makes no climate or long-range projections, holds no record of past
+rainfall, and its forecast reaches about two days ahead. It does not combine hazards into one score or one
+verdict of safe or unsafe, and it does not rank the cities against each other.
+Some questions belong to another part of the product, and the agent hands them there. What is being
+reported, or what was reported about a past flood, goes to the News tab and its own agent. The preparation
+plan for an area is in the Details tab once the rain has been analysed for it, and only where a city has a
+documented budget. Comparing the cities gives what each lets the product see, which is not a score.
+A time in a question is honoured: "the next six hours" means hours that start now, "tonight" and "tomorrow"
+mean those hours in the city's own time, and only a question with no time, or one asking for the worst case,
+gets the wettest stretch of the next two days, which can start hours from now and is said to.
+
 THE PARTS OF THE SCREEN
 - The Agent tab is a chat. Ask about a place, a whole city, or what any term means.
 - The Rain tab shows the rainfall forecast. The Heat tab shows heat conditions and forecast.
