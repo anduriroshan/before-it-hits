@@ -1385,7 +1385,7 @@ function showRect(bbox, fit = true) {
    shape - no slider involved. The what-if slider below is an explicit override, for testing a
    heavier or different storm than the forecast. */
 const DEFAULT_PREDICT_Q =
-  'Using the live rainfall forecast, what could happen to this area and its roads over the coming day?';
+  'Using the live rainfall forecast, where would rain water collect in this area and which roads would it reach, taking the wettest 24 hours of the next two days?';
 const DRAWN_BOX = 'Drawn box';     // the label of an area that has no name
 
 function predictBox(bbox, label) {
@@ -3006,7 +3006,7 @@ function setArea(bbox, label) {
    one that has already run: drawing a box asks for it straight away and it is never behind a button. */
 const OPTION_LAYER = { heat: 'heat', wind: 'wind', air: 'airquality', people: 'population' };
 const TOPIC_HAZARD = { flood: 'flood', overview: 'flood', heat: 'heat', wind: 'wind',
-  air_quality: 'air', population: 'people', earthquake: 'earthquake' };
+  air_quality: 'air', population: 'people', earthquake: 'earthquake', traffic: 'traffic' };
 
 function turnOnLayer(id) {
   const l = dataLayers[id];
@@ -3016,10 +3016,12 @@ function turnOnLayer(id) {
   setLayerVisible(id, true);
 }
 
-function areaOptions(topic) {
+/* `fold` puts the options behind one quiet line under an answer, so a reply is the reply and not a menu; they
+   stay open while the first prediction is still running, when they are the thing to do. */
+function areaOptions(topic, { fold = false, extra = null } = {}) {
   const done = TOPIC_HAZARD[topic];
   const box = mk('div', 'followups area-options');
-  box.appendChild(mk('div', 'chat-label', 'More about this area'));
+  if (!fold) box.appendChild(mk('div', 'chat-label', 'More about this area'));
   const add = (id, label, run) => {
     if (id === done) return;
     const c = mk('button', 'chip chip-alt');
@@ -3045,12 +3047,17 @@ function areaOptions(topic) {
     chatNote(`Ask anything about ${state.areaLabel || 'this area'} below`);
   };
   box.appendChild(ask);
-  return box;
+  if (extra) box.appendChild(extra);
+  if (!fold) return box;
+  const d = mk('details', 'more-fold');
+  d.appendChild(mk('summary', null, 'More about this area'));
+  d.appendChild(box);
+  return d;
 }
 
 function startTurn(question, opts) {
   // Only the newest answer offers follow-ups, or the chat fills with stale buttons.
-  document.querySelectorAll('#chat .followups, #chat .whatif-inline').forEach((n) => n.remove());
+  document.querySelectorAll('#chat .followups, #chat .more-fold, #chat .whatif-inline').forEach((n) => n.remove());
   const { m, b } = agentBubble();
   b.innerHTML =
     '<details class="work" open><summary><span class="spin"></span>'
@@ -3115,31 +3122,6 @@ function stopTurn(turn) {
   turn.answer.replaceChildren(mk('p', 'muted small', 'Stopped before an answer was written.'), retryButton(turn));
 }
 
-/* Facts shown as chips come straight from the engine's output, not from anything a model wrote.
-   When the agent answered a topic-specific question (population, heat, air quality) there is no
-   engine result and no rainfall — showing "What-if · 0 mm" would be noise about a question nobody
-   asked. */
-function factChips(ev) {
-  const sc = ev.scenario || {};
-  const r = ev.result || {};
-  const topic = sc.topic || 'overview';
-  const out = [];
-  /* Rainfall and pooling chips only when the engine actually ran (flood or overview topic). */
-  if (r.screening && (topic === 'flood' || topic === 'overview')) {
-    if (sc.rainfall_mm != null) {
-      out.push(`<b>${sc.mode === 'forecast' ? 'Live forecast' : 'What-if'}</b> · ${fmtMm(sc.rainfall_mm)} mm`
-        + (sc.duration_h ? ` over ${Math.round(sc.duration_h)} h` : ''));
-    }
-    const n = r.screening.depressions ? r.screening.depressions.length : null;
-    if (n != null) out.push(`<b>${n.toLocaleString()}</b> ${n === 1 ? 'place collects' : 'places collect'} water`);
-    const ex = r.exposure;
-    if (ex && ex.available && ex.people_in_worst_spots) {
-      out.push(`~<b>${ex.people_in_worst_spots.toLocaleString()}</b> people in the worst spots that fill`);
-    }
-  }
-  return out;
-}
-
 function copyButton(getText) {
   const c = mk('button', 'icon-btn', ICON.copy);
   c.type = 'button';
@@ -3176,12 +3158,13 @@ function renderAnswer(turn, ev) {
   a.replaceChildren();
   const b = ev.briefing;
   if (b) {
+    // Read as a chat reply: the opening answer, then short paragraphs. The server still sends them as separate
+    // pieces so the checker can remove one without the rest; they are only drawn as ordinary text.
     a.insertAdjacentHTML('beforeend',
       `<p class="a-head">${esc(b.headline)}</p>`
-      + (b.bullets && b.bullets.length
-        ? `<ul class="a-bullets">${b.bullets.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '')
+      + (b.bullets || []).map((x) => `<p>${esc(x)}</p>`).join('')
       + (b.caveat ? `<p class="a-caveat">${esc(b.caveat)}</p>` : ''));
-    turn.text = [b.headline, ...(b.bullets || []).map((x) => `• ${x}`), b.caveat].filter(Boolean).join('\n');
+    turn.text = [b.headline, ...(b.bullets || []), b.caveat].filter(Boolean).join('\n\n');
   } else {
     a.insertAdjacentHTML('beforeend',
       `<p class="a-withheld">${esc(ev.withheld || 'No briefing was produced.')}</p>`
@@ -3195,8 +3178,6 @@ function renderAnswer(turn, ev) {
           <div class="cut">&ldquo;${esc(r.text)}&rdquo;</div></li>`).join('')
       + '</ul></details>');
   }
-  const facts = factChips(ev);
-  if (facts.length) a.appendChild(mk('div', 'facts', facts.map((f) => `<span class="fact">${f}</span>`).join('')));
   a.appendChild(actionsRow(turn, { details: Boolean(ev.result) }));   // no engine run, nothing behind it
 }
 
@@ -3205,7 +3186,8 @@ function renderAnswer(turn, ev) {
    moves no number. A drawn box has no name, so its question is about the city, and says so. */
 const REPORT_TOPICS = { overview: ['flood', 'heat', 'air'], flood: ['flood'], population: ['flood'],
                         heat: ['heat'], air_quality: ['air'], wind: [],     // no wind news topic: no chip
-                        earthquake: [] };                                    // nor an earthquake one
+                        earthquake: [],                                      // nor an earthquake one
+                        traffic: ['traffic'] };                              // but there is one for traffic
 
 function reportedChip(topic, place) {
   const names = (REPORT_TOPICS[topic] || ['flood'])
@@ -3232,7 +3214,6 @@ function addFollowups(turn, ev) {
   const sc = ev.scenario || {};
   const topic = sc.topic || 'overview';
   if (sc.scope === 'city') { cityTail(turn, topic); return; }
-  turn.answer.appendChild(areaOptions(topic));
   const hasOfficial = Boolean(state.region && state.region.official
     && (state.region.official.return_periods || []).length);
   const hasPeople = Boolean(ev.result && ev.result.exposure && ev.result.exposure.available);
@@ -3241,7 +3222,7 @@ function addFollowups(turn, ev) {
     SUGGESTIONS
       .filter((s) => s.q !== turn.question && (s.needs !== 'official' || hasOfficial)
         && (s.needs !== 'people' || hasPeople))
-      .slice(0, 3)
+      .slice(0, 2)
       .forEach((s) => {
         const c = mk('button', 'chip');
         c.type = 'button';
@@ -3255,9 +3236,8 @@ function addFollowups(turn, ev) {
     box.appendChild(w);
   }
   const place = state.areaLabel && state.areaLabel !== DRAWN_BOX ? state.areaLabel : null;
-  const rep = reportedChip(topic, place);
-  if (rep) box.appendChild(rep);
   if (box.children.length) turn.answer.appendChild(box);
+  turn.answer.appendChild(areaOptions(topic, { fold: true, extra: reportedChip(topic, place) }));
 }
 
 /* The agent offers the slider: a hypothesis, run through the same agents, so the answer to "what if
@@ -3363,9 +3343,9 @@ function finishCityOverview(turn, ev) {
   const isForecast = sc.mode === 'forecast';
 
   const head = mk('p', 'a-head');
-  head.textContent = isForecast
+  head.textContent = ev.headline || (isForecast
     ? `About ${fmtMm(mm)} mm of rain is expected over the next ${dur} hours.`
-    : `At ${fmtMm(mm)} mm over ${dur} hours:`;
+    : `At ${fmtMm(mm)} mm over ${dur} hours:`);
   a.appendChild(head);
 
   if (ev.forecast_meta) {
@@ -3412,6 +3392,34 @@ function finishCityOverview(turn, ev) {
   else if (stick) toBottom();
 }
 
+/* A reply that is its own answer: something the product does not do, said plainly with what it can do
+   instead, or a comparison of the cities. No analysis ran, so there is nothing to open in Details. */
+function finishDeclined(turn, ev) {
+  finishText(turn, `Answered without running an analysis · ${(turn.ms / 1000).toFixed(1)} s`,
+    ev.answer, { followups: true, areas: !state.lastBbox });
+  remember({ q: turn.question, area: state.areaLabel, headline: String(ev.answer || '').slice(0, 160) });
+}
+
+/* A question that belongs to another part of the product: what is being reported goes to the News tab and
+   its own agent (which cites its sources and removes what it cannot support), and the preparation plan is
+   in the Details tab, which only has one once the rain has been analysed for the area. */
+function finishHandoff(turn, ev) {
+  const h = ev.handoff || {};
+  finishText(turn, 'Handed to the part that owns it', ev.answer, { followups: false });
+  remember({ q: turn.question, area: state.areaLabel, headline: String(ev.answer || '').slice(0, 160) });
+  if (h.tab === 'news') {
+    setTab('news');
+    askNews(h.question || turn.question, h.place || null);
+  } else if (h.tab === 'details') {
+    if ($('prep').hidden) {
+      state.openDetailsAfterRain = true;
+      setTimeout(() => sendQuestion(DEFAULT_PREDICT_Q, { auto: true }), 50);
+    } else {
+      setTab('details');
+    }
+  }
+}
+
 function onAskEvent(turn, ev) {
   if (ev.event === 'step') { addTraceRow(turn, ev); return null; }
   if (ev.event === 'error') { errorTurn(turn, ev.detail); return null; }
@@ -3420,6 +3428,8 @@ function onAskEvent(turn, ev) {
     if (ev.kind === 'explain') finishExplain(turn, ev);
     else if (ev.kind === 'needs_area') finishNeedsArea(turn, ev);
     else if (ev.kind === 'city_overview') finishCityOverview(turn, ev);
+    else if (ev.kind === 'declined') finishDeclined(turn, ev);
+    else if (ev.kind === 'handoff') finishHandoff(turn, ev);
     else {
       // The agent settled a rainfall and a window (from the live forecast, or the figure in the
       // question). The map, the result list and the road playback follow that, not the slider.
@@ -3433,6 +3443,7 @@ function onAskEvent(turn, ev) {
         try { render(ev.result, driver); notifyDetails(); } catch (err) { setStatus(`Could not draw the result: ${err.message}`, true); }
       }
       finishTurn(turn, ev);
+      if (state.openDetailsAfterRain) { state.openDetailsAfterRain = false; setTab('details'); }
     }
   }
   return null;

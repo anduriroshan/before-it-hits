@@ -22,6 +22,7 @@ from dataclasses import dataclass
 # stronger of the two even though it runs on every request.
 FAST_MODEL = os.environ.get("BIH_FAST_MODEL", "gemini-3.5-flash")
 CAREFUL_MODEL = os.environ.get("BIH_CAREFUL_MODEL", "gemini-3.8-flash")
+NARRATOR_MODEL = os.environ.get("BIH_NARRATOR_MODEL", FAST_MODEL)       # the one that writes what people read
 TIMEOUT_S = float(os.environ.get("BIH_LLM_TIMEOUT_S", "40"))
 
 

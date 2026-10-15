@@ -85,10 +85,62 @@ and its direction, air quality, who lives there, or any question you type. Choos
 quality also switches on the matching map layer, so the answer can be watched as well as read. The
 offers are read from one list of hazards, so a hazard added there is offered with no change to the page.
 
-The Scenario agent also reads *what the question is about*. A question about people, heat, wind or air
-quality runs only what it needs (about four steps, no flood engine); a flood question adds the heat,
-satellite-heat and air-quality findings to the same checked briefing; "what does this mean?" goes to a
-Guide that answers from a written reference and analyses nothing.
+The Scenario agent also reads *what the question is about*. A question about people, heat, wind, air
+quality or earthquake shaking runs only what it needs (about four steps, no flood engine); a flood or traffic
+question runs the rain engine and nothing else; only a general question ("tell me about this area") adds heat,
+air quality and the rest; "what does this mean?" goes to a Guide that answers from a written reference and
+analyses nothing.
+
+## What happens when it is asked for something it does not do
+
+A product that answers the questions its builder thought of is not tested. So 98 realistic and awkward
+questions (`engine/tools/question_battery.py`: traffic, "where is the nearest hospital", "is a cyclone
+coming", "will my house flood", other cities, a greeting, gibberish, Hindi, Malayalam, Chinese, "4 inches of
+rain", "110 degrees Fahrenheit", follow-ups with nothing before them) were run through the real pipeline and
+read, before anything was changed. It found that **anything the router did not recognise fell into the
+20-second rain pipeline and came back as irrelevant flood numbers**: "hi" returned a rain analysis,
+"compare Kochi and Singapore" returned Singapore's rain, "will the MRT be affected" returned "108 low spots
+fill at 100 mm", and "is a cyclone coming" returned *"no cyclone in the data"*, which a reader can take as
+reassurance when it only means the product has no view.
+
+So a limit is now **named, not stumbled into**. The model only *reads* which limit a question meets, from a
+closed list, and what is said about it is fixed, reviewed text (`declines.py`) that a model cannot talk its way
+past:
+
+- **Nothing to analyse** (a hazard it does not screen, a hospital, climate in 2050, past rainfall, health): one
+  model call, about 3 seconds instead of 20 to 37, and the answer says what it cannot do and what it can. For
+  a hazard it does not screen it says plainly that *silence is not an all-clear*.
+- **A limit inside a question about an area** ("will my house flood", "how deep", "when will it drain", "will the
+  drains cope", "who will be hurt", "should I evacuate", "what is the probability"): the limit travels into the
+  findings and the briefing must say it first, then give what the data does support. It is never answered around.
+- **A real capability that lives elsewhere** (what is being reported, what happened in a past flood, the
+  preparation plan): handed to the News agent or the Details tab, which cite their sources or hold the budget.
+- **A comparison of the cities** is what each lets the product *see*, read from their own manifests (live rain
+  gauges, measured heat stress, an official flood layer, a census check, a preparedness budget), and never a score.
+
+**Traffic**, which is what started this. The product holds no traffic data and says so first. It does not let a
+model fill the gap from memory of "similar events": that figure would have no source and no check, and on a
+screen full of checked figures it would look just as solid. What it gives is what published studies found
+(US Federal Highway Administration review of the Highway Capacity Manual and the studies it cites): the rain's
+strength by the one study that defines light and heavy rain (0.25 to 6.4 mm an hour is light), the published
+speed and capacity ranges *only for the kind of road they apply to* and only for kinds actually in the area
+(read from the staged roads: 23.4 km of freeways, 43 km of arterials and 94.3 km of local streets in
+Geylang / Kallang), the roads that run through the low spots, and the three limits that would otherwise be
+misread (American freeway studies, no study from these cities, the arterial figure is for *wet pavement* and
+not rain strength). A what-if with no duration has no rain *rate* and is not guessed: it asks how long the rain
+lasts. A draft that never says "no traffic data is held" is sent back by a check in code.
+
+**Time** is honoured. "The next 3 hours" used to get the *wettest* 3 hours anywhere in the next two days, which
+can start tomorrow. Now "next N hours", "tonight", "tomorrow", "at 6pm" and "in 3 hours" pick those hours in
+the city's own timezone (the model reads the time, code does the clock arithmetic), a time beyond the forecast
+or already gone is said so, and the briefing states when the window starts. Calling a later window "the next
+N hours" is caught in code. Units are converted by code (inches, centimetres, Fahrenheit), a rainfall beyond
+1,000 mm is refused out loud, and one forecast per place is kept for ten minutes so a conversation sees one set
+of numbers instead of 0.9 mm and then 2.5 mm for "the same" rain.
+
+Measured on the same questions, before and after: median answer time 21 s to 13 s, answers under 5 s from 9 to
+30 of 98, and every one of the failures above fixed. The battery is the demo-preparation tool: it is the
+prepared answer for every limit.
 
 > *"Which spots fill first here, and how does it compare with the official map?"*
 
@@ -306,6 +358,14 @@ Written down before building, because each is a question a judge could ask on st
 - **No earthquake damage or casualty estimate, and no "what would a magnitude N do here".** It gives the
   published design-level shaking, how soft the ground is, and how many people stand on each level, and stops:
   nothing here knows what buildings stand there or how they are built.
+- **A road's trigger rainfall moves with where the box is drawn.** Asked about a named road, it gives the rain at
+  which 90 m of that road lies in filled low spots, because the *first* bit to fill is often a 55-70 m pit the 30 m
+  terrain cannot resolve, and that pit appears and disappears when the box is shifted by 100 m (Bendemeer Road: about
+  2 mm in five box positions, about 12 mm in the rest). The 90 m figure held between 11 and 15 mm in all eight
+  positions tried. It is still a screening number, said as "about", never a depth or a time.
+- **No traffic prediction.** It holds no traffic data. It gives what published studies found for rain of this
+  strength on each kind of road, names the roads through the low spots, and never says a road will be slow,
+  jammed or closed.
 - **No count of who will fall ill in the heat.** It counts who lives where a published heat threshold applies;
   there is no health data.
 - **No drainage network, no tides.** Storm-drain networks are not public anywhere, so **pooling is
@@ -417,7 +477,7 @@ KEYS
 Without `GEMINI_API_KEY` the agent layer reports itself unavailable and the ask box does not
 appear. Everything else works unchanged.
 
-Tests: `./.venv/Scripts/python.exe -m pytest engine` — 405 tests, all offline, no network, no
+Tests: `./.venv/Scripts/python.exe -m pytest engine` — 578 tests, all offline, no network, no
 staged data and no model. The agent tests stub both models out on purpose: what is worth testing
 there is the part that holds when the model is wrong, and that part is deterministic by design.
 
@@ -428,11 +488,11 @@ Cloud Build builds the image). Add the service URL to the API key's allowed refe
 
 ```
 engine/bih_engine/   deterministic, no model: terrain, hydrology, osm, routes, official, exposure,
-                     preparations, heat, heat_exposure, heat_obs, seismic, surface_heat, popgrid, density, air_quality,
-                     weather_grid, replay, store
+                     preparations, heat, heat_exposure, heat_obs, seismic, traffic, surface_heat, popgrid, density,
+                     air_quality, weather_grid, replay, store
 engine/bih_agents/   scenario, narrator, verifier, guide, planner, news and news_agent, coordinator, facts
 engine/tools/        staging jobs: the only code that talks to Overpass, Earth Engine or a data portal
-engine/tests/        405 tests, mostly on synthetic data where the answer is known
+engine/tests/        578 tests, mostly on synthetic data where the answer is known
 service/             FastAPI: every /api route, and the static web files
 web/                 map, layers and one clock, and the right-hand panel: Agent (chat with memory),
                      Rain, Details, Heat, Air, News

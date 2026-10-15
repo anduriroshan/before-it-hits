@@ -29,6 +29,7 @@ _NUMBER = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 
 MAX_SPOTS = 6     # the worst few, not a listing: a briefing nobody reads is not honest either
 MAX_ROADS = 5
+REAL_LENGTH_M = 90     # three cells of the 30 m DeltaDTM both staged cities use; shorter is a pit the data cannot resolve
 
 LIMITS = [
     "No depth is claimed for our own spots: at this terrain resolution the vertical error is the "
@@ -119,6 +120,91 @@ def assert_no_own_depth(bundle: dict) -> None:
     walk(bundle)
 
 
+def _plain(text: str) -> str:
+    """Lower case, words only, 'rd' and 'ave' spelled out, so 'Bendemeer Rd' finds 'Bendemeer Road'."""
+    words = re.sub(r"[^a-z0-9]+", " ", str(text).lower()).split()
+    return " " + " ".join({"rd": "road", "ave": "avenue"}.get(w, w) for w in words) + " "
+
+
+def _by_road(result: dict) -> dict[str, list[dict]]:
+    """Every named ground-level road that crosses a low spot, with the rows the engine wrote for it."""
+    by_road: dict[str, list[dict]] = {}
+    for f in (result.get("roads_timeline") or {}).get("features", []):
+        if f["properties"].get("name"):
+            by_road.setdefault(f["properties"]["name"], []).append(f["properties"])
+    return by_road
+
+
+def _trigger(rows: list[dict]) -> tuple[float | None, float]:
+    """(the rain that puts REAL_LENGTH_M of the road in filled low spots, the least rain on any bit of it).
+
+    Why "a real length" and not the least rain on any bit: moving the box 100 m moved Bendemeer Road's least
+    rain from about 2 mm to about 12 mm, because the first stretch to fill was 55-70 m long, a pit the terrain
+    data cannot resolve, and it appears and vanishes with the grid. The rain that puts 90 m of the road in
+    filled low spots held between 11 and 15 mm in all eight box positions tried. None when the road never
+    reaches a real length.
+    """
+    metres, enough = 0.0, None
+    for r in sorted(rows, key=lambda r: r["rain_to_flood_mm"]):
+        metres += r["length_m"]
+        if metres >= REAL_LENGTH_M:
+            enough = r["rain_to_flood_mm"]
+            break
+    return enough, min(r["rain_to_flood_mm"] for r in rows)
+
+
+def _fills(enough, rainfall_mm) -> bool:
+    return bool(enough is not None and rainfall_mm is not None and enough <= rainfall_mm)
+
+
+def _roads_named(question: str, result: dict, rainfall_mm) -> list[dict]:
+    """The roads the question names, looked up among EVERY road that crosses a low spot in the box.
+
+    `roads_through_the_worst_spots` is only the longest few, so a road missing from it is not shown to be
+    clear: a briefing once said a road was "not among the worst low spots" when the engine had a low spot
+    on it filling below the forecast. "Will this road flood" is answered here instead: the rain that fills
+    low spots along a real length of the road, set beside the rain of this question.
+    """
+    left, out = _plain(question), []
+    for name, rows in sorted(_by_road(result).items(), key=lambda kv: -len(kv[0])):   # longest first: "A Road East" before "A Road"
+        if _plain(name) not in left:
+            continue
+        left = left.replace(_plain(name), " ")
+        enough, sooner = _trigger(rows)
+        worst = max(rows, key=lambda r: r["severity"])
+        entry = {"road": name, "kind_of_road": worst["highway"],
+                 "a_real_length_of_it_is_in_low_spots_that_fill_at_this_rainfall": _fills(enough, rainfall_mm),
+                 "a_real_length_is_at_least_metres": REAL_LENGTH_M,
+                 "highest_pooling_rank_of_the_low_spots_on_it": worst["severity"]}
+        if enough is not None:
+            entry["least_rain_that_fills_low_spots_along_a_real_length_of_it_mm"] = tidy(enough)
+        if enough is None or sooner < enough:
+            entry["shorter_bits_of_it_may_fill_with_less_rain_but_the_terrain_data_cannot_resolve_them"] = True
+        out.append(entry)
+    return out[:3]
+
+
+_A_ROAD_QUESTION = re.compile(r"\b(roads?|streets?|routes?)\b", re.I)
+_WHICH_FIRST = re.compile(r"\b(first|earliest|soonest|worst|most|hardest|priority|prioriti[sz]e)\b", re.I)
+
+
+def _roads_in_fill_order(question: str, result: dict, rainfall_mm) -> list[dict]:
+    """For "which roads are hit first": the roads ordered by the rain their low ground needs, least first.
+
+    The app's own suggestion chip asks this, and it used to be answered with the order in which single low
+    spots fill, which is a different thing: a road is hit when a real length of it is in filled low ground.
+    """
+    if not (_A_ROAD_QUESTION.search(question) and _WHICH_FIRST.search(question)):
+        return []
+    ranked = sorted(((enough, name, rows) for name, rows in _by_road(result).items()
+                     for enough, _ in [_trigger(rows)] if enough is not None),
+                    key=lambda t: (t[0], -sum(r["length_m"] for r in t[2])))
+    return [{"road": name, "kind_of_road": max(rows, key=lambda r: r["severity"])["highway"],
+             "least_rain_that_fills_low_spots_along_a_real_length_of_it_mm": tidy(enough),
+             "a_real_length_of_it_is_in_low_spots_that_fill_at_this_rainfall": _fills(enough, rainfall_mm)}
+            for enough, name, rows in ranked[:5]]
+
+
 def build(result: dict, *, question: str, rainfall: dict, region_title: str | None = None) -> dict:
     """Reduce a full engine result to the few facts a briefing can be written from.
 
@@ -133,6 +219,7 @@ def build(result: dict, *, question: str, rainfall: dict, region_title: str | No
     for f in feats:
         by_id.setdefault(f["properties"]["id"], f["properties"])
     deps = screening.get("depressions", [])
+    routes = screening.get("routes_affected", [])
     fills = sum(1 for p in by_id.values() if p.get("fills_at_rainfall"))
     top = [d for d in deps if d["pooling_index"] >= 4]
 
@@ -176,11 +263,20 @@ def build(result: dict, *, question: str, rainfall: dict, region_title: str | No
         "roads_through_the_worst_spots": [
             {"road": r["road"], "kind": r["highway"], "segments": r["segments"],
              "length_m": r["length_m"]}
-            for r in screening.get("routes_affected", [])[:MAX_ROADS]
+            for r in routes[:MAX_ROADS]
         ],
         "confidence": screening.get("confidence", {}),
         "limits": LIMITS,
     }
+    if len(deps) > MAX_SPOTS or len(routes) > MAX_ROADS:
+        bundle["worst_spots_and_roads_are_short_lists"] = (
+            "worst_spots and roads_through_the_worst_spots hold only the worst few, so a road or place missing "
+            "from them is not shown to be clear, safe or unaffected")
+    named = _roads_named(question, result, rainfall.get("mm"))
+    if named:
+        bundle["roads_the_question_names"] = named
+    elif ordered := _roads_in_fill_order(question, result, rainfall.get("mm")):
+        bundle["roads_in_the_order_their_low_ground_fills"] = ordered
 
     official = result.get("official")
     if official:
@@ -240,7 +336,31 @@ def build(result: dict, *, question: str, rainfall: dict, region_title: str | No
     return bundle
 
 
-def add_heat(bundle: dict, heat_data: dict) -> None:
+def _peak_by_day(hours: list, tz: str | None) -> list[dict]:
+    """The highest heat index on each local day the forecast touches, so "will it be hotter tomorrow than
+    today" can be answered by comparing two figures that are both in the findings instead of by quoting
+    one peak that happens to fall on either. Days are the city's own, not UTC's. Today is usually partial:
+    the hours already gone are not in a forecast, so each day says how many hours it covers."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    days: dict = {}
+    for h in hours or []:
+        t = h.get("time")
+        v = h.get("heat_index_c") if h.get("heat_index_c") is not None else h.get("temperature_c")
+        if not t or v is None:
+            continue
+        dt = datetime.fromisoformat(str(t).replace("Z", "+00:00"))
+        try:
+            dt = dt.astimezone(ZoneInfo(tz)) if tz else dt
+        except Exception:
+            pass
+        days.setdefault(dt.date(), []).append(v)
+    names = ("today", "tomorrow", "the day after tomorrow")
+    return [{"day": names[i], "highest_heat_index_c": tidy(max(days[d])), "hours_of_forecast_covered": len(days[d])}
+            for i, d in enumerate(sorted(days)[:3])]
+
+
+def add_heat(bundle: dict, heat_data: dict, tz: str | None = None) -> None:
     """Append heat conditions to a facts bundle. The Verifier's number check covers these
     automatically — every number must trace to the bundle."""
     cur = heat_data.get("current") or {}
@@ -262,6 +382,7 @@ def add_heat(bundle: dict, heat_data: dict) -> None:
         "source": heat_data.get("source", "Google Weather API"),
         "whose_scale_the_level_is_on": "the United States National Weather Service heat-index scale, "
                                        "not the forecast provider and not ours",
+        "highest_by_day": _peak_by_day(heat_data.get("hours"), tz),
         "note": "A forecast at one point in the middle of this box, not a measurement and not a "
                 "map of it. Heat is a separate hazard from the pooling above and the two are not "
                 "combined into one ranking.",
@@ -395,6 +516,105 @@ def add_seismic(bundle: dict, ex: dict, magnitude: float | None = None) -> None:
             "deep, which a magnitude alone does not say. Nothing here is a scenario of that earthquake; "
             "the shaking shown is the published design level, which is a different thing.")
     bundle["seismic"] = block
+
+
+def _range(lo: float, hi: float) -> list | float:
+    """A published range as [low, high]; a single published value stays a single value."""
+    return tidy(lo) if lo == hi else [tidy(lo), tidy(hi)]
+
+
+def add_traffic(bundle: dict, tr: dict) -> None:
+    """Append what published studies say rain does to traffic, beside the roads that run through this
+    area's low spots. This is NOT traffic data and the findings say so first: there is none, so nothing here
+    may be turned into a statement that a road will be slow, jammed or closed.
+
+    Written so the three limits that would otherwise be misread travel with the figures: the studies are
+    American and mostly of freeways; the arterial figure is for wet pavement and not for rain strength; and
+    the effect of rain on traffic and the water standing on a road are different things that must not be
+    added. The prose is digit-free, for the reason the heat and seismic notes are."""
+    if not tr or not tr.get("available"):
+        return
+    cls = tr["rain_class"]
+    block = {
+        "what_this_is": "Not traffic data. A published finding about how rain of this strength changes "
+                        "traffic on roads of a given kind in other places, set beside the roads that run "
+                        "through this area's low spots. It is never a prediction that any road here will "
+                        "be slow, jammed or closed.",
+        "no_traffic_data": "This product holds no traffic counts, speeds, incidents or closures for any "
+                           "road, live or typical, so it cannot say how a road will behave.",
+        "the_rain": {
+            "total_mm": tidy(tr["total_mm"]),
+            **({"over_hours": tidy(tr["over_hours"]),
+                "average_mm_per_hour": tidy(tr["average_mm_per_hour"]),
+                "wettest_hour_mm": tidy(tr["wettest_hour_mm"]),
+                "rain_is_assumed_to_fall_evenly": bool(tr["assumed_even"])} if cls != "unknown" else {}),
+            "which_class_the_studies_would_call_it": {
+                "below_light": "lighter than the lightest class the studies measured, so no published "
+                               "figure applies to it",
+                "light": "light rain",
+                "heavy": "heavy rain",
+                "unknown": "not known: the studies are by rain per hour and no duration was given, so "
+                           "there is no rate to classify. Ask how long the rain lasts rather than guess.",
+            }[cls],
+            "how_the_studies_define_the_classes": {
+                "light_rain_from_mm_per_hour": tidy(tr["light_from_mm_per_hour"]),
+                "heavy_rain_above_mm_per_hour": tidy(tr["heavy_above_mm_per_hour"]),
+                "defined_by": "one study, Smith and others (2004, Hampton Roads, Virginia); the other "
+                              "studies in the review do not define light or heavy",
+            },
+        },
+        **({"roads_in_this_area_by_kind_in_km": {
+            "freeways": tidy(tr["road_mix_km"]["freeway"]),
+            "arterial_roads": tidy(tr["road_mix_km"]["arterial"]),
+            "local_streets": tidy(tr["road_mix_km"]["local street"])}} if tr.get("road_mix_km") else {}),
+        "roads_through_this_areas_low_spots": [
+            {"road": r["road"], "kind_of_road": r["type"], "metres_through_the_low_spots": tidy(r["metres_through_low_spots"])}
+            for r in tr["roads"]],
+        "these_are_two_different_things": "Rain slowing traffic is one thing, from published studies of rain. "
+                                          "Water standing on a road is another, from this product's terrain "
+                                          "screening, which overstates it where drains work. They are not "
+                                          "added together, and neither one is traffic data.",
+        "limits_of_the_studies": [
+            "They are American studies, mostly of freeways. No study from Singapore or Kerala was found, so "
+            "nothing here says how traffic in this city responds to rain.",
+            "The arterial figure is for wet pavement, not for rain of any strength, and the review gives no "
+            "breakdown by rain strength for arterials.",
+            "The reviewing agency's own pages differ slightly at the ends of the ranges, so each is quoted "
+            "as a range and never as a single figure.",
+            "No published figure for a local street was used, so none is given.",
+        ],
+        "source": "US Federal Highway Administration, Road Weather Management Program, summarising the "
+                  "Highway Capacity Manual 2000 and the studies it cites",
+    }
+    effects = []
+    if tr["freeway_effect"]:
+        f = tr["freeway_effect"]
+        effects.append({
+            "applies_to": "freeways only (motorways and trunk roads)",
+            "for": "rain of this class",
+            "average_speed_falls_by_percent": _range(*f["average_speed"]),
+            "free_flow_speed_falls_by_percent": _range(*f["free_flow_speed"]),
+            "traffic_volume_falls_by_percent": _range(*f["volume"]),
+            "capacity_falls_by_percent": _range(*f["capacity"]),
+            "note": "The light-rain row in the source is published as light rain or snow together." if cls == "light"
+                    else "",
+        })
+    if tr["arterial_effect_when_wet"]:
+        effects.append({
+            "applies_to": "arterial roads only (primary, secondary and tertiary roads)",
+            "for": "wet pavement, once rain has wetted the road, not for any rain strength",
+            "speed_falls_by_percent": _range(*tr["arterial_effect_when_wet"]),
+        })
+    if effects:
+        block["published_effects"] = effects
+    elif cls == "unknown":
+        block["published_effects"] = "none: the strength of the rain is not known"
+    elif cls == "below_light":
+        block["published_effects"] = "none: the rain is lighter than the studies measured"
+    else:
+        block["published_effects"] = ("none: the published figures are for freeways and arterial roads, and "
+                                      "none of those are in this area, only local streets")
+    bundle["traffic"] = block
 
 
 def add_measured_heat(bundle: dict, obs: dict) -> None:

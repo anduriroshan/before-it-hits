@@ -621,6 +621,7 @@ def ask(req: AskRequest) -> StreamingResponse:
                                   slider_mm=req.rainfall_mm, return_period=req.return_period,
                                   res_m=req.res_m, history=[t.model_dump() for t in req.history],
                                   area_label=req.area_label, place_resolved=req.place_resolved,
+                                  all_regions=list(regions().values()),
                                   emit=lambda step: events.put({"event": "step", **step}))
             if out["kind"] == "place_needed":
                 # The browser looks the place up on the map and asks again with the box.
@@ -635,7 +636,8 @@ def ask(req: AskRequest) -> StreamingResponse:
                   "scenario": out["scenario"], "result": out["result"],
                   "rain_profile": out.get("rain_profile"),
                   "rain_profile_start": out.get("rain_profile_start"),
-                  "forecast_meta": out.get("forecast_meta")}
+                  "forecast_meta": out.get("forecast_meta"),
+                  "handoff": out.get("handoff"), "headline": out.get("headline")}
             if out.get("presets"):
                 ev["presets"] = out["presets"]
             events.put(ev)

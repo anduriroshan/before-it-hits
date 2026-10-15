@@ -50,11 +50,35 @@ Environment switches: `BIH_NO_NEWS_WARM`, `BIH_NO_DENSITY_WARM`, `BIH_FAST_MODEL
 From the repo root:
 
 ```powershell
-& .\.venv\Scripts\python.exe -m pytest engine -q          # expect: 405 passed, about 10 to 30 s
+& .\.venv\Scripts\python.exe -m pytest engine -q          # expect: 578 passed, about 10 to 30 s
 & .\.venv\Scripts\python.exe -m pytest engine/tests/test_surface_heat.py -q
 ```
 
 All offline. The agent tests stub both models out. There are no browser or route-level tests.
+
+### The question battery: run it before any demo and after any prompt change
+
+The unit tests cannot say whether a *model* routes a question correctly, and a prompt change can break a
+question nobody thought to test. `engine/tools/question_battery.py` runs 146 realistic, awkward and adversarial
+questions through the real pipeline (real Gemini, real engine, in-process, no server needed), imitating the
+browser's history and preset-place resolution, and writes every answer to a JSON file:
+
+```powershell
+& .\.venv\Scripts\python.exe -X utf8 engine/tools/question_battery.py --out battery.json --workers 6   # about 6 minutes
+& .\.venv\Scripts\python.exe -X utf8 engine/tools/question_battery.py --only G --out g.json            # one family (G = other hazards)
+```
+
+It grades nothing: it records what each question was routed to, the answer, the time, and how often the checker
+sent a draft back, plus four cheap tripwires (a promised jam, a casualty count, a model-invented depth, a
+"you should evacuate"). **Read the answers.** The tripwires false-positive on a refusal that quotes the phrase
+and on an authority's own attributed depth; the point is a person looking at 146 answers. It is also the
+prepared answer for every limit in the demo. Families: A core, B time, C traffic, D advice and facilities,
+E things it will not claim, F cities, G other hazards, H news and history, I conversation, J units, K
+underspecified, L languages, M several hazards, N whole city, O the conversation that started this, P and Q
+added with the router, R a road named in the question. Add a question here the moment someone asks one that goes wrong.
+
+`tzdata` is pinned in `service/requirements.txt`: "tonight" and "tomorrow" need the city's timezone and
+`python:3.12-slim` does not reliably ship the system zone files.
 
 ## Stage data (only when adding or refreshing a city; needs `gcloud` auth)
 

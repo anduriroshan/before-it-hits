@@ -89,7 +89,7 @@ why the service runs with `--min-instances 1`.
 | A3 Forecast | inside `coordinator.py` | no | live forecast, only when the question is about what is coming |
 | A4 Engine | `bih_engine` | **no** | the only thing that produces a figure |
 | A5 Planner | `planner.py` | fast | a short plain read on the ranked preparations, trade-offs only; may use no number the list lacks |
-| A6 Narrator | `narrator.py` | fast | writes separate claims from the facts bundle and nothing else |
+| A6 Narrator | `narrator.py` | fast | writes a chat-voiced reply (an opening answer, then at most three short paragraphs; the pieces stay separate so the checker can drop one) from the facts bundle and nothing else |
 | A7 Verifier | `verifier.py` | careful | arithmetic check in code + claim check by model; **fails closed** |
 | A8 Guide | `guide.py` | fast | answers questions about the product from a written reference; runs no analysis |
 | A13 News | `news.py`, `news_agent.py` | fast | live GDELT headlines per hazard; a news chat that cites only the headlines it was shown |
@@ -193,7 +193,7 @@ same moment. Scrubbing never re-runs the engine.
   the most-vegetated quarter of pixels is 1.6 °C and 3.3 °C cooler.
 - News agent resisted a planted prompt-injection headline.
 
-## 9. Tests: 405, all offline
+## 9. Tests: 578, all offline
 
 | File | Tests | Covers |
 |---|---|---|

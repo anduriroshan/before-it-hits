@@ -108,8 +108,11 @@ same stops, so **the legend cannot drift from the picture**.
   an unchecked one look identical, so this is the only way to tell them apart.* Trace steps have a coloured left
   rule: teal ok/revised, orange sent back/trimmed/guarded, red failed/rejected/withheld/unavailable, each with an
   uppercase pill and a mono timing.
-- **Answer.** Bold headline, bullet claims, then a caveat with an orange left rule, then **fact chips** (engine
-  numbers, never model text), follow-up chips (dashed rule above), then Copy / Ask again / "Open details →".
+- **Answer.** A chat reply, not a report: the opening answer a touch larger but not bold, then ordinary paragraphs
+  (no bullets), then a caveat with an orange left rule, then Copy / Ask again / "Open details →", then **three**
+  follow-up chips (dashed rule above) and one quiet "More about this area ▾" fold that holds the rest (the other
+  hazards, who lives here, what is reported). There are no fact chips: the figures are in the sentences. The
+  options row stays open while the first prediction runs, because then it is the thing to do.
   Removed claims are listed with the rule that removed them, in orange.
 - **Chips.** 999 px pills, 12.5 px. Default white; `chip-alt` teal-tinted (e.g. "What if it rains more?");
   `chip-static` solid tint for labels. Fact chips are 11.5 px, muted, value in bold.
