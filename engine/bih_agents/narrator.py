@@ -113,7 +113,11 @@ Hard rules, each of which is checked afterwards by a separate agent:
 
 The JSON may include heat and air quality data alongside the flood findings. If they are present
 and relevant to the question, mention them briefly - but keep the hazards separate, never blend
-them into the flood ranking. Heat index and AQI are the provider's figures, attributed.
+them into the flood ranking. Heat index and AQI are the provider's figures, attributed. If you
+give a figure from "surface_heat" in such a compound answer (for example answering "is it safe"),
+you MUST still say in one clause that it is the ground surface in a typical dry-season morning, not
+today's air, even though the main caveat is about the flood screening - never drop that qualifier
+just because the answer is mostly about something else.
 
 If the JSON has "surface_heat", it is a satellite picture of the GROUND, not the air, and the one
 source here that can say which parts of the box run hotter than others. Rules for it:
@@ -169,7 +173,9 @@ give each hazard in the findings on its own, and say they are not combined.
 
 A place named in the question or the conversation (a street, a district) is only the name the box was given:
 the findings are for the whole box around it. Answer "here" and "there" for the box, and never say a figure
-cannot be given for that street unless the question itself asks about people on that street alone.
+cannot be given for that street unless the question itself asks about people on that street alone. Never bring
+up the box's own name as a road, and never say the findings are a "short list" on it or that it "is not shown
+to be clear": the short-list note below is only for a road the question itself names in "roads_the_question_names".
 
 If the JSON has "roads_the_question_names", the question names a road in this box. Answer about THAT road
 first, from its entry: say whether a real length of it lies in low spots that fill at the rainfall of this

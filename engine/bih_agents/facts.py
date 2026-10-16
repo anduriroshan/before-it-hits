@@ -186,6 +186,9 @@ def _roads_named(question: str, result: dict, rainfall_mm) -> list[dict]:
 
 _A_ROAD_QUESTION = re.compile(r"\b(roads?|streets?|routes?)\b", re.I)
 _WHICH_FIRST = re.compile(r"\b(first|earliest|soonest|worst|most|hardest|priority|prioriti[sz]e)\b", re.I)
+# Questions the short-list "not shown to be clear" note guards: about spots, flooding, driving, or a verdict.
+_SPOT_QUESTION = re.compile(r"\b(spots?|low ground|where|which part|flood|flooded|affected|clear|safe|at risk|"
+                            r"drive|driving|traffic|roads?|streets?)\b", re.I)
 
 
 def _roads_in_fill_order(question: str, result: dict, rainfall_mm) -> list[dict]:
@@ -268,15 +271,21 @@ def build(result: dict, *, question: str, rainfall: dict, region_title: str | No
         "confidence": screening.get("confidence", {}),
         "limits": LIMITS,
     }
-    if len(deps) > MAX_SPOTS or len(routes) > MAX_ROADS:
-        bundle["worst_spots_and_roads_are_short_lists"] = (
-            "worst_spots and roads_through_the_worst_spots hold only the worst few, so a road or place missing "
-            "from them is not shown to be clear, safe or unaffected")
     named = _roads_named(question, result, rainfall.get("mm"))
     if named:
         bundle["roads_the_question_names"] = named
     elif ordered := _roads_in_fill_order(question, result, rainfall.get("mm")):
         bundle["roads_in_the_order_their_low_ground_fills"] = ordered
+    # The "these are only the worst few" note exists to stop a road or spot being called clear when it is just
+    # not in the top list. It only belongs when the question is actually about roads or spots; on a bare what-if
+    # it invited a briefing to volunteer that the box's own name (e.g. a box called "Orchard Road") "is not
+    # shown to be clear", which is noise about a road nobody asked about.
+    if (len(deps) > MAX_SPOTS or len(routes) > MAX_ROADS) and (
+            named or "roads_in_the_order_their_low_ground_fills" in bundle
+            or _A_ROAD_QUESTION.search(question) or _SPOT_QUESTION.search(question)):
+        bundle["worst_spots_and_roads_are_short_lists"] = (
+            "worst_spots and roads_through_the_worst_spots hold only the worst few, so a road or place missing "
+            "from them is not shown to be clear, safe or unaffected")
 
     official = result.get("official")
     if official:
