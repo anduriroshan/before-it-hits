@@ -463,6 +463,12 @@ extra dependency (both are hand-rolled over JSON-RPC in `service/agents_api.py`)
   skill, `screen_place`, runs the **full verified pipeline** (`coordinator.run`) for an area named in the
   message, so every refusal, unit conversion and the no-model-ever-produces-a-figure rule hold exactly as in the
   web app. Paste the card URL into Agent Registry / Gemini Enterprise to register it.
+- **Event-driven alerts (Watcher + Pub/Sub)**: `POST /api/watch` checks every area's live forecast against
+  the engine and, for each area where the wettest forecast would pool water in a top-ranked low spot,
+  **publishes a preparation alert to a Pub/Sub topic** (`bih-alerts`); `GET /api/alerts` reads them back
+  from the subscription. A Cloud Scheduler job runs the sweep on a schedule. An alert is a *preparation*
+  trigger for an officer — never an evacuation order, never a push to a resident, never a depth. Pub/Sub
+  is guarded: if it is unavailable the screening still serves and `/api/watch` reports that alerting is off.
 
 ```bash
 # list the tools
@@ -500,7 +506,7 @@ KEYS
 Without `GEMINI_API_KEY` the agent layer reports itself unavailable and the ask box does not
 appear. Everything else works unchanged.
 
-Tests: `./.venv/Scripts/python.exe -m pytest engine` — 601 tests, all offline, no network, no
+Tests: `./.venv/Scripts/python.exe -m pytest engine` — 610 tests, all offline, no network, no
 staged data and no model. The agent tests stub both models out on purpose: what is worth testing
 there is the part that holds when the model is wrong, and that part is deterministic by design.
 
@@ -515,8 +521,9 @@ engine/bih_engine/   deterministic, no model: terrain, hydrology, osm, routes, o
                      air_quality, weather_grid, replay, store
 engine/bih_agents/   scenario, narrator, verifier, guide, planner, news and news_agent, coordinator, facts
 engine/tools/        staging jobs: the only code that talks to Overpass, Earth Engine or a data portal
-engine/tests/        601 tests, mostly on synthetic data where the answer is known
-service/             FastAPI: every /api route, the MCP + A2A surface (agents_api.py), and the static web files
+engine/tests/        610 tests, mostly on synthetic data where the answer is known
+service/             FastAPI: every /api route, the MCP + A2A surface (agents_api.py), the Watcher +
+                     Pub/Sub alerts (watcher.py, alerts.py), and the static web files
 web/                 map, layers and one clock, and the right-hand panel: Agent (chat with memory),
                      Rain, Details, Heat, Air, News
 plan/                the design written before building

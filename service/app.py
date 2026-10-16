@@ -690,6 +690,28 @@ def analyse(req: AnalyseRequest) -> dict:
     return res
 
 
+@app.post("/api/watch")
+def run_watcher() -> dict:
+    """The Watcher sweep: check every area's live forecast against the engine and publish an alert for each that
+    crosses the preparation threshold. Meant to be called on a schedule (Cloud Scheduler), but also by hand.
+
+    Returns the alerts it found and the Pub/Sub publish result. Alerting degrades to a status if Pub/Sub is off;
+    the sweep itself still returns what it found."""
+    import alerts
+    import watcher
+    found = watcher.evaluate(list(regions().values()))
+    checked = sum(len(getattr(r, "presets", [])) for r in regions().values())
+    return {"checked_areas": checked, "alerts_raised": len(found), "alerts": found,
+            "publish": alerts.publish(found)}
+
+
+@app.get("/api/alerts")
+def get_alerts(max: int = 20) -> dict:
+    """Recent preparation alerts, pulled from the Pub/Sub subscription. Each alert is returned once (drained)."""
+    import alerts
+    return alerts.recent(max_messages=max)
+
+
 # The engine as MCP tools and the agent as an A2A skill, for other agents to call. Registered before the
 # static mount below so /mcp and /a2a win over the catch-all file server.
 import agents_api  # noqa: E402

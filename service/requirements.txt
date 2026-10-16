@@ -15,3 +15,6 @@ networkx==3.7
 google-genai==2.29.0
 # Time zones for "tonight" and "tomorrow". python:3.12-slim does not reliably ship the system zone files.
 tzdata==2026.5
+# The Watcher publishes preparation alerts to Pub/Sub. Guarded in alerts.py: absent or unconfigured, the
+# screening still serves and /api/watch reports that alerting is off, rather than failing.
+google-cloud-pubsub==2.43.0
