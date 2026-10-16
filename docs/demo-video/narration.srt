@@ -1,0 +1,76 @@
+1
+00:00:00,000 --> 00:00:08,727
+A city gets one weather warning for the whole region. But a storm hits streets, not the whole city, one block at a time.
+
+2
+00:00:08,947 --> 00:00:15,493
+Agencies already forecast well at the city scale, and their official flood maps are the ground truth here.
+
+3
+00:00:15,713 --> 00:00:24,440
+Before It Hits adds the missing layer. It turns that same public data into an answer for your own street, for anyone to ask.
+
+4
+00:00:24,660 --> 00:00:35,569
+Let's ask about Edappally, in Kochi. The moment you draw a box, it pulls the live forecast, runs a deterministic terrain engine, and writes a checked answer, not a guess.
+
+5
+00:00:35,789 --> 00:00:40,880
+These blue shapes are the low spots where rainwater collects, ranked one to five.
+
+6
+00:00:41,100 --> 00:00:52,373
+Watch the time bar. As the forecast rain builds hour by hour, the low spots fill in the same order the terrain would, and the roads through them go under too.
+
+7
+00:00:52,593 --> 00:01:00,956
+Every number, the people, the roads, the rain each spot needs, comes from the engine. The model only puts it in plain words.
+
+8
+00:01:01,176 --> 00:01:04,085
+Now ask it something it can't honestly answer.
+
+9
+00:01:04,305 --> 00:01:15,215
+How deep will the water get? It refuses. The terrain's own elevation error is as large as the depth would be, so it ranks risk instead of inventing a number.
+
+10
+00:01:15,435 --> 00:01:24,162
+How would this affect traffic? It says plainly it holds no traffic data, then gives what published studies found, instead of inventing a jam.
+
+11
+00:01:24,382 --> 00:01:31,655
+A verifier agent checks every reply. If a number can't be traced back to the engine, the claim is removed.
+
+12
+00:01:31,875 --> 00:01:38,420
+The same box answers for heat, wind, earthquake shaking, and air quality. Five hazards, one place to ask.
+
+13
+00:01:38,640 --> 00:01:49,913
+It doesn't wait to be asked either. A Watcher sweeps every area on a schedule, and publishes a preparation alert to Pub/Sub when a storm would fill the worst spots.
+
+14
+00:01:50,133 --> 00:01:57,769
+Where a government publishes an official flood map, like Kochi's, we show their depths unchanged, and report how often we agree.
+
+15
+00:01:57,989 --> 00:02:05,262
+It runs on Cloud Run, where Gemini only reads the question and writes the explanation. It never computes a figure.
+
+16
+00:02:05,482 --> 00:02:12,027
+The same verified answers are open to other software, through an MCP server and an A2A agent.
+
+17
+00:02:12,247 --> 00:02:17,338
+Six hundred ten automated checks, and ninety eight adversarial questions that come back clean.
+
+18
+00:02:17,558 --> 00:02:21,558
+Every figure computed. Every figure checked. Every limit stated out loud.
+
+19
+00:02:21,778 --> 00:02:28,324
+Before It Hits. Built for the AI Builder Cup, running live, with the code and the link below.
+

@@ -105,6 +105,31 @@ button:hover { border-color: var(--faint); }
 }
 #status.error { border-left-color: #b91c1c; color: #7f1d1d; background: #fef2f2; }
 
+/* Preparation alerts (the Watcher): slim and muted when clear, amber only when a storm would start
+   filling an area's worst spots, so it reads as a signal and not as noise. */
+#alerts {
+  flex: 0 0 auto; margin: 0 14px 10px; padding: 10px 12px;
+  border-radius: 12px; background: var(--bg); border: 1px solid var(--line);
+}
+#alerts.has-alerts { background: #fff8ef; border-color: #f0d9b5; }
+.alerts-head { display: flex; align-items: center; gap: 8px; }
+.alerts-title { font-size: 13px; }
+#alerts.has-alerts .alerts-title::before { content: "\26A0\FE0F"; margin-right: 5px; }
+.alerts-head .linkbtn { margin-left: auto; }
+.alerts-list { margin-top: 8px; display: flex; flex-direction: column; gap: 7px; }
+.alerts-list:empty { display: none; }
+.alert-row { font-size: 12.5px; line-height: 1.45; }
+.alert-row .where { font-weight: 600; }
+.alert-row .meta { color: var(--muted); }
+.alert-sev {
+  display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; padding: 1px 6px; border-radius: 999px; margin-right: 6px; vertical-align: 1px;
+  background: #fde8c8; color: var(--warn);
+}
+.alert-sev.high { background: #fcd9d4; color: #b42318; }
+#alerts-foot { margin: 8px 0 0; }
+#alerts-foot:empty { display: none; }
+
 .headline { margin-top: 18px; padding: 13px 15px; background: var(--bg); border-radius: 10px; }
 .headline strong { font-size: 26px; font-variant-numeric: tabular-nums; }
 .headline .muted { font-size: 12.5px; margin-top: 3px; }

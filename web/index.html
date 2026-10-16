@@ -99,6 +99,18 @@
 
   <div id="status" hidden></div>
 
+  <!-- Preparation alerts: the Watcher's event-driven output, read back from Pub/Sub. These are
+       city-wide (not tied to the drawn box), so the banner sits above the per-box tabs. It fills
+       on load from the subscription; "Check now" runs the sweep live. -->
+  <section id="alerts" class="alerts" hidden aria-label="Preparation alerts">
+    <div class="alerts-head">
+      <strong class="alerts-title">Preparation alerts</strong>
+      <button type="button" id="alerts-check" class="linkbtn">Check now</button>
+    </div>
+    <div id="alerts-list" class="alerts-list"></div>
+    <p class="muted tiny" id="alerts-foot"></p>
+  </section>
+
   <nav class="tabs" role="tablist" aria-label="Panels">
     <button type="button" role="tab" id="tab-agent" data-tab="agent" aria-selected="true" aria-controls="pane-agent">Agent</button>
     <button type="button" role="tab" id="tab-rain" data-tab="rain" aria-selected="false" aria-controls="pane-rain" tabindex="-1">Rain</button>

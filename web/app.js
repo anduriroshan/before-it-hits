@@ -26,7 +26,7 @@ const state = {
   agents: false, newsFor: null, roadLayer: null, whatif: false, tab: 'agent',
   hazards: [], newsTopics: [], newsTopic: 'flood', treated: null, afterView: false,
   lastRainMm: null,
-  tl: { feats: [], dur: 6, step: 6, total: 100, cum: [], steps: 6, real: false,
+  tl: { feats: [], poolMm: [], dur: 6, step: 6, total: 100, cum: [], steps: 6, real: false,
         profile: [], forecastMeta: null, start: null },
 };
 
@@ -85,12 +85,14 @@ async function boot() {
   wireAsk(cfg.agents);           // before a region is chosen: the welcome message depends on it
   wireTabs();
   wireNews();
+  wireAlerts();
   setTab('agent');
   buildRegionPicker();
   buildLayerPanel();             // before a region is chosen: choosing one clears the layers
   selectRegion(state.regions[0].name);
   wireToolbar();
   wireTimeline();
+  loadAlerts();                  // bonus banner; independent of the map, fire-and-forget
 
   if (!cfg.maps_api_key) {
     mapFailed('No Maps API key is configured. Set MAPS_API_KEY in .env.local and restart.');
@@ -1546,6 +1548,8 @@ function seedWhatIf() {
 function clearRoadLayer() {
   if (state.roadLayer) { state.roadLayer.setMap(null); state.roadLayer = null; }
   state.tl.feats = [];
+  state.tl.poolMm = [];
+  if (state.layer) state.layer.setStyle(poolStyle);   // back to the static screening view
   $('tl-roads').replaceChildren();
   updateTimebar();                 // the bar stays if a field layer still needs it
 }
@@ -1605,6 +1609,10 @@ function renderTimeline(res, driver) {
   if (!feats.length) { sec.hidden = true; return; }
   sec.hidden = false;
   state.tl.feats = feats;
+  // One rain-to-fill threshold per unique low spot (a depression can be drawn as several polygons
+  // sharing an id, so counting geojson features would overcount). This matches the "X of Y fill"
+  // summary, which counts the same depressions.
+  state.tl.poolMm = (((res.screening || {}).depressions) || []).map((d) => d.rain_to_fill_mm);
 
   const profile = driver && driver.profile;
   state.tl.real = Boolean(profile && profile.length);
@@ -1613,7 +1621,10 @@ function renderTimeline(res, driver) {
     state.tl.total = driver.total;
     state.tl.dur = Math.max(1, Math.round(driver.dur || 6));
   } else {
-    state.tl.total = Number($('rain').value);
+    // The rainfall the engine actually screened this result at, not whatever the slider shows now:
+    // the forecast re-seeds the slider after the screening, and the roads, the filling spots and the
+    // "X of Y fill" summary must all step through the one rainfall the result was computed on.
+    state.tl.total = (state.lastRainMm != null ? state.lastRainMm : Number($('rain').value));
     state.tl.dur = Number($('tl-duration').value);
   }
   state.tl.cum = buildCumulative(state.tl.total, state.tl.dur, profile);
@@ -1628,7 +1639,7 @@ function renderTimeline(res, driver) {
     ? 'In this forecast the rain stays below what any road here needs to go under, so nothing is '
       + 'marked. Use “Try a heavier storm” to see what a bigger one would do.'
     : `${feats.length} road stretches run through the low spots. Play or drag the bar on the map to `
-      + 'watch them go under as the rain builds, the most vulnerable first.';
+      + 'watch the low spots fill and the roads go under as the rain builds, the most vulnerable first.';
   $('tl-note').innerHTML =
     'Modelled road difficulty from where rain collects &mdash; not a traffic measurement, and not a '
     + 'forecast of standing water hours later. It adds up the rain assuming <b>none of it drains '
@@ -1692,11 +1703,15 @@ function stepTo(step, frac = 0) {
   }
   const cum = cumAt(step);
   styleRoads(cum);                       // instant: one setStyle, no animation
+  if (state.layer) state.layer.setStyle(poolStyle);   // the blue low spots fill with the same rain
+  const total = (state.tl.poolMm || []).length;
+  const spots = (state.tl.poolMm || []).reduce((n, m) => n + (m <= cum ? 1 : 0), 0);
   const on = state.tl.feats.filter((f) => f.properties.rain_to_flood_mm <= cum);
   const km = on.reduce((a, f) => a + f.properties.length_m, 0) / 1000;
   const when = state.tl.real ? `by ${clockLabel(step)}` : `${step} h into the storm`;
   const roads = on.length ? `${on.length} stretches · ${km.toFixed(1)} km` : 'no roads under yet';
-  $('tl-read').innerHTML = `<b>~${fmtMm(cum)} mm</b> ${when} · ${roads}`;
+  const spotTxt = total ? `${spots} of ${total} low spots filled` : `${spots} low spots filled`;
+  $('tl-read').innerHTML = `<b>~${fmtMm(cum)} mm</b> ${when} · ${spotTxt} · ${roads}`;
   const ARTERIAL = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'];
   const seen = new Set();               // a long road can have several stretches; list it once
   const worst = on.filter((f) => f.properties.name && ARTERIAL.includes(f.properties.highway))
@@ -2761,7 +2776,8 @@ function updateRainEffect(res, driver) {
   const fills = spotsThatFill(res);
   const total = res.screening.depressions.length;
   const real = Boolean(driver && driver.profile);
-  const mm = driver ? driver.total : Number($('rain').value);
+  // The rainfall the engine screened this result at, not the slider (the forecast re-seeds it after).
+  const mm = driver ? driver.total : (state.lastRainMm != null ? state.lastRainMm : Number($('rain').value));
   state.rainEffect = `${real ? 'At that rainfall' : `In the what-if (${fmtMm(mm)} mm)`}, `
     + `<b>${fills}</b> of the <b>${total}</b> low spots in this area fill.`;
   applyRainEffect();
@@ -3607,8 +3623,15 @@ function poolStyle(f) {
     return { fillColor: '#9bd3ae', fillOpacity: 0.14, strokeColor: '#0a7d34', strokeWeight: 1.6,
              strokeOpacity: 0.95, zIndex: idx };
   }
+  // A spot is "filled" once enough rain has fallen into it. While the time bar is up it answers to
+  // the clock - the same accumulated rainfall the roads use, against this spot's own rain_to_fill_mm -
+  // so the blue inks in over the forecast instead of standing still. Without a bar it is the
+  // screening's own result for the whole window.
+  const filled = (state.tl.feats.length && Number.isFinite(state.tl.step))
+    ? f.getProperty('rain_to_fill_mm') <= cumAt(state.tl.step)
+    : f.getProperty('fills_at_rainfall');
   return {
-    fillColor: POOLING_FILL[idx], fillOpacity: f.getProperty('fills_at_rainfall') ? 0.75 : 0.35,
+    fillColor: POOLING_FILL[idx], fillOpacity: filled ? 0.75 : 0.35,
     strokeColor: POOLING_FILL[idx], strokeWeight: 0.6, strokeOpacity: 0.9, zIndex: idx,
   };
 }
@@ -3795,5 +3818,84 @@ window.addEventListener('error', (ev) => {
 window.addEventListener('unhandledrejection', (ev) => {
   setStatus(`Something broke: ${ev.reason && ev.reason.message ? ev.reason.message : ev.reason}`, true);
 });
+
+/* ---- preparation alerts (the Watcher, published to and read back from Pub/Sub) ---------------- */
+const ALERT_DISCLAIMER =
+  'Preparation triggers for an officer — not evacuation orders, not water depths.';
+
+function regionTitle(name) {
+  const r = state.regions.find((x) => x.name === name);
+  return r ? r.title : name;
+}
+
+/* The raw alert carries a grid-cell count ("97 top spots") that reads oddly to a person, so the
+   banner says it qualitatively and shows the figures that mean something: people, timing, severity. */
+function renderAlerts(alerts, note) {
+  const sec = $('alerts');
+  const list = $('alerts-list');
+  sec.hidden = false;
+  sec.classList.toggle('has-alerts', alerts.length > 0);
+  list.replaceChildren();
+  if (!alerts.length) {
+    const p = document.createElement('p');
+    p.className = 'muted tiny';
+    p.textContent = 'None right now. One is raised when a storm would start filling an area’s worst low spots.';
+    list.appendChild(p);
+  }
+  for (const a of alerts.slice(0, 6)) {
+    const row = document.createElement('div');
+    row.className = 'alert-row';
+    const sev = document.createElement('span');
+    sev.className = 'alert-sev' + (a.severity === 'high' ? ' high' : '');
+    sev.textContent = a.severity === 'high' ? 'high' : 'watch';
+    const where = document.createElement('span');
+    where.className = 'where';
+    where.textContent = `${a.area}, ${regionTitle(a.region)}`;
+    row.append(sev, where);
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const bits = [`${a.forecast_mm} mm over ${a.window_hours} h would start filling the worst low spots`];
+    if (a.roughly_people_in_worst_spots) bits.push(`~${a.roughly_people_in_worst_spots.toLocaleString()} people there`);
+    if (Number.isFinite(a.starts_in_hours) && a.starts_in_hours > 0) bits.push(`in ~${a.starts_in_hours} h`);
+    meta.textContent = bits.join(' · ');
+    row.appendChild(meta);
+    list.appendChild(row);
+  }
+  $('alerts-foot').textContent = [note, alerts.length ? ALERT_DISCLAIMER : ''].filter(Boolean).join(' ');
+}
+
+async function loadAlerts() {
+  try {
+    const d = await fetch('/api/alerts').then((r) => r.json());
+    renderAlerts(d.alerts || [], 'Read live from the Pub/Sub subscription.');
+  } catch (err) {
+    $('alerts').hidden = true;      // a bonus banner; its failure must never break the panel
+  }
+}
+
+/* "Check now" runs the real sweep server-side: it publishes to Pub/Sub AND returns the alerts, so the
+   banner shows the honest result and the publish count without depending on the subscription's buffer. */
+function wireAlerts() {
+  const btn = $('alerts-check');
+  btn.addEventListener('click', async () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    const was = btn.textContent;
+    btn.textContent = 'Checking all areas…';
+    try {
+      const d = await fetch('/api/watch', { method: 'POST' }).then((r) => r.json());
+      const pub = d.publish || {};
+      const note = pub.status === 'ok'
+        ? `Swept ${d.checked_areas} areas · ${pub.published} published to Pub/Sub (${pub.topic}).`
+        : `Swept ${d.checked_areas} areas · alerting: ${pub.status || 'off'}.`;
+      renderAlerts(d.alerts || [], note);
+    } catch (err) {
+      $('alerts-foot').textContent = `Could not run the check: ${err.message}`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = was;
+    }
+  });
+}
 
 boot().catch((e) => setStatus(`Could not start: ${e.message}`, true));
