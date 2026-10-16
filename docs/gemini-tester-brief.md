@@ -3,7 +3,7 @@
 **Live app to test:** https://before-it-hits-z5r5gsxkza-el.a.run.app
 (alias: https://before-it-hits-1019287218541.asia-south1.run.app). No login. Use a desktop-width browser.
 
-You are being asked to use this web app the way a real person would, try to break it, and report what you find.
+You are being asked to use this web app the way a real person would, try to break it, and report what you find. (If you can call HTTP tools, the same engine is also exposed as an **MCP server** at `POST /mcp` and an **A2A agent** at `POST /a2a` with a card at `/.well-known/agent-card.json` — see section 9.)
 Read sections 1 to 4 first (what it is and what it refuses to do). Then work through section 6. Section 7 lists
 behaviour that looks like a bug but is intended. Section 8 says how to report.
 
@@ -261,3 +261,24 @@ fail) | severity**. Then:
 4. For every answer you judge wrong: say what you would expect instead and how you checked it (on-screen evidence,
    another tab, common sense). Do not mark an answer wrong only because its numbers differ from an example here.
 5. Your overall impression in three sentences: would a city officer trust it, and what single change would most improve it?
+
+---
+
+## 9. For an agent that can call HTTP: the MCP and A2A surfaces
+
+The same engine and agent are exposed for agent-to-agent use, on the same live host, no auth.
+
+**MCP server** — `POST /mcp`, JSON-RPC 2.0 (Streamable HTTP, protocol `2025-06-18`). Try:
+- `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"you"}}}`
+- `{"jsonrpc":"2.0","id":2,"method":"tools/list"}` → five tools: `list_regions`, `rain_forecast`, `flood_screening`, `heat_forecast`, `air_quality`.
+- `tools/call` `list_regions` (no args) to learn the region names and area (preset) names.
+- `tools/call` `flood_screening` with `{"region":"singapore","area":"Geylang / Kallang","rainfall_mm":60}`.
+- Check the honesty: `flood_screening` must **never** return a water depth; it ranks 1–5. An out-of-range
+  `rainfall_mm` (e.g. 9000) must come back as a tool error (`isError: true`), not a crash.
+
+**A2A agent** — card at `GET /.well-known/agent-card.json`; `POST /a2a` handles `message/send`. Send:
+`{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","messageId":"m1","parts":[{"kind":"text","text":"Will Edappally flood tonight?"}]}}}`.
+Name a known area in the text (areas come from `list_regions` or the preset list in section 4). Expect a checked,
+chat-voiced answer. Then probe the same refusals as section 3 through A2A — e.g. "How deep will the water get in
+Edappally?" (must refuse a depth), "How would rain affect traffic in Vyttila?" (must say no traffic data first).
+Report the same way: did any tool or agent answer violate a refusal in section 3?

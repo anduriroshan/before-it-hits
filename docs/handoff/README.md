@@ -21,7 +21,7 @@ ever produces a number, and a separate checker deletes any claim the engine's re
 |---|---|
 | Live | https://before-it-hits-z5r5gsxkza-el.a.run.app (older alias `https://before-it-hits-1019287218541.asia-south1.run.app` also serves) |
 | Deployed | Cloud Run `before-it-hits`, `asia-south1`, revision `before-it-hits-00029-5n2`, `--min-instances 1` |
-| Tests | **578 passing** (`engine/tests`, 30 files) |
+| Tests | **601 passing** (`engine/tests`, 30 files) |
 | Git | `main`, clean at `71aaf17` *before these docs were added* (the user commits by hand) |
 | Cities | **Kochi** (the deep one: official depth map to check against) and **Singapore** (no official layer, best drainage in the world) |
 | Hazards | Rain and flooding (deep), heat (forecast + satellite surface), air quality (live feed). News, traffic and population are overlays |
@@ -47,7 +47,7 @@ Older, still-true documents: `README.md` (public; **stale on heat, air, layers**
 
 1. Read this file and `03-remaining-work.md`.
 2. `git status` and `git log --oneline -5`; from the repo root run the suite:
-   `& .\.venv\Scripts\python.exe -m pytest engine -q` (expect 578 passed).
+   `& .\.venv\Scripts\python.exe -m pytest engine -q` (expect 601 passed).
 3. Start the dev server (`07-runbook.md`, "Run it locally") and open http://localhost:8080. It must be
    `localhost:8080`: the browser Maps key is referrer-restricted to that and to the Cloud Run URLs.
 4. Skim `MEMORY.md` (it loads automatically) and the two newest memories,
@@ -92,6 +92,7 @@ engine/bih_agents/   the agent layer: coordinator, scenario, narrator, verifier,
 engine/tools/        staging jobs (Overpass, Earth Engine, KSDMA, Landsat): never run at request time
 engine/tests/        285 offline tests; the agent tests stub both models out
 service/app.py       FastAPI: every /api route, static web files, start-up warmers
+service/agents_api.py  MCP server (/mcp) + A2A agent (/a2a, /.well-known/agent-card.json) over the engine
 web/                 index.html, app.js (~3,200 lines, no build step), style.css
 data/regions/<city>/ staged geography (gitignored except Kochi's region.json): see 04
 replay/              the precomputed 28 May 2024 Kochi replay

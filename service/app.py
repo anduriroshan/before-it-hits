@@ -690,6 +690,12 @@ def analyse(req: AnalyseRequest) -> dict:
     return res
 
 
+# The engine as MCP tools and the agent as an A2A skill, for other agents to call. Registered before the
+# static mount below so /mcp and /a2a win over the catch-all file server.
+import agents_api  # noqa: E402
+
+agents_api.mount(app, regions)
+
 if WEB_DIR.exists():
     app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
 

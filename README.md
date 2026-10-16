@@ -450,6 +450,29 @@ Two things worth knowing about the KSDMA data, both found by checking rather tha
   stated at source**; magnitude reads as centimetres, so everything records and displays them as
   inferred.
 
+## For other agents: MCP and A2A
+
+The same engine and the same checked agent are exposed for other agents to call, on the live service, with no
+extra dependency (both are hand-rolled over JSON-RPC in `service/agents_api.py`):
+
+- **MCP server** at `POST /mcp` (Streamable HTTP, protocol `2025-06-18`). `tools/list` returns five tools —
+  `list_regions`, `rain_forecast`, `flood_screening`, `heat_forecast`, `air_quality` — and each returns the
+  **engine's own figures as JSON**, never a model's. `flood_screening` ranks low spots 1–5 and names the roads
+  through them; it never returns a depth. Bad inputs come back as a tool error, not a 500.
+- **A2A agent**: the card is at `GET /.well-known/agent-card.json`; `POST /a2a` handles `message/send`. Its one
+  skill, `screen_place`, runs the **full verified pipeline** (`coordinator.run`) for an area named in the
+  message, so every refusal, unit conversion and the no-model-ever-produces-a-figure rule hold exactly as in the
+  web app. Paste the card URL into Agent Registry / Gemini Enterprise to register it.
+
+```bash
+# list the tools
+curl -s https://before-it-hits-z5r5gsxkza-el.a.run.app/mcp -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+# ask the agent
+curl -s https://before-it-hits-z5r5gsxkza-el.a.run.app/a2a -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"role":"user","messageId":"m1","parts":[{"kind":"text","text":"Will Edappally flood tonight?"}]}}}'
+```
+
 ## Running it
 
 ```bash
@@ -477,7 +500,7 @@ KEYS
 Without `GEMINI_API_KEY` the agent layer reports itself unavailable and the ask box does not
 appear. Everything else works unchanged.
 
-Tests: `./.venv/Scripts/python.exe -m pytest engine` — 578 tests, all offline, no network, no
+Tests: `./.venv/Scripts/python.exe -m pytest engine` — 601 tests, all offline, no network, no
 staged data and no model. The agent tests stub both models out on purpose: what is worth testing
 there is the part that holds when the model is wrong, and that part is deterministic by design.
 
@@ -492,8 +515,8 @@ engine/bih_engine/   deterministic, no model: terrain, hydrology, osm, routes, o
                      air_quality, weather_grid, replay, store
 engine/bih_agents/   scenario, narrator, verifier, guide, planner, news and news_agent, coordinator, facts
 engine/tools/        staging jobs: the only code that talks to Overpass, Earth Engine or a data portal
-engine/tests/        578 tests, mostly on synthetic data where the answer is known
-service/             FastAPI: every /api route, and the static web files
+engine/tests/        601 tests, mostly on synthetic data where the answer is known
+service/             FastAPI: every /api route, the MCP + A2A surface (agents_api.py), and the static web files
 web/                 map, layers and one clock, and the right-hand panel: Agent (chat with memory),
                      Rain, Details, Heat, Air, News
 plan/                the design written before building
