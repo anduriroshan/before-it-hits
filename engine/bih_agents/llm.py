@@ -25,6 +25,14 @@ CAREFUL_MODEL = os.environ.get("BIH_CAREFUL_MODEL", "gemini-3.8-flash")
 NARRATOR_MODEL = os.environ.get("BIH_NARRATOR_MODEL", FAST_MODEL)       # the one that writes what people read
 TIMEOUT_S = float(os.environ.get("BIH_LLM_TIMEOUT_S", "40"))
 
+# Vertex AI instead of the Gemini Developer API key, when BIH_USE_VERTEX is set. On Cloud Run the
+# service account's own credentials are used, so no key is in the deploy. The location is "global"
+# because that is the only one that serves both models (the checker, gemini-3.8-flash, is global-only;
+# measured 15 Oct). Default stays the key path, so turning this on is one env var and never a code change.
+USE_VERTEX = os.environ.get("BIH_USE_VERTEX", "").lower() in ("1", "true", "yes")
+VERTEX_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("BIH_VERTEX_PROJECT", "before-it-hits")
+VERTEX_LOCATION = os.environ.get("BIH_VERTEX_LOCATION", "global")
+
 
 class LlmUnavailable(RuntimeError):
     """No usable model: no key, the SDK is absent, or the service refused the request."""
@@ -45,9 +53,6 @@ def _client_or_raise():
     global _client
     if _client is not None:
         return _client
-    key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    if not key:
-        raise LlmUnavailable("no GEMINI_API_KEY configured")
     try:
         from google import genai
         from google.genai import types
@@ -55,9 +60,20 @@ def _client_or_raise():
         raise LlmUnavailable(f"google-genai is not installed ({exc})") from exc
     try:
         opts = types.HttpOptions(timeout=int(TIMEOUT_S * 1000))
-        _client = genai.Client(api_key=key, http_options=opts)
     except Exception:                               # older SDKs take no http options
-        _client = genai.Client(api_key=key)
+        opts = None
+    if USE_VERTEX:
+        # Credentials come from the environment (the Cloud Run service account, or `gcloud auth` locally).
+        kw = {"vertexai": True, "project": VERTEX_PROJECT, "location": VERTEX_LOCATION}
+        try:
+            _client = genai.Client(http_options=opts, **kw) if opts else genai.Client(**kw)
+        except Exception as exc:
+            raise LlmUnavailable(f"Vertex AI client could not be built ({exc})") from exc
+        return _client
+    key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not key:
+        raise LlmUnavailable("no GEMINI_API_KEY configured")
+    _client = genai.Client(api_key=key, http_options=opts) if opts else genai.Client(api_key=key)
     return _client
 
 

@@ -1236,14 +1236,14 @@ window.initMap = function initMap() {
       center: bounds.getCenter(), zoom: 12,
       streetViewControl: false, fullscreenControl: false,
       styles: MAP_STYLES[state.labels],
-      // Google's controls default to the top-left, where our tool palette lives. Map type goes to
-      // the top-right as a compact dropdown; zoom sits below it, clear of the legend.
+      // The panel floats over the right of the map, so Google's controls go to the lower-left,
+      // clear of both the panel and our own tool palette at the top-left.
       mapTypeControl: true,
       mapTypeControlOptions: {
-        position: google.maps.ControlPosition.TOP_RIGHT,
+        position: google.maps.ControlPosition.LEFT_BOTTOM,
         style: google.maps.MapTypeControlStyle.DROPDOWN_MENU,
       },
-      zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_CENTER },
+      zoomControlOptions: { position: google.maps.ControlPosition.LEFT_CENTER },
     });
 
     // Everything below is set up synchronously. An earlier version waited for the map's 'idle'

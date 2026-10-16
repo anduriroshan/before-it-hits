@@ -10,6 +10,11 @@
   --warn: #b45309;
   --p5: #0b3d91; --p4: #1d6fd0; --p3: #4a9fe0; --p2: #8fc5ec; --p1: #c8e2f5;
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+  /* The panel floats over the map as a rounded card. These say how much room it takes on the right,
+     so the map's own overlays (legend, field scale, scrubber) can sit clear of it. */
+  --panel-w: 418px;
+  --panel-gap: 14px;
+  --panel-reserve: calc(var(--panel-w) + var(--panel-gap) * 2);
 }
 
 * { box-sizing: border-box; }
@@ -26,23 +31,28 @@ html, body {
   color: var(--ink);
 }
 
-/* Map on the left, panel on the right. */
-body { display: grid; grid-template-columns: minmax(0, 1fr) 440px; }
-@media (max-width: 900px) {
-  body { grid-template-columns: 1fr; grid-template-rows: 46vh 1fr; }
-  #panel { border-left: 0; border-top: 1px solid var(--line); }
-}
+/* The map fills the window; the panel floats over it as a rounded card on the right. */
+body { position: relative; overflow: hidden; background: var(--bg); }
 
 #panel {
+  position: absolute; z-index: 8;
+  top: var(--panel-gap); right: var(--panel-gap); bottom: var(--panel-gap);
+  width: var(--panel-w);
   background: var(--card);
-  border-left: 1px solid var(--line);
+  border: 1px solid rgba(226, 230, 234, .9);
+  border-radius: 18px;
+  box-shadow: 0 10px 44px rgba(16, 24, 32, .22);
   display: flex; flex-direction: column;
   min-height: 0; overflow: hidden;
+}
+@media (max-width: 820px) {
+  :root { --panel-reserve: 0px; }
+  #panel { top: auto; left: var(--panel-gap); right: var(--panel-gap); width: auto; max-height: 62%; }
 }
 
 /* Google Maps empties the element it is constructed on, so anything that floats over the map
    must be a sibling of it, not a child. #mapwrap is ours; #map is the one Maps owns. */
-#mapwrap { position: relative; min-height: 320px; overflow: hidden; }
+#mapwrap { position: absolute; inset: 0; overflow: hidden; }
 #map { position: absolute; inset: 0; background: var(--bg); }
 
 #mapfallback {
@@ -131,7 +141,7 @@ footer { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 12px;
    scrubber, the left to the tools, and the centre-right to Google's zoom buttons. Only shown once
    there is something on the map for it to explain. */
 #legend {
-  position: absolute; top: 64px; right: 12px; z-index: 5;
+  position: absolute; top: 12px; right: calc(var(--panel-reserve) + 12px); z-index: 5;
   background: rgba(255,255,255,.95); border: 1px solid var(--line); border-radius: 10px;
   padding: 10px 12px; font-size: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.08); max-width: 230px;
 }
@@ -218,7 +228,7 @@ select#rp {
 /* ---- the colour scale, right edge of the map -------------------------------------------------
    One bar per field that is on, built from the same ramp the field is painted with. */
 #fieldscale {
-  position: absolute; right: 12px; bottom: 64px; z-index: 6;
+  position: absolute; right: calc(var(--panel-reserve) + 12px); bottom: 28px; z-index: 6;
   display: flex; flex-direction: column; gap: 8px; pointer-events: none;
   max-height: calc(100% - 160px); overflow: hidden;
 }
@@ -343,8 +353,8 @@ details.block > :not(summary) { margin: 2px 0 8px; }
    the moment it is showing. No card - the map is the subject, and a tinted strip with white marks
    stays readable over a pale basemap and over any colour a field can be. */
 #tl-float {
-  position: absolute; z-index: 6; left: 50%; bottom: 16px; transform: translateX(-50%);
-  width: 560px; max-width: calc(100% - 32px);
+  position: absolute; z-index: 6; left: calc(50% - var(--panel-reserve) / 2); bottom: 16px; transform: translateX(-50%);
+  width: 560px; max-width: calc(100% - var(--panel-reserve) - 32px);
   display: flex; align-items: center; gap: 12px; padding: 4px 16px 4px 5px;
   background: rgba(14, 20, 28, 0.34); border-radius: 999px;
   -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
