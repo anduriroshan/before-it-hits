@@ -294,6 +294,7 @@ const LAYER_DEFS = [
   { id: 'rain', label: 'Rain, per hour', kind: 'weather', field: 'rain', opacity: 0.7 },
   { id: 'wind', label: 'Wind speed', kind: 'weather', field: 'wind', opacity: 0.55 },
   { id: 'population', label: 'People per km²', kind: 'density', opacity: 0.6 },
+  { id: 'shaking', label: 'Earthquake shaking', kind: 'shaking', opacity: 0.55 },
   { id: 'airquality', label: 'Air quality', kind: 'tiles', opacity: 0.55 },
   { id: 'traffic', label: 'Traffic', kind: 'traffic', opacity: 0.8 },
 ];
@@ -315,6 +316,8 @@ const RAMPS = {
   rain: [[0, '#eaf6ff'], [0.22, '#86cff0'], [0.45, '#2f84d4'], [0.7, '#2a3da0'], [1, '#6b2a9c']],
   wind: [[0, '#f2f6f5'], [0.35, '#9ad4c2'], [0.65, '#3f9f8c'], [0.85, '#2a6f8f'], [1, '#1b3566']],
   population: [[0, '#fff8e8'], [0.28, '#ffd481'], [0.52, '#fb9242'], [0.74, '#df472a'], [1, '#75102c']],
+  // The order USGS ShakeMap uses for intensity, so a seismologist reads ours without a key.
+  shaking: [[0, '#f0f4f6'], [0.25, '#9cd3c6'], [0.5, '#f2e27a'], [0.75, '#f0a44e'], [1, '#d2443c']],
 };
 
 const dataLayers = {};
@@ -416,6 +419,7 @@ function createLayer(id) {
   if (l.def.kind === 'tiles') { createAirTiles(id); return; }
   if (l.def.kind === 'weather') { loadWeatherField(id); return; }
   if (l.def.kind === 'density') { loadDensityField(id); return; }
+  if (l.def.kind === 'shaking') { loadShakingField(id); return; }
   if (l.def.kind === 'surface') { loadSurfaceField(id); return; }
 }
 
@@ -541,6 +545,37 @@ async function loadDensityField(id) {
   } catch {
     if (my !== l.token) return;
     layerNote(id, 'Population density could not be built for this area.', 'warn');
+  } finally {
+    if (my === l.token) l.loading = false;
+  }
+}
+
+/* How hard the ground is built to shake, from the published hazard map amplified by the ground
+   under each cell. The one layer that does NOT follow the drawn box: the published hazard grid is
+   about 5.5 km across one cell, so a neighbourhood sits inside a single value and would draw as one
+   flat colour. It is the city's picture, and the note says so. The scale is the data's own range,
+   not zero-based: every inhabited place has some design shaking, and a bar starting at zero would
+   paint a whole city one colour. */
+async function loadShakingField(id) {
+  const l = dataLayers[id];
+  const my = ++l.token;
+  l.loading = true;
+  layerNote(id, 'reading the published shaking map…');
+  try {
+    const url = `/api/seismic-grid?region=${encodeURIComponent(state.region.name)}`;
+    const d = await fetch(url).then((r) => { if (!r.ok) throw new Error('no shaking'); return r.json(); });
+    if (my !== l.token || !l.visible) return;
+    if (!d.available) { layerNote(id, d.reason || 'Not available for this city.', 'warn'); return; }
+    l.src = rasterSource(d, RAMPS.shaking,
+      { min: d.min, max: d.max, label: 'Shaking, Modified Mercalli', unit: '' });
+    l.instance = new FieldOverlay(l);
+    l.instance.setMap(state.map);
+    layerNote(id, `The whole city, in about ${d.cell_m} m cells — the published hazard map is coarser `
+      + `than any box. ${d.method} Intensity is accurate to about ${d.scatter_in_intensity} either way.`);
+    renderFieldScales();
+  } catch {
+    if (my !== l.token) return;
+    layerNote(id, 'The shaking map could not be built for this city.', 'warn');
   } finally {
     if (my === l.token) l.loading = false;
   }
@@ -3835,6 +3870,11 @@ function renderAlerts(alerts, note) {
   const list = $('alerts-list');
   sec.hidden = false;
   sec.classList.toggle('has-alerts', alerts.length > 0);
+  // The banner stays shut until asked for, so the count is what a closed summary has to say.
+  const high = alerts.filter((a) => a.severity === 'high').length;
+  $('alerts-count').textContent = alerts.length
+    ? `${alerts.length} area${alerts.length === 1 ? '' : 's'}${high ? ` · ${high} high` : ''}`
+    : 'none right now';
   list.replaceChildren();
   if (!alerts.length) {
     const p = document.createElement('p');

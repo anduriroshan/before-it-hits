@@ -10,3 +10,8 @@ __pycache__
 data/osm
 .env
 .env.local
+# The submission deck is not part of the service, and Office's lock file (~$…) is unreadable
+# while PowerPoint has the deck open — gcloud crashes on it mid-upload rather than skipping it.
+*.pptx
+*.pptx.bak
+~$*

@@ -125,6 +125,8 @@ def area_km2(bbox) -> float:
 
 
 _density_cache: dict[tuple, dict] = {}
+# The shaking grid is one picture per city, built from staged rasters that never change.
+_seismic_cache: dict[str, dict] = {}
 
 
 def parse_bbox(raw: str | None) -> tuple | None:
@@ -507,6 +509,24 @@ def population_density(region: str | None = None, bbox: str | None = None) -> di
     # city-wide grid is the slow one and the one most likely to be asked for twice.
     if len(_density_cache) < 64:
         _density_cache[key] = out
+    return out
+
+
+@app.get("/api/seismic-grid")
+def seismic_grid(region: str | None = None) -> dict:
+    """Design-level earthquake shaking as a raster, for the whole city.
+
+    No bbox is taken: the published hazard grid is about 5.5 km across one cell, so a drawn box
+    would sit inside a single value and draw as one flat colour. The layer's note says it is the
+    city. Same pieces as the agent's seismic answer, so the two cannot disagree."""
+    from bih_engine import seismic
+    r = region_or_404(region)
+    hit = _seismic_cache.get(r.name)
+    if hit is not None:
+        return hit
+    out = seismic.grid(r, tuple(r.bounds))
+    if out.get("available"):
+        _seismic_cache[r.name] = out
     return out
 
 

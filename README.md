@@ -469,6 +469,9 @@ extra dependency (both are hand-rolled over JSON-RPC in `service/agents_api.py`)
   from the subscription. A Cloud Scheduler job runs the sweep on a schedule. An alert is a *preparation*
   trigger for an officer — never an evacuation order, never a push to a resident, never a depth. Pub/Sub
   is guarded: if it is unavailable the screening still serves and `/api/watch` reports that alerting is off.
+  In the panel the banner is **collapsed by default** — every staged area usually raises one, and open it
+  pushed the agent off the screen. The closed summary still carries the count ("6 areas · 4 high") and the
+  amber tint, so folding it hides the detail and not the signal.
 
 ```bash
 # list the tools

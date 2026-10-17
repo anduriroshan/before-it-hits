@@ -7,69 +7,77 @@ A city gets one weather warning for the whole region. But a storm hits streets, 
 Agencies already forecast well at the city scale, and their official flood maps are the ground truth here.
 
 3
-00:00:16,625 --> 00:00:26,038
-Before It Hits adds the missing layer. It turns that same public data into an answer for your own street, for anyone to ask.
-
-4
-00:00:26,238 --> 00:00:38,532
+00:00:16,625 --> 00:00:28,919
 Let's ask about Edappally, in Kochi. The moment you draw a box, it pulls the live forecast, runs a deterministic terrain engine, and writes a checked answer, not a guess.
 
-5
-00:00:38,751 --> 00:00:44,706
+4
+00:00:29,138 --> 00:00:35,093
 These blue shapes are the low spots where rainwater collects, ranked one to five.
 
-6
-00:00:44,942 --> 00:00:55,303
+5
+00:00:35,329 --> 00:00:45,690
 Watch the time bar. As the forecast rain builds hour by hour, the low spots fill in the same order the terrain would, and the roads through them go under too.
 
-7
-00:00:55,635 --> 00:01:05,224
+6
+00:00:46,022 --> 00:00:55,611
 Every number, the people, the roads, the rain each spot needs, comes from the engine. The model only puts it in plain words.
+
+7
+00:00:55,809 --> 00:01:05,222
+Before It Hits adds the missing layer. It turns that same public data into an answer for your own street, for anyone to ask.
 
 8
 00:01:05,422 --> 00:01:08,775
 Now ask it something it can't honestly answer.
 
 9
-00:01:09,375 --> 00:01:20,428
+00:01:08,975 --> 00:01:20,028
 How deep will the water get? It refuses. The terrain's own elevation error is as large as the depth would be, so it ranks risk instead of inventing a number.
 
 10
-00:01:20,634 --> 00:01:30,430
+00:01:20,234 --> 00:01:30,030
 How would this affect traffic? It says plainly it holds no traffic data, then gives what published studies found, instead of inventing a jam.
 
 11
-00:01:30,596 --> 00:01:37,994
+00:01:30,196 --> 00:01:37,594
 A verifier agent checks every reply. If a number can't be traced back to the engine, the claim is removed.
 
 12
-00:01:38,215 --> 00:01:46,668
+00:01:37,815 --> 00:01:46,268
 The same box answers for heat, wind, earthquake shaking, and air quality. Five hazards, one place to ask.
 
 13
-00:01:46,845 --> 00:01:59,638
-It doesn't wait to be asked either. A Watcher sweeps every area on a schedule, and publishes a preparation alert to Pub/Sub when a storm would fill the worst spots.
+00:01:46,469 --> 00:01:53,150
+Kochi and Singapore are staged so far. That is a limit of time, not of method.
 
 14
-00:02:00,028 --> 00:02:08,992
-Where a government publishes an official flood map, like Kochi's, we show their depths unchanged, and report how often we agree.
+00:01:53,576 --> 00:02:01,864
+All published data, named on screen. Kochi adds a state flood map, Singapore its live rain gauges.
 
 15
-00:02:09,154 --> 00:02:17,466
-It runs on Cloud Run, where Gemini only reads the question and writes the explanation. It never computes a figure.
+00:02:02,306 --> 00:02:11,270
+Where a government publishes an official flood map, like Kochi's, we show their depths unchanged, and report how often we agree.
 
 16
-00:02:17,661 --> 00:02:25,394
-The same verified answers are open to other software, through an MCP server and an A2A agent.
+00:02:11,432 --> 00:02:21,523
+It doesn't wait to be asked either. A Watcher sweeps every area on a schedule, and publishes a preparation alert to Pub/Sub
 
 17
-00:02:25,602 --> 00:02:32,046
-Six hundred ten automated checks, and ninety eight adversarial questions that come back clean.
+00:02:21,982 --> 00:02:30,294
+It runs on Cloud Run, where Gemini only reads the question and writes the explanation. It never computes a figure.
 
 18
-00:02:32,263 --> 00:02:38,356
-Every figure computed. Every figure checked. Every limit stated out loud.
+00:02:30,489 --> 00:02:38,222
+The same verified answers are open to other software, through an MCP server and an A2A agent.
 
 19
-00:02:38,532 --> 00:02:44,716
+00:02:38,430 --> 00:02:44,874
+Six hundred ten automated checks, and ninety eight adversarial questions that come back clean.
+
+20
+00:02:45,091 --> 00:02:51,184
+Every figure computed. Every figure checked. Every limit stated out loud.
+
+21
+00:02:51,360 --> 00:02:57,544
 Before It Hits. Built for the AI Builder Cup, running live, with the code and the link below.

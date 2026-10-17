@@ -101,15 +101,18 @@
 
   <!-- Preparation alerts: the Watcher's event-driven output, read back from Pub/Sub. These are
        city-wide (not tied to the drawn box), so the banner sits above the per-box tabs. It fills
-       on load from the subscription; "Check now" runs the sweep live. -->
-  <section id="alerts" class="alerts" hidden aria-label="Preparation alerts">
-    <div class="alerts-head">
+       on load from the subscription; "Check now" runs the sweep live.
+       Collapsed by default: every staged area usually raises one, and open it pushed the agent
+       off the panel. The closed summary still carries the count, so the signal is not hidden. -->
+  <details id="alerts" class="alerts" hidden aria-label="Preparation alerts">
+    <summary class="alerts-head">
       <strong class="alerts-title">Preparation alerts</strong>
-      <button type="button" id="alerts-check" class="linkbtn">Check now</button>
-    </div>
+      <span class="alerts-count" id="alerts-count"></span>
+    </summary>
     <div id="alerts-list" class="alerts-list"></div>
     <p class="muted tiny" id="alerts-foot"></p>
-  </section>
+    <button type="button" id="alerts-check" class="linkbtn">Check now</button>
+  </details>
 
   <nav class="tabs" role="tablist" aria-label="Panels">
     <button type="button" role="tab" id="tab-agent" data-tab="agent" aria-selected="true" aria-controls="pane-agent">Agent</button>

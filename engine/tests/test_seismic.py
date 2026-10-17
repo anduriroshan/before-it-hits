@@ -207,3 +207,62 @@ def test_the_design_level_is_the_datasets_own_definition_and_travels_with_the_an
         "chance_of_being_exceeded_percent": 10, "within_years": 50, "return_period_years": 475}
     # 475 years is what 10% in 50 years means: -50 / ln(0.9), rounded to the conventional figure
     assert -50 / math.log(0.9) == pytest.approx(475, abs=1)
+
+
+# ---- the map layer and the briefing are one door --------------------------------------------------
+
+GRID_MANIFEST = {"seismic": {"hazard": {"file": "pga.tif", "source": "a staged hazard map"},
+                             "ground": {"file": "vs30.tif", "source": "a staged ground map"}}}
+
+
+@pytest.fixture
+def stage_grid(tmp_path):
+    """Stage the same two rasters the exposure fixture does, and ask for the layer instead."""
+    def go(hazard, ground):
+        write_tif(tmp_path / "pga.tif", np.full((6, 6), hazard) if np.isscalar(hazard) else hazard)
+        write_tif(tmp_path / "vs30.tif", np.full((6, 6), ground) if np.isscalar(ground) else ground)
+        r = Region(tmp_path)
+        r.manifest = GRID_MANIFEST
+        return seismic.grid(r, BOX)
+    return go
+
+
+def test_the_layer_and_the_briefing_report_the_same_intensity_for_the_same_ground(stage_grid, stage):
+    layer, briefing = stage_grid(0.09, 250.0), stage(0.09, 250.0)
+    assert layer["available"] and briefing["available"]
+    # One flat hazard over one flat ground: every drawn cell must be the band the briefing reports.
+    assert {round(v) for v in layer["values"] if v is not None} == {
+        briefing["intensity_most_people_feel"]}
+
+
+def test_water_ground_is_left_blank_on_the_layer_rather_than_drawn_as_firm(stage_grid):
+    ground = np.full((6, 6), 250.0)
+    ground[:3] = seismic.WATER
+    layer = stage_grid(0.09, ground)
+    assert layer["available"]
+    assert any(v is None for v in layer["values"]), "water must not be coloured in as ground"
+
+
+def test_a_published_hazard_of_zero_is_left_blank_on_the_layer(stage_grid):
+    hazard = np.full((6, 6), 0.09)
+    hazard[:3] = 0.0
+    assert any(v is None for v in stage_grid(hazard, 250.0)["values"])
+
+
+def test_softer_ground_is_drawn_as_harder_shaking(stage_grid):
+    soft = max(v for v in stage_grid(0.09, 180.0)["values"] if v is not None)
+    firm = max(v for v in stage_grid(0.09, 600.1)["values"] if v is not None)
+    assert soft > firm
+
+
+def test_the_layer_carries_its_provenance_and_still_refuses_to_claim_damage(stage_grid):
+    layer = stage_grid(0.09, 250.0)
+    assert "a staged hazard map" in layer["source"] and "a staged ground map" in layer["source"]
+    assert "no building data is held" in layer["method"]
+    assert layer["design_level"]["within_years"] == 50
+    assert layer["scatter_in_intensity"] == seismic.SCATTER
+
+
+def test_a_city_with_nothing_staged_gets_no_layer_and_says_why(tmp_path):
+    out = seismic.grid(Region(tmp_path, staged=False), BOX)
+    assert out["available"] is False and "staged" in out["reason"]

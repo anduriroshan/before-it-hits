@@ -134,6 +134,7 @@ quality to the bundle. A whole-city question runs the engine over each preset ar
 | `GET /api/weather-grid` | the time cube for one variable, over the box or the city |
 | `GET /api/surface-heat` | the Landsat picture; places only when a box is drawn |
 | `GET /api/population-density` | the density raster, cached per area |
+| `GET /api/seismic-grid` | the design-level shaking raster, city-wide, cached per city |
 | `GET /api/news`, `POST /api/news-ask` | headlines per topic; the news chat |
 
 Start-up warmers (off with `BIH_NO_NEWS_WARM`, `BIH_NO_DENSITY_WARM`): news for each city, density for each city.
@@ -176,6 +177,7 @@ every active field gets a colour scale on the right built from the same ramp as 
 | Temperature, Humidity, Rain per hour | Weather API | as above | ✅ | animated |
 | **Wind speed** (with direction) | Weather API, speed and direction per point and hour | as above | ✅ | colour = speed; arrows + moving streaks = the way the air is going; animated by the clock |
 | People per km² | GHS-POP 2020 grid scaled to the census total | about 150 m box / 600 m city | ✅ | approximation by area; null where the grid holds nobody |
+| **Earthquake shaking** | GEM's published rock hazard amplified by USGS Vs30, read as Modified Mercalli (same pieces as the agent's answer) | city-wide only | ✅ | the published hazard grid is about 5.5 km per cell, so a drawn box would be one flat colour — the layer is always the city and says so; null over the Vs30 map's water placeholder; intensity is good to about ±0.66 |
 | Air quality | Google's own heatmap tiles | provider's | n/a | shown as published; see 03 (unverified on the live site) |
 | Traffic | Google TrafficLayer | | n/a | display only |
 

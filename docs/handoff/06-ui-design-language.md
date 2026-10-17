@@ -91,6 +91,7 @@ polish and on honesty at once. Values below are the real ones from `web/style.cs
 | Rain | `#eaf6ff, #86cff0, #2f84d4, #2a3da0, #6b2a9c` |
 | Wind | `#f2f6f5, #9ad4c2, #3f9f8c, #2a6f8f, #1b3566` |
 | People per km² | `#fff8e8, #ffd481, #fb9242, #df472a, #75102c` |
+| Earthquake shaking | `#f0f4f6, #9cd3c6, #f2e27a, #f0a44e, #d2443c` (the order USGS ShakeMap uses) |
 
 Ramps are defined once in `RAMPS` (app.js). The scale beside the map and the painted field are built from the
 same stops, so **the legend cannot drift from the picture**.

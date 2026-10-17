@@ -162,3 +162,49 @@ def exposure(region, bbox) -> dict:
         "people_with_no_hazard_value": popgrid._two_figures(float(people[populated & ~has_hazard].sum())),
         "scatter_in_intensity": SCATTER,
     }
+
+
+def grid(region, bbox: tuple) -> dict:
+    """The same shaking `exposure` reports, cell by cell, in the shape the map layer draws.
+
+    One door again: the layer and the agent read the published rock hazard, amplify it by the ground
+    under each cell and turn it into a Modified Mercalli intensity by the same two published
+    relations, so the picture and the briefing can never disagree. Null where the hazard map has no
+    value, or where the Vs30 map is carrying its water placeholder instead of ground.
+
+    Unlike the population and weather layers this does NOT follow a drawn box. The published hazard
+    grid is about 5.5 km across one cell, so most boxes sit inside a single value and would draw as
+    one flat colour; the caller passes the city's own bounds and the note says so.
+    """
+    if not available(region):
+        return {"available": False, "reason": "no seismic data is staged for this city"}
+    meta = region.manifest["seismic"]
+    w, s, e, n = (float(v) for v in bbox)
+    k = density._cells_for((w, s, e, n))
+    pga = _sample(region.root / meta["hazard"]["file"], (w, s, e, n), k, k)
+    vs = _sample(region.root / meta["ground"]["file"], (w, s, e, n), k, k)
+    ok = np.isfinite(pga) & (pga > 0) & np.isfinite(vs) & (vs != WATER)
+    if not ok.any():
+        return {"available": False,
+                "reason": "no ground here has both a published shaking level and a ground estimate"}
+    h, v = pga[ok].astype(float), vs[ok].astype(float)
+    mmi = np.full(pga.shape, np.nan)
+    mmi[ok] = intensity(h * amplification(v, h))
+    vals = mmi[ok]
+    return {
+        "available": True,
+        "rows": k, "cols": k,
+        "bbox": [w, s, e, n],
+        "cell_m": round(density._side_m((w, s, e, n)) / k),
+        "values": [round(float(x), 1) if f else None for x, f in zip(mmi.ravel(), ok.ravel())],
+        "min": round(float(vals.min()), 1),
+        "max": round(float(vals.max()), 1),
+        "p95": round(float(np.percentile(vals, 95)), 1),
+        "design_level": DESIGN_LEVEL,
+        "scatter_in_intensity": SCATTER,
+        "source": f"{meta['hazard']['source']}; ground from {meta['ground']['source']}",
+        "method": "The published shaking with a 10% chance of being exceeded in 50 years, amplified "
+                  "by the ground under each cell (Borcherdt 1994) and read as a Modified Mercalli "
+                  "intensity (Worden et al. 2012). A hazard level the ground is built for, not a "
+                  "forecast of any earthquake, and it stops at shaking: no building data is held.",
+    }

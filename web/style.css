@@ -112,10 +112,17 @@ button:hover { border-color: var(--faint); }
   border-radius: 12px; background: var(--bg); border: 1px solid var(--line);
 }
 #alerts.has-alerts { background: #fff8ef; border-color: #f0d9b5; }
-.alerts-head { display: flex; align-items: center; gap: 8px; }
+.alerts-head { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
+.alerts-head::-webkit-details-marker { display: none; }
+/* +/- rather than a caret, matching details.block elsewhere in the panel */
+.alerts-head::after { content: '+'; margin-left: auto; color: var(--muted); font-weight: 400; }
+#alerts[open] .alerts-head::after { content: '\2013'; }
 .alerts-title { font-size: 13px; }
 #alerts.has-alerts .alerts-title::before { content: "\26A0\FE0F"; margin-right: 5px; }
-.alerts-head .linkbtn { margin-left: auto; }
+/* the closed summary has to carry the signal, or collapsing it would hide the alert */
+.alerts-count { font-size: 12px; color: var(--muted); }
+#alerts.has-alerts .alerts-count { color: var(--warn); font-weight: 600; }
+#alerts > .linkbtn { margin-top: 10px; }
 .alerts-list { margin-top: 8px; display: flex; flex-direction: column; gap: 7px; }
 .alerts-list:empty { display: none; }
 .alert-row { font-size: 12.5px; line-height: 1.45; }
